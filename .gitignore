@@ -1,5 +1,6 @@
 # Data
 /data
+/vector_stores
 
 # Mac OS files
 .DS_Store
