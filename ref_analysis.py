@@ -67,7 +67,6 @@ def write_all_bibcodes_to_file():
 
 
 def main():
-
     write_all_bibcodes_to_file()
 
 
