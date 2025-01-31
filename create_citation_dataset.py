@@ -1,10 +1,9 @@
 import csv
-import json
 import os
 import pysbd
 import re
-from pprint import pprint
 from tqdm import tqdm
+from utils import load_dataset
 
 PATH_TO_DATA = 'data/processed_for_chroma/reviews'
 # FILENAMES = os.listdir(PATH_TO_DATA)
@@ -61,17 +60,6 @@ def make_samples_from_record(record: dict, segmenter: pysbd.Segmenter) -> list[d
             samples.append(
                 {'doi': record['doi'][0], 'sentence': sentence, 'bibcodes': bibcodes})
     return samples
-
-
-def load_dataset(path):
-    with open(path, 'r') as file:
-        data = json.load(file)
-
-    for record in data['metadatas']:
-        record['reference'] = json.loads(record['reference'])
-        record['doi'] = json.loads(record['doi'])
-
-    return data['metadatas']
 
 
 def main():

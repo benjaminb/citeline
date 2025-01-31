@@ -1,3 +1,7 @@
+"""
+This script will be used to analyze what references in the train/test sets exist with the datasets
+and which are missing
+"""
 import json
 import os
 import re

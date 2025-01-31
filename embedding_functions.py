@@ -66,6 +66,7 @@ def main():
     embedder = get_embedding_fn(model_name=model_name,
                                 device=DEVICE,
                                 normalize=True)
+    print(f"Got embedder: {embedder}")
 
     result = embedder(["Hello, world!", "How are you?"])
     print(len(result))
