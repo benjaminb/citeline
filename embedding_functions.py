@@ -2,7 +2,6 @@ from sentence_transformers import SentenceTransformer
 from transformers import AutoModel, AutoTokenizer
 import torch
 import numpy as np
-import chromadb
 from chromadb import Documents, EmbeddingFunction, Embeddings
 
 
@@ -11,8 +10,9 @@ DEVICE = 'cuda' if torch.cuda.is_available(
 
 
 class ChromaEmbedder(EmbeddingFunction):
-    def __init__(self, embedding_fn):
+    def __init__(self, embedding_fn, name):
         self._encode = embedding_fn
+        self.model_name = name.split('/')[-1]
 
     def __call__(self, input: Documents) -> Embeddings:
         return self._encode(input)
@@ -27,7 +27,7 @@ def sentence_transformer_embedder(model_name: str, device, normalize: False) -> 
 
     def embedding_lambda(docs): return model.encode(
         docs, convert_to_numpy=True, normalize_embeddings=normalize)
-    return ChromaEmbedder(embedding_lambda)
+    return ChromaEmbedder(embedding_lambda, model_name)
 
 
 def encoder_embedder(model_name: str, device, normalize: False) -> ChromaEmbedder:
@@ -45,7 +45,7 @@ def encoder_embedder(model_name: str, device, normalize: False) -> ChromaEmbedde
         embeddings = embeddings.detach().cpu().numpy().tolist()
         return [np.array(embedding) for embedding in embeddings]
 
-    return ChromaEmbedder(embedder)
+    return ChromaEmbedder(embedder, model_name)
 
 
 EMBEDDING_FN = {

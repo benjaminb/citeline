@@ -4,6 +4,8 @@ import uuid
 from embedding_functions import get_embedding_fn
 from utils import load_dataset
 
+METRICS = ['cosine', 'l2', 'ip']
+
 
 def parse_args():
     # Create an argument parser
