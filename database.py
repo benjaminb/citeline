@@ -20,6 +20,8 @@ def parse_args():
     parser.add_argument('--path', type=str, help='Path to the dataset')
     parser.add_argument('--model', type=str,
                         help='Name of the embedding model')
+    parser.add_argument('--metric', type=str, help="'l2', 'cosine', or 'ip'")
+    parser.add_argument('--augment-fn', type=str, help='Augmentation function')
     return parser.parse_args()
 
 
@@ -113,6 +115,11 @@ def insert_records(collection, records, embedding_fn, augmenting_fn):
         f"Added {collection.count() - count} records to collection {collection.name}")
 
 
+AUGMENTATION_FUNCTIONS = [no_augmentation, add_title,
+                          add_abstract, add_title_and_abstract]
+AUG_FN_DICT = {fn.__name__: fn for fn in AUGMENTATION_FUNCTIONS}
+
+
 def main():
     args = parse_args()
     data = load_dataset(args.path)
@@ -122,32 +129,27 @@ def main():
         device=DEVICE,
         normalize=False
     )
-    augmenting_functions = [no_augmentation, add_title,
-                            add_abstract, add_title_and_abstract]
+    metric = args.metric
+    aug_fn = AUG_FN_DICT[args.augment_fn]
 
     # Create a collection on the db
     client = chromadb.Client()
-    collections = [create_collection(client, embedding_fn, metric, aug_fn)
-                   for metric, aug_fn in itertools.product(METRICS, augmenting_functions)]
+    collection = create_collection(client, embedding_fn, metric, aug_fn)
+    insert_records(collection, data[:2], embedding_fn, aug_fn)
 
-    # for aug_fn in augmenting_functions:
-    #     sents_and_vecs = [augmented_sentence_embeddings(record, embedding_fn, aug_fn)
-    #                       for record in data[:2]]
-    #     for metric in METRICS:
-    #         collection = create_collection(
-    #             client, embedding_fn, metric, aug_fn)
-    #         insert_records(collection, data[:2], embedding_fn, aug_fn)
-    # Iterate over the dataset
-    for collection in collections:
-        aug_fn_name = collection.name.split("__")[-1]
-        print(
-            f"Working on collection {collection.name}...")
-        # Get the index of the function in augementing_functions whose name matches aug_fn_name
-        function_names = [fn.__name__ for fn in augmenting_functions]
-        aug_fn = augmenting_functions[function_names.index(aug_fn_name)]
-        print(f"Resolved augmenting function: {aug_fn_name} and ref {aug_fn}")
+    # collections = [create_collection(client, embedding_fn, metric, aug_fn)
+    #                for metric, aug_fn in itertools.product(METRICS, augmenting_functions)]
 
-        insert_records(collection, data[:2], embedding_fn, aug_fn)
+    # for collection in collections:
+    #     aug_fn_name = collection.name.split("__")[-1]
+    #     print(
+    #         f"Working on collection {collection.name}...")
+    #     # Get the index of the function in augementing_functions whose name matches aug_fn_name
+    #     function_names = [fn.__name__ for fn in augmenting_functions]
+    #     aug_fn = augmenting_functions[function_names.index(aug_fn_name)]
+    #     print(f"Resolved augmenting function: {aug_fn_name} and ref {aug_fn}")
+
+    #     insert_records(collection, data[:2], embedding_fn, aug_fn)
 
 
 if __name__ == "__main__":
