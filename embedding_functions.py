@@ -50,7 +50,8 @@ def encoder_embedder(model_name: str, device, normalize: False) -> ChromaEmbedde
 
 EMBEDDING_FN = {
     "BAAI/bge-small-en": sentence_transformer_embedder,
-    "bert-base-uncased": encoder_embedder
+    "bert-base-uncased": encoder_embedder,
+    "nvidia/NV-Embed-v2": sentence_transformer_embedder
 }
 
 
