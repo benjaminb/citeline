@@ -1,12 +1,15 @@
 import json
 
+REQUIRED_KEYS = {'title', 'body', 'abstract', 'doi', 'reference', 'bibcode'}
+
 
 def load_dataset(path):
     with open(path, 'r') as file:
         data = json.load(file)
 
-    for record in data['metadatas']:
-        record['reference'] = json.loads(record['reference'])
-        record['doi'] = json.loads(record['doi'])
+    total_records = len(data)
+    data = [d for d in data if REQUIRED_KEYS.issubset(d.keys())]
+    complete_records = len(data)
+    print(f"{path}: {complete_records}/{total_records} have all required keys")
 
-    return data['metadatas']
+    return data
