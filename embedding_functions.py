@@ -43,7 +43,8 @@ def encoder_embedder(model_name: str, device, normalize: False) -> ChromaEmbedde
             embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
         # Convert to list of numpy arrays (for compatibility with Chroma)
         embeddings = embeddings.detach().cpu().numpy().tolist()
-        return [np.array(embedding) for embedding in embeddings]
+        return np.array(embeddings)
+        # return [np.array(embedding) for embedding in embeddings]
 
     return ChromaEmbedder(embedder, model_name)
 

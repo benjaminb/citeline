@@ -6,12 +6,15 @@ import uuid
 from tqdm import tqdm
 from embedding_functions import get_embedding_fn
 from utils import load_dataset
+from semantic_text_splitter import TextSplitter
 from sentence_validators import length_at_least_40
 
 SEG = pysbd.Segmenter(language="en", clean=False)
 METRICS = ['cosine', 'l2', 'ip']
 DEVICE = 'cuda' if torch.cuda.is_available(
 ) else 'mps' if torch.mps.is_available() else 'cpu'
+MAX_CHUNK_SIZE = 1500
+CHUNK_OVERLAP = 150
 
 
 def parse_args():
@@ -33,15 +36,13 @@ def parse_args():
         "--model", type=str, required=True, help="Name of the embedding model")
     create_parser.add_argument("--metric", type=str, required=True,
                                choices=["l2", "cosine", "ip"], help="'l2', 'cosine', or 'ip'")
-    create_parser.add_argument(
-        "--augment-fn", type=str, required=True, help="Augmentation function")
 
     insert_parser = subparsers.add_parser(
         "insert-records", help="Insert records into a collection")
     insert_parser.add_argument(
-        "--into", type=str, required=True, help="Name of the collection")
+        "--source", type=str, required=True, help="Path to the dataset")
     insert_parser.add_argument(
-        "--path", type=str, required=True, help="Path to the dataset")
+        "--into", type=str, required=True, help="Name of the collection")
 
     list_parser = subparsers.add_parser(
         "list-collections", help="List all collections")
@@ -101,11 +102,25 @@ def no_augmentation(record, sentences):
     return sentences
 
 
-def create_collection(client, embedding_fn, metric, augmenting_fn):
+# def create_collection(client, embedding_fn, metric, augmenting_fn):
+#     # Set up collection name
+#     model_name = embedding_fn.model_name
+#     aug_fn = augmenting_fn.__name__
+#     collection_name = f"test-{model_name}__{metric}__{aug_fn}"
+
+#     # Create collection
+#     print(f"Creating collection: {collection_name}...", end="")
+#     collection = client.create_collection(
+#         name=collection_name,
+#         embedding_function=embedding_fn,
+#         metadata={"hnsw:space": metric})
+#     print("created.")
+#     return collection
+
+def create_collection(client, embedding_fn, metric):
     # Set up collection name
     model_name = embedding_fn.model_name
-    aug_fn = augmenting_fn.__name__
-    collection_name = f"test-{model_name}__{metric}__{aug_fn}"
+    collection_name = f"test-{model_name}__{metric}"
 
     # Create collection
     print(f"Creating collection: {collection_name}...", end="")
@@ -126,8 +141,10 @@ def get_expected_parameters_from_collection_name(collection_name):
     # TODO: fix this for the real runs when 'test-' won't prepend each collection name
     model_name = parts[0][5:]
     metric = parts[1]
-    augmenting_fn_name = parts[2]
-    return model_name, metric, augmenting_fn_name
+    # TODO: remove old code re augmentic function
+    # augmenting_fn_name = parts[2]
+    # return model_name, metric, augmenting_fn_name
+    return model_name, metric
 
 
 def delete_collection(client, collection_name):
@@ -138,24 +155,36 @@ def delete_collection(client, collection_name):
         print(f"Failed to delete collection {collection_name}: {e}")
 
 
-def insert_records(collection, records, embedding_fn, augmenting_fn):
+def insert_records(collection, records, embedding_fn):
+    splitter = TextSplitter(capacity=MAX_CHUNK_SIZE, overlap=CHUNK_OVERLAP)
     count = collection.count()
+
+    def make_full_text(record):
+        return record['title'] + '\n\nABSTRACT:\n' + record['abstract'] + '\n\n' + record['body']
 
     # Insert records
     for record in tqdm(records):
-        sentences, vectors = augmented_sentence_embeddings(
-            record, embedding_fn, augmenting_fn, length_at_least_40)
-        ids = [str(uuid.uuid4()) for _ in sentences]
-        doi = record['doi'][0]
+        chunks = splitter.chunks(make_full_text(record))
+
+        # Batch the chunks into groups of 16
+        batch_size = 16
+        vectors = []
+        for i in tqdm(range(0, 1 + len(chunks) // batch_size), desc="Processing chunks", leave=False):
+            batch_chunks = chunks[i*batch_size:(i+1)*batch_size]
+            vectors.extend(embedding_fn(batch_chunks))
+
+        # Create metadata: each chunk comes from the same paper with this DOI
+        metas = [{'doi': record['doi'][0]}] * len(chunks)
+        ids = [str(uuid.uuid4()) for _ in chunks]
         collection.add(
-            documents=sentences,
-            metadatas=[{'doi': doi}] * len(sentences),
+            documents=chunks,
+            metadatas=metas,
             embeddings=vectors,
             ids=ids
         )
 
     print(
-        f"Added {collection.count() - count} records to collection {collection.name}")
+        f"Added {collection.count() - count} chunks to collection {collection.name}")
 
 
 def query_database(client: chromadb.Client, collection_name: str, queries: list[str], n_results: int, include: list[str]):
@@ -215,16 +244,14 @@ def main():
             normalize=False
         )
         metric = args.metric
-        aug_fn = AUG_FN_DICT[args.augment_fn]
 
         # Create a collection on the db
-        collection = create_collection(client, embedding_fn, metric, aug_fn)
+        collection = create_collection(client, embedding_fn, metric)
         return
 
     if args.command == "insert-records":
-        # Resolve collection, model, metric, and augmenting function references
         collection = client.get_collection(args.into)
-        model_name, metric, augmenting_fn_name = get_expected_parameters_from_collection_name(
+        model_name, metric = get_expected_parameters_from_collection_name(
             collection.name)
 
         if model_name == 'NV-Embed-v2' and DEVICE == 'mps':
@@ -239,10 +266,9 @@ def main():
             device=device,
             normalize=False
         )
-        aug_fn = AUG_FN_DICT[augmenting_fn_name]
 
-        data = load_dataset(args.path)
-        insert_records(collection, data[:2], embedding_fn, aug_fn)
+        data = load_dataset(args.source)
+        insert_records(collection, data[:2], embedding_fn)
         return
 
 

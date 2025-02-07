@@ -12,4 +12,7 @@ def load_dataset(path):
     complete_records = len(data)
     print(f"{path}: {complete_records}/{total_records} have all required keys")
 
+    for record in data:
+        record['title'] = ': '.join(record['title'])
+
     return data
