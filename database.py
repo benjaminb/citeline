@@ -102,21 +102,6 @@ def no_augmentation(record, sentences):
     return sentences
 
 
-# def create_collection(client, embedding_fn, metric, augmenting_fn):
-#     # Set up collection name
-#     model_name = embedding_fn.model_name
-#     aug_fn = augmenting_fn.__name__
-#     collection_name = f"test-{model_name}__{metric}__{aug_fn}"
-
-#     # Create collection
-#     print(f"Creating collection: {collection_name}...", end="")
-#     collection = client.create_collection(
-#         name=collection_name,
-#         embedding_function=embedding_fn,
-#         metadata={"hnsw:space": metric})
-#     print("created.")
-#     return collection
-
 def create_collection(client, embedding_fn, metric):
     # Set up collection name
     model_name = embedding_fn.model_name
@@ -141,9 +126,6 @@ def get_expected_parameters_from_collection_name(collection_name):
     # TODO: fix this for the real runs when 'test-' won't prepend each collection name
     model_name = parts[0][5:]
     metric = parts[1]
-    # TODO: remove old code re augmentic function
-    # augmenting_fn_name = parts[2]
-    # return model_name, metric, augmenting_fn_name
     return model_name, metric
 
 
@@ -169,8 +151,8 @@ def insert_records(collection, records, embedding_fn):
         # Batch the chunks into groups of 16
         batch_size = 16
         vectors = []
-        for i in tqdm(range(0, 1 + len(chunks) // batch_size), desc="Processing chunks", leave=False):
-            batch_chunks = chunks[i*batch_size:(i+1)*batch_size]
+        for i in tqdm(range(0, len(chunks), batch_size), desc="Processing chunks", leave=False):
+            batch_chunks = chunks[i:i+batch_size]
             vectors.extend(embedding_fn(batch_chunks))
 
         # Create metadata: each chunk comes from the same paper with this DOI
@@ -268,7 +250,7 @@ def main():
         )
 
         data = load_dataset(args.source)
-        insert_records(collection, data[:2], embedding_fn)
+        insert_records(collection, data, embedding_fn)
         return
 
 
