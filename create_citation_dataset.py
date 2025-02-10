@@ -87,7 +87,6 @@ def sentence_to_example(record, sentence, all_records):
 
 
 def create_examples_from_record(record, all_records):
-    # splitter = pysbd.Segmenter(language="en", clean=False)
     # TODO: come up with a better filter for sentences than just length?
     sentences = [s for s in tqdm(SEG.segment(record['body']), desc=f'Segmenting {record["title"]}...', leave=False)
                  if len(s) > 40]
