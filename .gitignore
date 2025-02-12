@@ -5,6 +5,8 @@
 # Mac OS files
 .DS_Store
 
+# Plain text files
+*.txt
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

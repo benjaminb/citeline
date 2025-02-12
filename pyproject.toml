@@ -1,0 +1,11 @@
+[project]
+name = "citeline"
+version = "0.1.0"
+description = "Citation prediction system"
+authors = ["Benjamin Basseri <bbasseri@fas.harvard.edu>"]
+dependencies = []
+
+[tool.pytest.ini_options]
+pythonpath = [
+  "."
+]

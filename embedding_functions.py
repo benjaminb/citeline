@@ -27,7 +27,9 @@ def sentence_transformer_embedder(model_name: str, device, normalize: False) -> 
 
     def embedding_lambda(docs): return model.encode(
         docs, convert_to_numpy=True, normalize_embeddings=normalize)
-    return ChromaEmbedder(embedding_lambda, model_name)
+
+    return embedding_lambda
+    # return ChromaEmbedder(embedding_lambda, model_name)
 
 
 def encoder_embedder(model_name: str, device, normalize: False) -> ChromaEmbedder:
@@ -45,8 +47,9 @@ def encoder_embedder(model_name: str, device, normalize: False) -> ChromaEmbedde
         embeddings = embeddings.detach().cpu().numpy().tolist()
         return np.array(embeddings)
         # return [np.array(embedding) for embedding in embeddings]
+    return embedder
 
-    return ChromaEmbedder(embedder, model_name)
+    # return ChromaEmbedder(embedder, model_name)
 
 
 EMBEDDING_FN = {
@@ -65,9 +68,13 @@ def get_embedding_fn(model_name: str, device, normalize: False) -> ChromaEmbedde
 
 def main():
     model_name = "bert-base-uncased"
-    embedder = get_embedding_fn(model_name=model_name,
-                                device=DEVICE,
-                                normalize=True)
+    embedding_fn = get_embedding_fn(model_name=model_name,
+                                    device=DEVICE,
+                                    normalize=True)
+    embedder = ChromaEmbedder(embedding_fn, model_name)
+    # embedder = get_embedding_fn(model_name=model_name,
+    #                             device=DEVICE,
+    #                             normalize=True)
     print(f"Got embedder: {embedder}")
 
     result = embedder(["Hello, world!", "How are you?"])
