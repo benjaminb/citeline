@@ -19,15 +19,10 @@ class ChromaEmbedder(EmbeddingFunction):
 
 
 def sentence_transformer_embedder(model_name: str, device, normalize: False) -> ChromaEmbedder:
-    """
-
-    """
     model = SentenceTransformer(
         model_name, trust_remote_code=True, device=device)
-
     def embedding_lambda(docs): return model.encode(
         docs, convert_to_numpy=True, normalize_embeddings=normalize)
-
     return embedding_lambda
     # return ChromaEmbedder(embedding_lambda, model_name)
 
@@ -41,10 +36,14 @@ def encoder_embedder(model_name: str, device, normalize: False) -> ChromaEmbedde
                            padding=True, truncation=True).to(device)
         outputs = model(**inputs)
         embeddings = outputs.last_hidden_state[:, 0, :]
+
         if normalize:
             embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
         # Convert to list of numpy arrays (for compatibility with Chroma)
-        embeddings = embeddings.detach().cpu().numpy().tolist()
+        # embeddings = embeddings.detach().cpu().numpy().tolist()
+        embeddings = embeddings.detach().cpu().numpy()
+
+        # TODO: was originally float64, is it bad to change it?
         return np.array(embeddings)
         # return [np.array(embedding) for embedding in embeddings]
     return embedder
