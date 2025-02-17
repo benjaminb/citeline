@@ -59,3 +59,9 @@ def sentence_to_example(record, sentence, all_records):
         'sentence': sentence,
         'citation_dois': citation_dois
     }
+
+
+def examples_from_record(record, all_records):
+    return [
+        example for sentence in record['body_sentences'] if (example := sentence_to_example(record, sentence, all_records))
+    ]
