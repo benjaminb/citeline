@@ -1,5 +1,11 @@
+import json
+import os
 import re
+from tqdm import tqdm
 from parsing import get_inline_citations
+from utils import load_dataset
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from functools import partial
 
 
 def bibcode_regex(author: str, year: str):
@@ -65,3 +71,44 @@ def examples_from_record(record, all_records):
     return [
         example for sentence in record['body_sentences'] if (example := sentence_to_example(record, sentence, all_records))
     ]
+
+
+def get_all_records(paths: list[str]) -> list[dict]:
+    """
+    `all_records` used in examples_from_record reall only needs the bibcode and doi keys, so
+    here we filter out all other keys to keep memory demand low
+    """
+    return [
+        {'doi': record['doi'], 'bibcode': record['bibcode']}
+        for path in paths
+        for record in load_dataset('data/json/' + path)
+    ]
+
+
+def main():
+    all_records = get_all_records(
+        [f for f in os.listdir('data/json/') if f.endswith('.json')])
+
+    # Bind all_records to examples_from_record, since executor.submit doesn't allow for multiple args
+    get_examples_fn = partial(examples_from_record, all_records=all_records)
+
+    for dataset in ['Astro_Reviews.json', 'Earth_Science_Reviews.json', 'Planetary_Reviews.json']:
+        print(f"Processing {dataset}...")
+        records = load_dataset('data/processed/' + dataset)
+
+        with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
+            futures = [executor.submit(get_examples_fn, record)
+                       for record in records]
+            for future in tqdm(as_completed(futures), total=len(futures)):
+                examples = future.result()
+
+                # Write out examples to jsonl
+                for example in examples:
+                    destination = 'data/dataset/nontrivial.jsonl' if len(
+                        example['citation_dois']) > 0 else 'data/dataset/trivial.jsonl'
+                    with open(destination, 'a') as f:
+                        f.write(json.dumps(example) + '\n')
+
+
+if __name__ == "__main__":
+    main()

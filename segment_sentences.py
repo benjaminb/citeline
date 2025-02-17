@@ -37,14 +37,11 @@ def process_record(record):
 
 
 def main():
-    # Load a dataset
     for dataset in ['Astro_Reviews.json', 'Earth_Science_Reviews.json', 'Planetary_Reviews.json']:
         print(f"Processing {dataset}...")
         records = load_dataset('data/json/' + dataset)
-        records = records[:100]
 
-        # with open('data/sentence_segmented/' + dataset, 'w') as f:
-        with open('data/testing.json', 'w') as f:
+        with open('data/processed/' + dataset, 'w') as f:
             f.write('[')  # Start the JSON array
             with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
                 futures = [executor.submit(process_record, record)

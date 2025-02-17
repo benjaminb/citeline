@@ -1,4 +1,5 @@
 import json
+import requests
 from tqdm import tqdm
 
 REQUIRED_KEYS = {'title', 'body', 'abstract', 'doi', 'reference', 'bibcode'}
@@ -17,6 +18,19 @@ def load_dataset(path):
         record['title'] = ': '.join(record['title'])
 
     return data
+
+
+def ask_ollama(prompt):
+    url = "http://localhost:11434/api/generate"
+    payload = {
+        "model": "deepseek-r1",
+        "prompt": prompt,
+        "stream": False
+    }
+
+    response = requests.post(url, json=payload)
+    result = response.json()
+    return result['response']
 
 
 def write_incomplete_data(path, outfile):
