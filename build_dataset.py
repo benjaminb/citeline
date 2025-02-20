@@ -2,10 +2,13 @@ import json
 import os
 import re
 from tqdm import tqdm
-from parsing import get_inline_citations
+from parsing import get_inline_citations, INLINE_CITATION_REGEX
 from utils import load_dataset
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
+
+REVIEW_JOURNAL_BIBCODES = {'RvGeo', 'SSRv.', 'LRSP.',
+                           'NewAR', 'ESRv.', 'NRvEE', 'P&SS.', 'ARA&A', 'A&ARv'}
 
 
 def bibcode_regex(author: str, year: str):
@@ -28,10 +31,13 @@ def bibcode_matches(inline_citation: tuple[str, str], references: list[str]) -> 
     return [s for s in references if pattern.match(s)]
 
 
-def sentence_to_example(record, sentence, all_records):
+def sentence_to_example(record, sentence, index, all_records):
     """
     Takes all the inline citations of a sentence and if it can resolve them to dois
-    then it returns the """
+    then it returns the 
+    """
+    # print(f"Working on sentence {index} of {record['doi'][0]}")
+
     def citation_to_doi(citation):
         """
         Takes a single inline citation as tuple of (author, year) and determines if there is a unique
@@ -42,34 +48,42 @@ def sentence_to_example(record, sentence, all_records):
         if len(bibcodes) != 1:
             return None
 
-        # Take the bibcode and look for a unique corresponding doi
+        # Take the bibcode and look for a unique corresponding doi AND that the citation isn't to a review journal
         matching_dois = [record['doi'][0]
-                         for record in all_records if record['bibcode'] == bibcodes[0]]
+                         for record in all_records if record['bibcode'] == bibcodes[0]
+                         and record['bibcode'][4:9] not in REVIEW_JOURNAL_BIBCODES]
         if len(matching_dois) != 1:
             return None
         return matching_dois[0]
 
     inline_citations = get_inline_citations(sentence)
+
+    # if not (inline_citations := get_inline_citations(sentence)):
+    #     return 0
     citation_dois = []
     for citation in inline_citations:
         if not (doi := citation_to_doi(citation)):
-            break
+            return None
         citation_dois.append(doi)
 
     # If all citations resolved to dois, return the example
     # TODO: is this too strict?
-    if len(inline_citations) != len(citation_dois):
-        return None
+    # if len(inline_citations) != len(citation_dois): # this is already accounted for in the loop above?
+    #     return -1
     return {
         'source_doi': record['doi'][0],
-        'sentence': sentence,
+        'sent_original': sentence,
+        'sent_no_cit': re.sub(INLINE_CITATION_REGEX, '', sentence),
+        'sent_idx': index,
         'citation_dois': citation_dois
     }
 
 
 def examples_from_record(record, all_records):
     return [
-        example for sentence in record['body_sentences'] if (example := sentence_to_example(record, sentence, all_records))
+        example
+        for i, sentence in enumerate(record['body_sentences'])
+        if (example := sentence_to_example(record, sentence, i, all_records))
     ]
 
 
@@ -94,7 +108,7 @@ def main():
 
     for dataset in ['Astro_Reviews.json', 'Earth_Science_Reviews.json', 'Planetary_Reviews.json']:
         print(f"Processing {dataset}...")
-        records = load_dataset('data/processed/' + dataset)
+        records = load_dataset('data/sentence_segmented_and_merged/' + dataset)
 
         with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
             futures = [executor.submit(get_examples_fn, record)
@@ -104,8 +118,11 @@ def main():
 
                 # Write out examples to jsonl
                 for example in examples:
-                    destination = 'data/dataset/nontrivial.jsonl' if len(
-                        example['citation_dois']) > 0 else 'data/dataset/trivial.jsonl'
+                    # Not all citations resolved
+                    if example is None:
+                        continue
+                    destination = 'data/dataset/no_reviews/nontrivial.jsonl' if len(
+                        example['citation_dois']) > 0 else 'data/dataset/no_reviews/trivial.jsonl'
                     with open(destination, 'a') as f:
                         f.write(json.dumps(example) + '\n')
 

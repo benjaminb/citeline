@@ -2,15 +2,23 @@ import pysbd
 import re
 
 # Regex for inline citations
+# lastname = r"[A-Z][a-zA-ZÀ-ÖØ-öø-ÿ-]*(?:'[A-Z][a-zA-ZÀ-ÖØ-öø-ÿ-]*)?"
+# year = r"\(?(\s?\d{4}[a-z]?)\s?\)?"
+# name_sep = r"(?:,?\s?| and )"
+# INLINE_CITATION_REGEX = re.compile(
+#     fr"({lastname}(?:{name_sep}{lastname})*(?: et al.?\s?)?),?\s*{year}")
 lastname = r"[A-Z][a-zA-ZÀ-ÖØ-öø-ÿ-]*(?:'[A-Z][a-zA-ZÀ-ÖØ-öø-ÿ-]*)?"
-year = r"\(?(\d{4}[a-z]?)\)?"
-name_sep = r",?\s"
+# year = r"\(?(\s?\d{4}[a-z]?)\s?\)?"
+year = r"\(?\s?(\d{4}[a-z]?)\s?\)?"
+name_sep = r",?\s| and | & "
 INLINE_CITATION_REGEX = re.compile(
-    fr"({lastname}(?:{name_sep}{lastname})*(?: et al.?)?)\s*{year}")
+    fr"({lastname}(?:{name_sep}{lastname})*(?: et al.?\s?)?),?\s*{year}")
 
 
 def get_inline_citations(text: str) -> list[tuple[str, str]]:
-    return [match.groups() for match in INLINE_CITATION_REGEX.finditer(text)]
+    matches = [match.groups()
+               for match in INLINE_CITATION_REGEX.finditer(text)]
+    return [(author, year.strip()) for author, year in matches]
 
 
 def segment_sentences(text: str) -> list[str]:

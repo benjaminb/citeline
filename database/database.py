@@ -17,6 +17,12 @@ from utils import load_dataset
 from embedding_functions import get_embedding_fn 
 # fmt: on
 
+PGVECTOR_DISTANCE_METRICS = {
+    'vector_l2_ops': '<->',
+    'vector_ip_ops': '<#>',
+    'vector_cosine_ops': '<=>',
+}
+
 
 class DatabaseProcessor:
     def __init__(self, db_params):
@@ -65,11 +71,15 @@ class DatabaseProcessor:
             for future in tqdm(as_completed(futures), total=len(futures), desc="Inserting chunks"):
                 future.result()  # This will raise any exceptions caught during processing
 
-    def vectorize_chunk(self, text: str, embedder):
-        return embedder([text])
-
     def create_vector_table(self, name, dim, embedder):
-        # self.embedder = embedder
+        """
+        1. Creates a vector table 
+        2. Creates indexes for all distance metrics
+        3. Batch embeds all records in the `chunks` table using the given embedder
+
+        available distance metrics:
+        vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
+        """
         conn = psycopg2.connect(**self.db_params)
         register_vector(conn)
         cursor = conn.cursor()
@@ -83,18 +93,17 @@ class DatabaseProcessor:
         conn.commit()
         print(f"Created table {name}")
 
-        # TODO: parameterize the distance function?
-        '''
-        available distance metrics:
-        vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
-        '''
-        # Create index
-        cursor.execute(
-            f"CREATE INDEX ON {name} USING hnsw (embedding vector_cosine_ops)")
+        # Create indexes
+        for metric in PGVECTOR_DISTANCE_METRICS:
+            cursor.execute(
+                f"CREATE INDEX ON {name} USING hnsw (embedding {metric})")
+        conn.commit()
 
+        # Get all chunks for embedding
         ids_and_chunks = self._get_all_chunks(cursor)
         print(f"Embedding {len(ids_and_chunks)} chunks...")
 
+        # Embed an insert in batches
         batch_size = 16
         num_batches = len(ids_and_chunks) // batch_size
         for i in tqdm(range(num_batches), desc="Inserting embeddings", leave=False):
@@ -114,7 +123,37 @@ class DatabaseProcessor:
     def _get_all_chunks(self, cursor, columns: list[str] = ['id', 'text']) -> list[dict]:
         cursor.execute(f"SELECT id, text FROM chunks;")
         return cursor.fetchall()
-        # return [{'id': result[0], 'text': result[1]} for result in results]
+
+    def query_vector_table(self, table_name, query_vector, metric, top_k=5):
+        """
+        table_name: name of the vector table
+        query_vector: the vector to query
+        metric: a key in PGVECTOR_DISTANCE_METRICS to resolve the distance operator
+        top_k: number of results to return
+
+        """
+
+        # Resolve the distance operator
+        assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
+        operator = PGVECTOR_DISTANCE_METRICS[metric]
+
+
+        conn = psycopg2.connect(**self.db_params)
+        register_vector(conn)
+        cursor = conn.cursor()
+        cursor.execute(
+            f"""
+            SELECT {table_name}.chunk_id, chunks.text, {table_name}.embedding {operator} %s AS distance 
+            FROM {table_name} 
+            JOIN chunks ON {table_name}.chunk_id = chunks.id
+            ORDER BY embedding {operator} %s DESC 
+            LIMIT %s;
+            """,
+            (query_vector, query_vector, top_k)
+        )
+        results = cursor.fetchall()
+        cursor.close()
+        return results
 
     def test_connection(self):
         conn = psycopg2.connect(**self.db_params)
@@ -147,18 +186,15 @@ def main():
     embedder = get_embedding_fn(
         'BAAI/bge-small-en', processor.device, normalize=False)
 
-    # conn = psycopg2.connect(**db_params)
-    # cursor = conn.cursor()
     start = time()
-    # res = processor._get_all_chunks(cursor)
-    # print(f"Result: {len(res)}")
-    # print(f"First result: {res[0]}")
-    # processor.chunk_and_insert_records('../data/json/Astro_Research.json')
-    chunks = processor.create_vector_table(
-        'test_bge', 384, embedder=embedder)
-    end = time() - start
 
-    print(f"Time taken: {end} seconds")
+    # results = processor.query_vector_table('test_bge', vector)
+
+    processor.create_vector_table(
+        'test_bge',
+        dim=384,
+        embedder=embedder)
+    end = time() - start
 
 
 if __name__ == '__main__':
