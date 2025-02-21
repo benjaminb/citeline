@@ -42,9 +42,14 @@ Write out results to file
 """
 import argparse
 import os
+import torch
 import yaml
+import pandas as pd
 from dotenv import load_dotenv
+from time import time
 from database.database import DatabaseProcessor
+from embedding_functions import get_embedding_fn
+
 
 def argument_parser():
     # Set up argument parser
@@ -56,15 +61,40 @@ def argument_parser():
     return parser.parse_args()
 
 
-def main():
-    args = argument_parser()
-    
-    # Load YAML file
-    with open(args.config, 'r') as file:
-        config = yaml.safe_load(file)
+def read_jsonl(file_path):
+    return pd.read_json(file_path, lines=True)
 
+
+def train_test_split(trivial_proportion=1.0, split=0.8):
+    nontrivial_examples = read_jsonl(
+        'data/dataset/no_reviews/nontrivial.jsonl')
+    trivial_examples = read_jsonl('data/dataset/no_reviews/trivial.jsonl')
+
+    # Select a proportion of trivial examples to use
+    num_trivial_to_sample = min(len(trivial_examples), int(
+        len(nontrivial_examples) * trivial_proportion))
+    trivial_examples = trivial_examples.sample(
+        num_trivial_to_sample, random_state=42)
+
+    # Select 80% of nontrivial examples for training
+    nontrivial_train = nontrivial_examples.sample(frac=split, random_state=42)
+    nontrivial_test = nontrivial_examples.drop(nontrivial_train.index)
+
+    # Select 80% of trivial examples for training
+    trivial_train = trivial_examples.sample(frac=split, random_state=42)
+    trivial_test = trivial_examples.drop(trivial_train.index)
+
+    print(
+        f"Selected {len(nontrivial_train)} nontrivial examples for training out of {len(nontrivial_examples)}")
+    print(
+        f"Selected {len(trivial_train)} trivial examples for training out of {len(trivial_examples)}")
+
+    return nontrivial_train, nontrivial_test, trivial_train, trivial_test
+
+
+def get_db_params(config):
     load_dotenv()
-    db_params = {
+    return {
         'dbname': config['database'],
         'user': os.getenv('DB_USER'),
         'password': os.getenv('DB_PASSWORD'),
@@ -72,8 +102,86 @@ def main():
         'port': os.getenv('DB_PORT')
     }
 
-    processor = DatabaseProcessor(db_params)
+
+def evaluate_prediction(example, results):
+    unique_predicted_dois = set(result.doi for result in results)
+    citation_dois = set(doi for doi in example['citation_dois'])
+    score = jaccard_similarity(unique_predicted_dois, citation_dois)
+    return score
+
+
+def jaccard_similarity(set1, set2):
+    intersection = len(set1.intersection(set2))
+    union = len(set1.union(set2))
+    return intersection / union
+
+
+def main():
+    args = argument_parser()
+    device = 'cuda' if torch.cuda.is_available(
+    ) else 'mps' if torch.mps.is_available() else 'cpu'
+    print(f"Using device: {device}")
+
+    with open(args.config, 'r') as config_file:
+        config = yaml.safe_load(config_file)
+    processor = DatabaseProcessor(get_db_params(config))
     processor.test_connection()
+
+    nontrivial_train, nontrivial_test, trivial_train, trivial_test = train_test_split()
+    """
+    NOTE: nontrivial_train.index.tolist() will give the line numbers of the original example
+    so we can look up the original sentence, etc.
+    """
+
+    embedder = get_embedding_fn(
+        model_name=config['embedder'],
+        device=device,
+        normalize=config['normalize']
+    )
+
+    nontrivial_jaccard_scores, trivial_jaccard_scores = [], []
+
+    batch_size = 16
+    # # Iterate over nontrivial examples in batches
+    num_batches = len(nontrivial_train) // batch_size
+    start_time = time()
+    for i in range(4):
+        start, end = i * batch_size, (i + 1) * batch_size
+        batch = nontrivial_train.iloc[start:end]
+        sentences = batch['sent_no_cit'].tolist()
+
+        # enrich the sentence
+
+        # embed the enriched sentence
+        embeddings = embedder(sentences)
+        for (idx, row), embedding in zip(batch.iterrows(), embeddings):
+            example = row.to_dict()
+            results = processor.query_vector_table(
+                config['table'],
+                embedding,
+                metric=config['metric'],
+                top_k=5)
+
+            # unique_predicted_dois = set(result.doi for result in results)
+            # citation_dois = set(doi for doi in example['citation_dois'])
+            score = evaluate_prediction(example, results)
+            nontrivial_jaccard_scores.append(score)
+
+    # for i in range(64):
+    #     embedding = embedder([nontrivial_train.iloc[i]['sent_no_cit']])
+    #     results = processor.query_vector_table(
+    #         config['table'],
+    #         embedding[0],
+    #         metric=config['metric'],
+    #         top_k=5)
+    #     score = evaluate_prediction(nontrivial_train.iloc[i], results)
+    #     nontrivial_jaccard_scores.append(score)
+    total_time = time() - start_time
+    print(
+        f"Average score: {sum(nontrivial_jaccard_scores) / len(nontrivial_jaccard_scores)}")
+    print(f"Total time: {total_time}")
+
+    # log trivial and nontrivial examples separately
 
 
 if __name__ == "__main__":

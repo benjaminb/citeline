@@ -3,6 +3,7 @@ import psycopg2
 from psycopg2.extras import execute_values
 import sys
 import torch
+from collections import namedtuple, defaultdict
 from dotenv import load_dotenv
 from pgvector.psycopg2 import register_vector
 from semantic_text_splitter import TextSplitter
@@ -137,13 +138,12 @@ class DatabaseProcessor:
         assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
         operator = PGVECTOR_DISTANCE_METRICS[metric]
 
-
         conn = psycopg2.connect(**self.db_params)
         register_vector(conn)
         cursor = conn.cursor()
         cursor.execute(
             f"""
-            SELECT {table_name}.chunk_id, chunks.text, {table_name}.embedding {operator} %s AS distance 
+            SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance 
             FROM {table_name} 
             JOIN chunks ON {table_name}.chunk_id = chunks.id
             ORDER BY embedding {operator} %s DESC 
@@ -153,7 +153,11 @@ class DatabaseProcessor:
         )
         results = cursor.fetchall()
         cursor.close()
-        return results
+
+        # Define the named tuple
+        QueryResult = namedtuple(
+            'QueryResult', ['chunk_id', 'doi', 'text', 'distance'])
+        return [QueryResult(*result) for result in results]
 
     def test_connection(self):
         conn = psycopg2.connect(**self.db_params)
