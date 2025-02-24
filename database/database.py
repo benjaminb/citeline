@@ -1,3 +1,5 @@
+from sentence_transformers import SentenceTransformer
+import argparse
 import os
 import psycopg2
 from psycopg2.extras import execute_values
@@ -14,7 +16,7 @@ from time import time
 # Add the parent directory to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # fmt: off
-from utils import load_dataset
+from preprocessing import load_dataset
 from embedding_functions import get_embedding_fn 
 # fmt: on
 
@@ -23,6 +25,63 @@ PGVECTOR_DISTANCE_METRICS = {
     'vector_ip_ops': '<#>',
     'vector_cosine_ops': '<=>',
 }
+
+# TODO: if this speeds up execution, move it to embedding_functions.py
+
+
+class SentenceTransformerEmbedder:
+    def __init__(self, model_name: str, device, normalize: bool):
+        self.model = SentenceTransformer(
+            model_name, trust_remote_code=True, device=device)
+        self.normalize = normalize
+
+    def __call__(self, docs):
+        return self.model.encode(
+            docs, convert_to_numpy=True, normalize_embeddings=self.normalize)
+
+
+def argument_parser():
+    parser = argparse.ArgumentParser(
+        description='Database operations'
+    )
+    parser.add_argument(
+        '--create-vector-table', '-v',
+        type=str,
+        help='Create a new vector table with the specified name'
+    )
+    parser.add_argument(
+        '--embedder', '-e',
+        type=str,
+        default='BAAI/bge-small-en',
+        help='Name of the embedding model to use (default: BAAI/bge-small-en)'
+    )
+    parser.add_argument(
+        '--normalize', '-n',
+        default=False,
+        action='store_true',
+        help='Normalize embeddings before inserting into the database'
+    )
+    return parser.parse_args()
+
+
+"""
+Helper functions for vector table insertion. These must be outside the class definition to be pickled,
+which is necessary for multiprocessing.
+"""
+
+
+def insert_batch(data_name_and_processor):
+    data, name, processor = data_name_and_processor
+    conn = psycopg2.connect(**processor.db_params)
+    cursor = conn.cursor()
+    execute_values(
+        cursor,
+        f"INSERT INTO {name} (embedding, chunk_id) VALUES %s;",
+        data
+    )
+    conn.commit()
+    cursor.close()
+    conn.close()
 
 
 class DatabaseProcessor:
@@ -55,7 +114,6 @@ class DatabaseProcessor:
 
     def chunk_and_insert_records(self, path: str, max_length: int = 1500, overlap: int = 150):
         records = load_dataset(path)
-        records = records[:50]  # For testing purposes
         all_chunks = []
 
         # Use ProcessPoolExecutor to parallelize chunking
@@ -72,9 +130,14 @@ class DatabaseProcessor:
             for future in tqdm(as_completed(futures), total=len(futures), desc="Inserting chunks"):
                 future.result()  # This will raise any exceptions caught during processing
 
-    def create_vector_table(self, name, dim, embedder):
+    def create_vector_table_mp(self, name, dim, embedder):
         """
         1. Creates a vector table 
+        2. Creates indexes for all distance metrics
+        3. Batch embeds all records in the `chunks` table using the given embedder
+        """
+        """
+        1. Creates a vector table
         2. Creates indexes for all distance metrics
         3. Batch embeds all records in the `chunks` table using the given embedder
 
@@ -86,8 +149,78 @@ class DatabaseProcessor:
         cursor = conn.cursor()
         cursor.execute(
             f"""CREATE TABLE {name} (
-                id SERIAL PRIMARY KEY, 
-                embedding VECTOR({dim}), 
+                id SERIAL PRIMARY KEY,
+                embedding VECTOR({dim}),
+                chunk_id INTEGER REFERENCES chunks(id)
+                );
+            """)
+        conn.commit()
+        print(f"Created table {name}")
+
+        # Create indexes
+        for metric in PGVECTOR_DISTANCE_METRICS:
+            cursor.execute(
+                f"CREATE INDEX ON {name} USING hnsw (embedding {metric})")
+        conn.commit()
+
+        # Get all chunks for embedding
+        ids_and_chunks = self._get_all_chunks(cursor)
+        print(f"Embedding {len(ids_and_chunks)} chunks...")
+
+        # Process in larger batches for GPU efficiency
+        batch_size = 512
+        num_batches = len(ids_and_chunks) // batch_size + 1
+
+        for i in tqdm(range(num_batches), desc="Processing batches"):
+            # Prepare batch
+            start_idx = i * batch_size
+            end_idx = min((i + 1) * batch_size, len(ids_and_chunks))
+            batch = ids_and_chunks[start_idx:end_idx]
+
+            if not batch:
+                continue
+
+            ids, texts = list(zip(*batch))
+            # Embeddings are automatically moved to CPU
+            embeddings = embedder(texts)
+
+            # Insert using ThreadPoolExecutor for parallel DB operations
+            data = [(emb, id_) for emb, id_ in zip(embeddings, ids)]
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                # Split data for parallel insertion
+                chunk_size = len(data) // 4
+                data_chunks = [data[j:j + chunk_size]
+                               for j in range(0, len(data), chunk_size)]
+
+                futures = [
+                    executor.submit(insert_batch, (chunk, name, self))
+                    for chunk in data_chunks if chunk
+                ]
+                list(tqdm(
+                    as_completed(futures),
+                    total=len(futures),
+                    desc="Inserting batch",
+                    leave=False
+                ))
+        cursor.close()
+        conn.close()
+
+    def create_vector_table(self, name, dim, embedder):
+        """
+        1. Creates a vector table
+        2. Creates indexes for all distance metrics
+        3. Batch embeds all records in the `chunks` table using the given embedder
+
+        available distance metrics:
+        vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
+        """
+        conn = psycopg2.connect(**self.db_params)
+        register_vector(conn)
+        cursor = conn.cursor()
+        cursor.execute(
+            f"""CREATE TABLE {name} (
+                id SERIAL PRIMARY KEY,
+                embedding VECTOR({dim}),
                 chunk_id INTEGER REFERENCES chunks(id)
                 );
             """)
@@ -105,7 +238,7 @@ class DatabaseProcessor:
         print(f"Embedding {len(ids_and_chunks)} chunks...")
 
         # Embed an insert in batches
-        batch_size = 16
+        batch_size = 64
         num_batches = len(ids_and_chunks) // batch_size
         for i in tqdm(range(num_batches), desc="Inserting embeddings", leave=False):
             # Prepare batch
@@ -155,9 +288,9 @@ class DatabaseProcessor:
         cursor.close()
 
         # Define the named tuple
-        QueryResult = namedtuple(
-            'QueryResult', ['chunk_id', 'doi', 'text', 'distance'])
-        return [QueryResult(*result) for result in results]
+        VectorQueryResult = namedtuple(
+            'VectorQueryResult', ['chunk_id', 'doi', 'text', 'similarity'])
+        return [VectorQueryResult(*result) for result in results]
 
     def test_connection(self):
         conn = psycopg2.connect(**self.db_params)
@@ -173,9 +306,10 @@ class DatabaseProcessor:
 
 
 def main():
+
     load_dotenv()
     db_params = {
-        'dbname': 'test',
+        'dbname': 'citeline_db',
         'user': os.getenv('DB_USER'),
         'password': os.getenv('DB_PASSWORD'),
         'host': os.getenv('DB_HOST'),
@@ -186,7 +320,25 @@ def main():
     processor.test_connection()
     print(processor.db_params)
 
-    from embedding_functions import get_embedding_fn
+    args = argument_parser()
+
+    if args.create_vector_table:
+
+        # Extract parameters
+        table_name, embedder, normalize = args.create_vector_table, args.embedder, args.normalize
+
+        # Create embedding function and get its dimension
+        # from embedding_functions import get_embedding_fn
+        # embedder = get_embedding_fn(
+        #     model_name=embedder, device=processor.device, normalize=normalize)
+        embedder = SentenceTransformerEmbedder(
+            embedder, processor.device, normalize)
+        dim = embedder(['test'])[0].shape[0]
+
+        processor.create_vector_table_mp(
+            name=table_name, dim=dim, embedder=embedder)
+        exit()
+
     embedder = get_embedding_fn(
         'BAAI/bge-small-en', processor.device, normalize=False)
 

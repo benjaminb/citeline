@@ -41,14 +41,18 @@ Write out results to file
 
 """
 import argparse
+import json
 import os
 import torch
 import yaml
+import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from time import time
 from database.database import DatabaseProcessor
 from embedding_functions import get_embedding_fn
+
+SIMILARITY_THRESHOLDS = np.arange(0, 1.0, 0.1)
 
 
 def argument_parser():
@@ -63,6 +67,20 @@ def argument_parser():
 
 def read_jsonl(file_path):
     return pd.read_json(file_path, lines=True)
+
+# cut off results below threshold similarity
+
+
+def closest_neighbors(results, threshold: float):
+    """
+    Assumes that `results` are ordered by similarity, highest to lowest.
+
+    Returns only the results that are above the threshold.
+    """
+    for i, result in enumerate(results):
+        if results[i].similarity < threshold:
+            return results[:i]
+    return results
 
 
 def train_test_split(trivial_proportion=1.0, split=0.8):
@@ -105,14 +123,19 @@ def get_db_params(config):
 
 def evaluate_prediction(example, results):
     unique_predicted_dois = set(result.doi for result in results)
+    print(f"Number of unique predicted dois: {len(unique_predicted_dois)}")
     citation_dois = set(doi for doi in example['citation_dois'])
     score = jaccard_similarity(unique_predicted_dois, citation_dois)
     return score
 
 
 def jaccard_similarity(set1, set2):
-    intersection = len(set1.intersection(set2))
-    union = len(set1.union(set2))
+    intersection = np.longdouble(len(set1.intersection(set2)))
+    print(f"Length of intersection: {intersection}")
+    union = np.longdouble(len(set1.union(set2)))
+    print(f"Length of citation_dois: {len(set2)}")
+    print(f"Length of predictions: {len(set1)}")
+    print(f"Length of union: {union}")
     return intersection / union
 
 
@@ -139,13 +162,15 @@ def main():
         normalize=config['normalize']
     )
 
-    nontrivial_jaccard_scores, trivial_jaccard_scores = [], []
+    # nontrivial_jaccard_scores, trivial_jaccard_scores = [], []
 
+    nontrivial_jaccard_scores = {threshold: []
+                                 for threshold in SIMILARITY_THRESHOLDS}
     batch_size = 16
     # # Iterate over nontrivial examples in batches
     num_batches = len(nontrivial_train) // batch_size
     start_time = time()
-    for i in range(4):
+    for i in range(1):
         start, end = i * batch_size, (i + 1) * batch_size
         batch = nontrivial_train.iloc[start:end]
         sentences = batch['sent_no_cit'].tolist()
@@ -160,26 +185,30 @@ def main():
                 config['table'],
                 embedding,
                 metric=config['metric'],
-                top_k=5)
+                top_k=2453320)
 
-            # unique_predicted_dois = set(result.doi for result in results)
-            # citation_dois = set(doi for doi in example['citation_dois'])
-            score = evaluate_prediction(example, results)
-            nontrivial_jaccard_scores.append(score)
+            # NOTE: remove the slice on similarity thresholds
+            for threshold in SIMILARITY_THRESHOLDS[:2]:
+                predicted_chunks = closest_neighbors(results, threshold)
+                score = evaluate_prediction(example, predicted_chunks)
+                nontrivial_jaccard_scores[threshold].append(score)
 
-    # for i in range(64):
-    #     embedding = embedder([nontrivial_train.iloc[i]['sent_no_cit']])
-    #     results = processor.query_vector_table(
-    #         config['table'],
-    #         embedding[0],
-    #         metric=config['metric'],
-    #         top_k=5)
-    #     score = evaluate_prediction(nontrivial_train.iloc[i], results)
-    #     nontrivial_jaccard_scores.append(score)
+        print('====')
+
     total_time = time() - start_time
-    print(
-        f"Average score: {sum(nontrivial_jaccard_scores) / len(nontrivial_jaccard_scores)}")
-    print(f"Total time: {total_time}")
+    print("Number of total scores:")
+    for threshold, scores in nontrivial_jaccard_scores.items():
+        print(f"Threshold: {threshold}, Number of scores: {len(scores)}")
+
+    averages = {round(threshold, 1): sum(scores) / len(scores)
+                for threshold, scores in nontrivial_jaccard_scores.items()}
+    with open('results.json', 'w') as f:
+        json.dump(averages, f)
+
+    print("Average scores for nontrivial examples:")
+    for threshold, score in averages.items():
+        print(
+            f"Threshold: {threshold}, Average Jaccard: {np.frombuffer(score)}")
 
     # log trivial and nontrivial examples separately
 

@@ -2,10 +2,27 @@ import json
 from tqdm import tqdm
 import os
 import pysbd
-from utils import load_dataset
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
-segmenter = pysbd.Segmenter(language="en", clean=False)
+SEG = pysbd.Segmenter(language="en", clean=False)
+
+# Records missing any of these keys are excluded from the dataset
+REQUIRED_KEYS = {'title', 'body', 'abstract', 'doi', 'reference', 'bibcode'}
+
+
+def load_dataset(path):
+    with open(path, 'r') as file:
+        data = json.load(file)
+
+    total_records = len(data)
+    data = [d for d in data if REQUIRED_KEYS.issubset(d.keys())]
+    complete_records = len(data)
+    print(f"{path}: {complete_records}/{total_records} have all required keys")
+
+    for record in data:
+        record['title'] = record['title'][0]
+
+    return data
 
 
 def merge_short_sentences(sentences, threshold=60):
@@ -31,7 +48,7 @@ def merge_short_sentences(sentences, threshold=60):
 
 
 def process_record(record):
-    sentences = segmenter.segment(record['body'])
+    sentences = SEG.segment(record['body'])
     record['body_sentences'] = merge_short_sentences(sentences)
     return record
 
@@ -41,7 +58,7 @@ def main():
         print(f"Processing {dataset}...")
         records = load_dataset('data/json/' + dataset)
 
-        with open('data/processed/' + dataset, 'w') as f:
+        with open('data/preprocessed/' + dataset, 'w') as f:
             f.write('[')  # Start the JSON array
             with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
                 futures = [executor.submit(process_record, record)

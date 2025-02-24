@@ -24,7 +24,6 @@ def sentence_transformer_embedder(model_name: str, device, normalize: False) -> 
     def embedding_lambda(docs): return model.encode(
         docs, convert_to_numpy=True, normalize_embeddings=normalize)
     return embedding_lambda
-    # return ChromaEmbedder(embedding_lambda, model_name)
 
 
 def encoder_embedder(model_name: str, device, normalize: False) -> ChromaEmbedder:
