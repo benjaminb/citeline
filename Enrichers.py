@@ -11,7 +11,7 @@ import pandas as pd
 
 
 class Enricher:
-    def __init__(self, enrichment_function, data):
+    def __init__(self, enrichment_function, data: pd.DataFrame):
         self.enrichment_function = enrichment_function
         self.data = data
 
@@ -20,9 +20,10 @@ class Enricher:
         if record is None:
             raise ValueError(
                 f"Record with DOI {example.source_doi} not found to match example:\n{example}")
-        print(f"Record datatype: {type(record)}")
-        print(f"Record found: {record['title']}")
         return self.enrichment_function(example, record)
+    
+    def enrich_batch(self, examples):
+        return [self.enrich(example) for _, example in examples.iterrows()]
 
     def __get_record_by_doi(self, doi):
         matching_row = self.data[self.data['doi'].apply(lambda x: doi in x)]
@@ -32,7 +33,6 @@ class Enricher:
 
 
 def add_abstract(example, record):
-    print(f"Keys on record: {record.keys()}")
     return record['abstract'] + '\n' + example.sent_no_cit
 
 
@@ -52,6 +52,23 @@ def add_previous_3_sentences(example, record):
 
 def no_augmentation(example, record):
     return example.sent_no_cit
+
+
+ENRICHMENT_FN = {
+    'identity': no_augmentation,
+    'add_abstract': add_abstract,
+    'add_title': add_title,
+    'add_title_and_abstract': add_title_and_abstract,
+    'add_previous_3_sentences': add_previous_3_sentences,
+}
+
+
+def get_enricher(name: str, data):
+    try:
+        return Enricher(ENRICHMENT_FN[name], data)
+    except KeyError:
+        raise ValueError(
+            f"Enrichment function {name} not supported. Available functions: {list(ENRICHMENT_FN.keys())}")
 
 
 def main():

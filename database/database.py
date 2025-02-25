@@ -1,3 +1,4 @@
+from collections import namedtuple
 from sentence_transformers import SentenceTransformer
 import argparse
 import os
@@ -257,6 +258,71 @@ class DatabaseProcessor:
     def _get_all_chunks(self, cursor, columns: list[str] = ['id', 'text']) -> list[dict]:
         cursor.execute(f"SELECT id, text FROM chunks;")
         return cursor.fetchall()
+
+
+
+    def batch_query_vector_table(self, table_name, query_vectors, metric, top_k=5):
+        """
+        TODO: this isn't working, figure out why
+        table_name: name of the vector table
+        query_vectors: list of vectors to query
+        metric: a key in PGVECTOR_DISTANCE_METRICS to resolve the distance operator
+        top_k: number of results to return for each query vector
+
+        Returns a list of lists, where each inner list contains the results for one query vector
+        """
+
+        # Resolve the distance operator
+        assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
+        operator = PGVECTOR_DISTANCE_METRICS[metric]
+
+        conn = psycopg2.connect(**self.db_params)
+        register_vector(conn)
+        cursor = conn.cursor()
+
+        # Prepare the query
+        query = f"""
+        WITH query_vectors AS (
+            SELECT * FROM unnest(%s::vector[]) WITH ORDINALITY AS t(query_vector, query_index)
+        )
+        SELECT 
+            qv.query_index,
+            {table_name}.chunk_id, 
+            chunks.doi, 
+            chunks.text, 
+            {table_name}.embedding {operator} qv.query_vector AS distance
+        FROM query_vectors qv
+        CROSS JOIN LATERAL (
+            SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding
+            FROM {table_name}
+            JOIN chunks ON {table_name}.chunk_id = chunks.id
+            ORDER BY {table_name}.embedding {operator} qv.query_vector
+            LIMIT %s
+        ) AS results
+        ORDER BY qv.query_index, distance DESC
+        """
+
+        # Execute the query
+        cursor.execute(query, (query_vectors, top_k))
+        results = cursor.fetchall()
+        cursor.close()
+        conn.close()
+
+        # Define the named tuple
+        VectorQueryResult = namedtuple(
+            'VectorQueryResult', ['chunk_id', 'doi', 'text', 'similarity'])
+
+        # Group results by query_index
+        grouped_results = {}
+        for result in results:
+            query_index = result[0]
+            if query_index not in grouped_results:
+                grouped_results[query_index] = []
+            grouped_results[query_index].append(VectorQueryResult(*result[1:]))
+
+        # Return results as a list of lists, maintaining the order of input query vectors
+        return [grouped_results.get(i+1, []) for i in range(len(query_vectors))]
+
 
     def query_vector_table(self, table_name, query_vector, metric, top_k=5):
         """

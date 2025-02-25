@@ -17,6 +17,7 @@ class SentenceTransformerEmbedder:
         return self.model.encode(
             docs, convert_to_numpy=True, normalize_embeddings=self.normalize)
 
+
 class EncoderEmbedder:
     def __init__(self, model_name: str, device, normalize: bool):
         self.device = device
@@ -32,23 +33,23 @@ class EncoderEmbedder:
 
         if self.normalize:
             embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
-        
+
         return embeddings.detach().cpu().numpy()
 
 
 EMBEDDING_CLASS = {
     "BAAI/bge-small-en": SentenceTransformerEmbedder,
     "bert-base-uncased": EncoderEmbedder,
-    "nvidia/NV-Embed-v2": SentenceTransformerEmbedder 
+    "nvidia/NV-Embed-v2": SentenceTransformerEmbedder
 }
 
 
-def get_embedding_fn(model_name: str, device, normalize: False):
+def get_embedder(model_name: str, device, normalize: False):
     try:
         return EMBEDDING_CLASS[model_name](model_name, device, normalize)
     except KeyError:
         raise ValueError(
-                f"Model {model_name} not supported. Available models: {list(EMBEDDING_CLASS.keys())}")
+            f"Model {model_name} not supported. Available models: {list(EMBEDDING_CLASS.keys())}")
 
 
 def main():
