@@ -1,7 +1,7 @@
-from sentence_transformers import SentenceTransformer
-from transformers import AutoModel, AutoTokenizer
 import torch
 import numpy as np
+from sentence_transformers import SentenceTransformer
+from transformers import AutoModel, AutoTokenizer
 
 DEVICE = 'cuda' if torch.cuda.is_available(
 ) else 'mps' if torch.mps.is_available() else 'cpu'
@@ -32,8 +32,8 @@ class EncoderEmbedder:
 
         if self.normalize:
             embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
-        embeddings = embeddings.detach().cpu().numpy()
-        return np.array(embeddings)
+        
+        return embeddings.detach().cpu().numpy()
 
 
 EMBEDDING_CLASS = {
