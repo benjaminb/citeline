@@ -54,6 +54,12 @@ def argument_parser():
         type=str,
         help='Add chunks to the database from raw json files'
     )
+    parser.add_argument(
+        '--test-connection', '-t',
+        default=False,
+        action='store_true',
+        help='Test the database connection'
+    )
     return parser.parse_args()
 
 
@@ -126,11 +132,7 @@ class DatabaseProcessor:
                     self._insert_chunk, chunk, doi) for chunk, doi in all_chunks]
                 for future in as_completed(futures):
                     future.result()  # This will raise any exceptions caught during processing
-                    chunk_count += 1
                     pbar.update(1)
-                    if chunk_count % 100 == 0:
-                        print(
-                            f"\rInserted {chunk_count}/{len(all_chunks)} chunks", end="")
 
     def create_vector_table_mp(self, name, dim, embedder):
         """
@@ -383,7 +385,6 @@ def main():
     }
 
     db = DatabaseProcessor(db_params)
-    db.test_connection()
     print(db.db_params)
 
     args = argument_parser()
@@ -404,6 +405,11 @@ def main():
 
         db.create_vector_table(
             name=table_name, dim=dim, embedder=embedder)
+        return
+
+    if args.test_connection:
+        print(f"Connection result:")
+        db.test_connection()
         return
 
 
