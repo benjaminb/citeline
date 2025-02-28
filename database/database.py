@@ -124,17 +124,6 @@ class DatabaseProcessor:
             for future in tqdm(as_completed(futures), total=len(futures), desc="Chunking records"):
                 all_chunks.extend(future.result())  # Collect all chunks
 
-        # # Use ThreadPoolExecutor to parallelize inserting chunks
-        # chunk_count = 0
-        # with ThreadPoolExecutor(max_workers=cores) as thread_executor:
-        #     with tqdm(total=len(all_chunks), desc="Inserting chunks") as pbar:
-        #         futures = [thread_executor.submit(
-        #             self._insert_chunk, chunk, doi) for chunk, doi in all_chunks]
-        #         for future in as_completed(futures):
-        #             future.result()  # This will raise any exceptions caught during processing
-        #             pbar.update(1)
-            # Insert chunks in batches using a single connection
-        print(f"Inserting {len(all_chunks)} chunks...")
         conn = psycopg2.connect(**self.db_params)
         cursor = conn.cursor()
 
@@ -419,6 +408,7 @@ def main():
 
         # Create embedding function and get its dimension
         from Embedders import get_embedder
+        print(f"Creating vector table '{table_name}' with embedder {embedder} on device {db.device}...")
         embedder = get_embedder(embedder, db.device, normalize)
         dim = embedder(['test']).shape[1]
 

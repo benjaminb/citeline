@@ -2,5 +2,5 @@ dataset: 'data/dataset/small/nontrivial.jsonl'
 table: 'bge'
 metric: 'vector_ip_ops'
 embedder: 'BAAI/bge-small-en'
-normalize: False
+normalize: True
 enrichment: 'add_title'
