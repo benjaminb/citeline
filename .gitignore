@@ -6,8 +6,9 @@
 # Mac OS files
 .DS_Store
 
-# Plain text files
+# Plain text files generally used for scratch purposes
 *.txt
+!requirements.txt
 *.csv
 
 # Byte-compiled / optimized / DLL files
