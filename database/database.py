@@ -20,6 +20,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # fmt: on
 
+MAX_CPU_CORES = 12
 PGVECTOR_DISTANCE_METRICS = {
     'vector_l2_ops': '<->',
     'vector_ip_ops': '<#>',
@@ -110,7 +111,8 @@ class DatabaseProcessor:
         all_chunks = []
 
         # Use ProcessPoolExecutor to parallelize chunking
-        with ProcessPoolExecutor(max_workers=os.cpu_count()) as process_executor:
+        cores = min(os.cpu_count(), MAX_CPU_CORES)
+        with ProcessPoolExecutor(max_workers=cores) as process_executor:
             futures = [process_executor.submit(
                 self._chunk_record, record, max_length, overlap) for record in records]
             for future in tqdm(as_completed(futures), total=len(futures), desc="Chunking records"):
