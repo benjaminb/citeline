@@ -124,15 +124,35 @@ class DatabaseProcessor:
             for future in tqdm(as_completed(futures), total=len(futures), desc="Chunking records"):
                 all_chunks.extend(future.result())  # Collect all chunks
 
-        # Use ThreadPoolExecutor to parallelize inserting chunks
-        chunk_count = 0
-        with ThreadPoolExecutor(max_workers=cores) as thread_executor:
-            with tqdm(total=len(all_chunks), desc="Inserting chunks") as pbar:
-                futures = [thread_executor.submit(
-                    self._insert_chunk, chunk, doi) for chunk, doi in all_chunks]
-                for future in as_completed(futures):
-                    future.result()  # This will raise any exceptions caught during processing
-                    pbar.update(1)
+        # # Use ThreadPoolExecutor to parallelize inserting chunks
+        # chunk_count = 0
+        # with ThreadPoolExecutor(max_workers=cores) as thread_executor:
+        #     with tqdm(total=len(all_chunks), desc="Inserting chunks") as pbar:
+        #         futures = [thread_executor.submit(
+        #             self._insert_chunk, chunk, doi) for chunk, doi in all_chunks]
+        #         for future in as_completed(futures):
+        #             future.result()  # This will raise any exceptions caught during processing
+        #             pbar.update(1)
+            # Insert chunks in batches using a single connection
+        print(f"Inserting {len(all_chunks)} chunks...")
+        conn = psycopg2.connect(**self.db_params)
+        cursor = conn.cursor()
+
+        try:
+            batch_size = 1000  # Adjust this based on your needs
+            for i in tqdm(range(0, len(all_chunks), batch_size), desc="Inserting chunks"):
+                batch = all_chunks[i:i + batch_size]
+                data = [(self.__remove_nul_chars(chunk), doi)
+                        for chunk, doi in batch]
+                execute_values(
+                    cursor,
+                    "INSERT INTO chunks (text, doi) VALUES %s;",
+                    data
+                )
+                conn.commit()
+        finally:
+            cursor.close()
+            conn.close()
 
     def create_vector_table_mp(self, name, dim, embedder):
         """
@@ -383,7 +403,6 @@ def main():
         'host': os.getenv('DB_HOST'),
         'port': os.getenv('DB_PORT')
     }
-
     db = DatabaseProcessor(db_params)
     print(db.db_params)
 
