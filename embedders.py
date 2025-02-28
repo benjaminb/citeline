@@ -6,28 +6,42 @@ from transformers import AutoModel, AutoTokenizer
 DEVICE = 'cuda' if torch.cuda.is_available(
 ) else 'mps' if torch.mps.is_available() else 'cpu'
 
-
-class SentenceTransformerEmbedder:
+class Embedder:
     def __init__(self, model_name: str, device, normalize: bool):
+        self.model_name = model_name
+        self.device = device
+        self.normalize = normalize
+
+    def __str__(self):
+        return f"{self.model_name}, normalize={self.normalize}"
+        
+
+class SentenceTransformerEmbedder(Embedder):
+    def __init__(self, model_name: str, device, normalize: bool):
+        super().__init__(model_name, device, normalize)
         self.model = SentenceTransformer(
             model_name, trust_remote_code=True, device=device)
-        self.normalize = normalize
+        # self.normalize = normalize
 
     def __call__(self, docs):
         return self.model.encode(
             docs, convert_to_numpy=True, normalize_embeddings=self.normalize)
 
 
-class EncoderEmbedder:
+class EncoderEmbedder(Embedder):
     def __init__(self, model_name: str, device, normalize: bool):
-        self.device = device
+        super().__init__(model_name, device, normalize)
+        # self.device = device
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModel.from_pretrained(model_name).to(device)
-        self.normalize = normalize
+        # self.normalize = normalize
+        self.max_length = MODEL_DATA[model_name]['max_length'] if model_name in MODEL_DATA and 'max_length' in MODEL_DATA[model_name] else None
 
     def __call__(self, docs: list[str]):
-        inputs = self.tokenizer(docs, return_tensors="pt",
-                                padding=True, truncation=True).to(self.device)
+        params = {'return_tensors': 'pt', 'padding': True, 'truncation': True}
+        if self.max_length:
+            params['max_length'] = self.max_length
+        inputs = self.tokenizer(docs, **params).to(self.device)
         outputs = self.model(**inputs)
         embeddings = outputs.last_hidden_state[:, 0, :]
 
@@ -38,9 +52,14 @@ class EncoderEmbedder:
 
 
 EMBEDDING_CLASS = {
+    "adsabs/astroBERT": EncoderEmbedder,
     "BAAI/bge-small-en": SentenceTransformerEmbedder,
     "bert-base-uncased": EncoderEmbedder,
     "nvidia/NV-Embed-v2": SentenceTransformerEmbedder
+}
+
+MODEL_DATA = {
+    "adsabs/astroBERT": {'max_length': 512},
 }
 
 

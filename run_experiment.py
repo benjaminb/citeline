@@ -16,6 +16,11 @@ from embedders import get_embedder
 SIMILARITY_THRESHOLDS = np.arange(0, 1.0, 0.01)
 REQUIRED_EXPERIMENT_PARAMS = {'dataset', 'table',
                               'metric', 'embedder', 'normalize', 'enrichment'}
+METRIC_TO_STR = {
+    'vector_l2_ops': 'L2',
+    'vector_cosine_ops': 'cosine',
+    'vector_ip_ops': 'ip'
+}
 
 
 def argument_parser():
@@ -26,10 +31,6 @@ def argument_parser():
                         help='Path to the YAML configuration file.')
 
     return parser.parse_args()
-
-
-def read_jsonl(file_path):
-    return pd.read_json(file_path, lines=True)
 
 
 def closest_neighbors(results, threshold: float):
@@ -45,7 +46,7 @@ def closest_neighbors(results, threshold: float):
 
 
 def train_test_split_nontrivial(path, split=0.8):
-    examples = read_jsonl(path)
+    examples = pd.read_json(path, lines=True)
     train = examples.sample(frac=split, random_state=42)
     test = examples.drop(train.index)
     return train, test
@@ -90,7 +91,6 @@ def get_db_params():
 
 def evaluate_prediction(example, results):
     unique_predicted_dois = set(result.doi for result in results)
-    print(f"Number of unique predicted dois: {len(unique_predicted_dois)}")
     citation_dois = set(doi for doi in example.citation_dois)
     score = jaccard_similarity(unique_predicted_dois, citation_dois)
     return score
@@ -99,10 +99,6 @@ def evaluate_prediction(example, results):
 def jaccard_similarity(set1, set2):
     intersection = np.longdouble(len(set1.intersection(set2)))
     union = np.longdouble(len(set1.union(set2)))
-    print(f"Length of intersection: {intersection}")
-    print(f"Length of citation_dois: {len(set2)}")
-    print(f"Length of predictions: {len(set1)}")
-    print(f"Length of union: {union}")
     return intersection / union
 
 
@@ -110,13 +106,13 @@ def plot_roc_curve(scores: dict, outfile: str):
     plt.figure()
     thresholds = sorted(scores.keys())
     avg_scores = [scores[threshold] for threshold in thresholds]
-    plt.plot(thresholds, avg_scores, marker='o',
+    plt.plot(thresholds, avg_scores, marker='.',
              linestyle='-', label='Average Jaccard Score')
     plt.xlabel('Similarity Threshold')
     plt.ylabel('Average Jaccard Score')
     plt.legend()
     plt.grid(True)
-    plt.savefig(outfile)  # TODO: add identifying information to filename
+    plt.savefig(outfile)
 
 
 def main():
@@ -138,7 +134,7 @@ def main():
     print(f"Database config: {db.db_params}")
 
     # Load dataset
-    examples = read_jsonl(config['dataset'])
+    examples = pd.read_json(config['dataset'], lines=True)
 
     """
     NOTE: nontrivial_train.index.tolist() will give the line numbers of the original example
@@ -198,16 +194,21 @@ def main():
         print(
             f"Threshold: {threshold}, Average Jaccard: {score}")
 
+    # Prep results and outfile name
     output = {'config': config, 'averages': averages}
-    filename_base = f'{config["table"]}_{config["metric"]}_norm{config["normalize"]}_{config["enrichment"]}_{current_time}'
-    print(f"Writing results to results.json")
-    with open(f'results_{filename_base}.json', 'w') as f:
-        json.dump(output, f)
-
-    print("Plotting ROC curve...")
-
+    metric_str = METRIC_TO_STR.get(config['metric'])
     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-    plot_roc_curve(averages, outfile=f"roc_{filename_base}.png")
+    filename_base = f'{config["table"]}_{config["enrichment"]}_norm{config["normalize"]}_{metric_str}_{current_time}'
+
+    # Create directory if it doesn't exist
+    if not os.path.exists(f'experiments/results/{filename_base}'):
+        os.makedirs(f'experiments/results/{filename_base}')
+
+    # Write and plot results
+    with open(f'experiments/results/{filename_base}/results_{filename_base}.json', 'w') as f:
+        json.dump(output, f)
+    plot_roc_curve(
+        averages, outfile=f"experiments/results/{filename_base}/roc_{filename_base}.png")
 
 
 if __name__ == "__main__":

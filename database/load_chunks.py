@@ -14,14 +14,13 @@ PATHS_TO_DATA = [
 def main():
     load_dotenv('../.env')
     db_params = {
-        'dbname': 'citeline_db',
+        'dbname': os.getenv('DB_NAME') ,
         'user': os.getenv('DB_USER'),
         'password': os.getenv('DB_PASSWORD'),
         'host': os.getenv('DB_HOST'),
         'port': os.getenv('DB_PORT')
     }
     db = DatabaseProcessor(db_params)
-    print("Testing db connection...")
     db.test_connection()
     print(db.db_params)
     print("=====================================")

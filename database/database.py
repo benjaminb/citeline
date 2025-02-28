@@ -17,8 +17,9 @@ from time import time
 # Add the parent directory to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # fmt: off
-from preprocessing import load_dataset
-from embedding_functions import get_embedding_fn 
+# NOTE: moved into chunk_and_insert since it's not used elsewhere
+# from preprocessing import load_dataset
+
 # fmt: on
 
 PGVECTOR_DISTANCE_METRICS = {
@@ -26,19 +27,6 @@ PGVECTOR_DISTANCE_METRICS = {
     'vector_ip_ops': '<#>',
     'vector_cosine_ops': '<=>',
 }
-
-# TODO: if this speeds up execution, move it to embedding_functions.py
-
-
-class SentenceTransformerEmbedder:
-    def __init__(self, model_name: str, device, normalize: bool):
-        self.model = SentenceTransformer(
-            model_name, trust_remote_code=True, device=device)
-        self.normalize = normalize
-
-    def __call__(self, docs):
-        return self.model.encode(
-            docs, convert_to_numpy=True, normalize_embeddings=self.normalize)
 
 
 def argument_parser():
@@ -61,6 +49,11 @@ def argument_parser():
         default=False,
         action='store_true',
         help='Normalize embeddings before inserting into the database'
+    )
+    parser.add_argument(
+        '--add-chunks', '-a',
+        type=str,
+        help='Add chunks to the database from raw json files'
     )
     return parser.parse_args()
 
@@ -114,6 +107,7 @@ class DatabaseProcessor:
         return [(chunk, doi) for chunk in chunks]
 
     def chunk_and_insert_records(self, path: str, max_length: int = 1500, overlap: int = 150):
+        from preprocessing import load_dataset
         records = load_dataset(path)
         all_chunks = []
 
@@ -160,8 +154,10 @@ class DatabaseProcessor:
 
         # Create indexes
         for metric in PGVECTOR_DISTANCE_METRICS:
+            print(f"Creating index on {metric}...", end="")
             cursor.execute(
                 f"CREATE INDEX ON {name} USING hnsw (embedding {metric})")
+            print("done.")
         conn.commit()
 
         # Get all chunks for embedding
@@ -259,8 +255,6 @@ class DatabaseProcessor:
         cursor.execute(f"SELECT id, text FROM chunks;")
         return cursor.fetchall()
 
-
-
     def batch_query_vector_table(self, table_name, query_vectors, metric, top_k=5):
         """
         TODO: this isn't working, figure out why
@@ -323,7 +317,6 @@ class DatabaseProcessor:
         # Return results as a list of lists, maintaining the order of input query vectors
         return [grouped_results.get(i+1, []) for i in range(len(query_vectors))]
 
-
     def query_vector_table(self, table_name, query_vector, metric, top_k=5):
         """
         table_name: name of the vector table
@@ -375,18 +368,23 @@ def main():
 
     load_dotenv()
     db_params = {
-        'dbname': 'citeline_db',
+        'dbname': os.getenv('DB_NAME'),
         'user': os.getenv('DB_USER'),
         'password': os.getenv('DB_PASSWORD'),
         'host': os.getenv('DB_HOST'),
         'port': os.getenv('DB_PORT')
     }
 
-    processor = DatabaseProcessor(db_params)
-    processor.test_connection()
-    print(processor.db_params)
+    db = DatabaseProcessor(db_params)
+    db.test_connection()
+    print(db.db_params)
 
     args = argument_parser()
+
+    if args.add_chunks:
+        db.chunk_and_insert_records(args.add_chunks)
+        return
+
 
     if args.create_vector_table:
 
@@ -394,29 +392,13 @@ def main():
         table_name, embedder, normalize = args.create_vector_table, args.embedder, args.normalize
 
         # Create embedding function and get its dimension
-        # from embedding_functions import get_embedding_fn
-        # embedder = get_embedding_fn(
-        #     model_name=embedder, device=processor.device, normalize=normalize)
-        embedder = SentenceTransformerEmbedder(
-            embedder, processor.device, normalize)
-        dim = embedder(['test'])[0].shape[0]
+        from Embedders import get_embedder
+        embedder = get_embedder(embedder, db.device, normalize)
+        dim = embedder(['test']).shape[1]
 
-        processor.create_vector_table_mp(
+        db.create_vector_table(
             name=table_name, dim=dim, embedder=embedder)
-        exit()
-
-    embedder = get_embedding_fn(
-        'BAAI/bge-small-en', processor.device, normalize=False)
-
-    start = time()
-
-    # results = processor.query_vector_table('test_bge', vector)
-
-    processor.create_vector_table(
-        'test_bge',
-        dim=384,
-        embedder=embedder)
-    end = time() - start
+        return
 
 
 if __name__ == '__main__':
