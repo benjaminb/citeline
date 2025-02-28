@@ -119,11 +119,18 @@ class DatabaseProcessor:
                 all_chunks.extend(future.result())  # Collect all chunks
 
         # Use ThreadPoolExecutor to parallelize inserting chunks
-        with ThreadPoolExecutor(max_workers=os.cpu_count()) as thread_executor:
-            futures = [thread_executor.submit(
-                self._insert_chunk, chunk, doi) for chunk, doi in all_chunks]
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Inserting chunks"):
-                future.result()  # This will raise any exceptions caught during processing
+        chunk_count = 0
+        with ThreadPoolExecutor(max_workers=cores) as thread_executor:
+            with tqdm(total=len(all_chunks), desc="Inserting chunks") as pbar:
+                futures = [thread_executor.submit(
+                    self._insert_chunk, chunk, doi) for chunk, doi in all_chunks]
+                for future in as_completed(futures):
+                    future.result()  # This will raise any exceptions caught during processing
+                    chunk_count += 1
+                    pbar.update(1)
+                    if chunk_count % 100 == 0:
+                        print(
+                            f"\rInserted {chunk_count}/{len(all_chunks)} chunks", end="")
 
     def create_vector_table_mp(self, name, dim, embedder):
         """
