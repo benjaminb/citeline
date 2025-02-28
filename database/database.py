@@ -1,18 +1,16 @@
 from collections import namedtuple
-from sentence_transformers import SentenceTransformer
 import argparse
 import os
 import psycopg2
 from psycopg2.extras import execute_values
 import sys
 import torch
-from collections import namedtuple, defaultdict
+from collections import namedtuple
 from dotenv import load_dotenv
 from pgvector.psycopg2 import register_vector
 from semantic_text_splitter import TextSplitter
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
-from time import time
 
 # Add the parent directory to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -384,7 +382,6 @@ def main():
     if args.add_chunks:
         db.chunk_and_insert_records(args.add_chunks)
         return
-
 
     if args.create_vector_table:
 
