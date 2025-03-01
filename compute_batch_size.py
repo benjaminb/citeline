@@ -19,12 +19,12 @@ def main():
     db = DatabaseProcessor(db_params)
     print(db.db_params)
 
+    averages = {}
     # Time each embedding model
     for model_name in EMBEDDING_CLASS:
         print(f"Embedding model: {model_name}")
         embedder = get_embedder(model_name, 'cuda', normalize=False)
-        averages = {model_name: []}
-
+        averages[model_name] = []
 
         batch_size = 1
         while batch_size < 4096:
@@ -51,13 +51,16 @@ def main():
             except Exception as e:
                 print(e)
                 break
-        for model_name, times in averages.items():
-            print(f"Model: {model_name}")
-            print(f"Average times per chunk: {averages[model_name]}")
-            smallest = min(averages[model_name])
-            print(f"Smallest time per chunk: {smallest}")
-            print(f"Batch size: {2**averages[model_name].index(smallest)}")
-            print("=====================================")
+
+        # Print the results
+        times = averages[model_name]
+        print(f"Model: {model_name}")
+        print(f"Average times per chunk: {times}")
+        smallest = min(times)
+        best_index = times.index(smallest)
+        print(f"Smallest time per chunk: {smallest}")
+        print(f"Batch size: {2**best_index}")
+        print("=====================================")
 
 
 if __name__ == '__main__':
