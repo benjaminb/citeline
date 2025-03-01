@@ -23,7 +23,7 @@ def main():
     for model_name in EMBEDDING_CLASS:
         print(f"Embedding model: {model_name}")
         embedder = get_embedder(model_name, 'cuda', normalize=False)
-        averages = []
+        averages = {model_name: []}
 
 
         batch_size = 1
@@ -44,13 +44,17 @@ def main():
                 result = embedder(chunks)
                 duration = time() - start
                 print(f"Result shape: {result.shape}")
-                averages.append(duration/batch_size)
+                averages[model_name].append(duration/batch_size)
                 print(
                     f"Batch size {batch_size} took {duration} seconds ({duration/batch_size} per chunk)")
                 batch_size *= 2
             except Exception as e:
                 print(e)
                 break
+        for model_name, times in averages.items():
+            print(f"Model: {model_name}")
+            print(f"Average time per chunk: {sum(times)/len(times)}")
+            print("=====================================")
 
 
 if __name__ == '__main__':
