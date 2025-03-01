@@ -20,16 +20,25 @@ class Embedder:
 class SentenceTransformerEmbedder(Embedder):
     def __init__(self, model_name: str, device, normalize: bool):
         super().__init__(model_name, device, normalize)
-
-        self.model = SentenceTransformer(
-            model_name,
-            trust_remote_code=True,
-            device=device
-        )
-        self.pool = self.model.start_multi_process_pool()
+        kwargs = {'model_name_or_path': model_name,
+                  'trust_remote_code': True}
+        if device == 'cuda' and torch.cuda.device_count() > 1:
+            kwargs['device_map'] = 'auto'
+            self.model = SentenceTransformer(**kwargs)
+            self.encode = lambda docs: self.model.encode_multi_process(docs,
+                                                                       batch_size=32,
+                                                                       show_progress_bar=True,
+                                                                       pool=self.model.start_multi_process_pool(),
+                                                                       normalize_embeddings=self.normalize)
+        else:
+            kwargs['device'] = device
+            self.model = SentenceTransformer(**kwargs)
+            self.encode = lambda docs: self.model.encode(
+                docs, convert_to_numpy=True, normalize_embeddings=self.normalize)
+            return
 
     def __call__(self, docs):
-        return self.model.encode_multi_process(docs, pool=self.pool, normalize_embeddings=self.normalize)
+        return self.encode(docs)
         # return self.model.encode(
         #     docs, convert_to_numpy=True, normalize_embeddings=self.normalize)
 
@@ -38,13 +47,16 @@ class EncoderEmbedder(Embedder):
     def __init__(self, model_name: str, device: str, normalize: bool):
         super().__init__(model_name, device, normalize)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        model = AutoModel.from_pretrained(model_name)
 
+        kwargs = {'pretrained_model_name_or_path': model_name,
+                  'trust_remote_code': True}
         if device == 'cuda' and torch.cuda.device_count() > 1:
-            print(f"Using {torch.cuda.device_count()} GPUs")
-            model = torch.nn.DataParallel(model)
+            kwargs['device_map'] = 'auto'
+            self.model = AutoModel.from_pretrained(**kwargs)
+        else:
+            model = AutoModel.from_pretrained(**kwargs)
+            self.model = model.to(device)
 
-        self.model = model.to(device)
         self.max_length = MODEL_DATA[model_name]['max_length'] if model_name in MODEL_DATA and 'max_length' in MODEL_DATA[model_name] else None
 
     def __call__(self, docs: list[str]):
