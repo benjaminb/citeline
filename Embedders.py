@@ -29,7 +29,7 @@ class SentenceTransformerEmbedder(Embedder):
                                                              pool=pool,
                                                              normalize_embeddings=self.normalize,
                                                              show_progress_bar=True)
-                pool.close()
+                self.model.stop_multi_process_pool(pool)
                 return embeddings
             self.encode = encode
                 
