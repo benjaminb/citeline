@@ -53,7 +53,10 @@ def main():
                 break
         for model_name, times in averages.items():
             print(f"Model: {model_name}")
-            print(f"Average time per chunk: {sum(times)/len(times)}")
+            print(f"Average times per chunk: {averages[model_name]}")
+            smallest = min(averages[model_name])
+            print(f"Smallest time per chunk: {smallest}")
+            print(f"Batch size: {2**averages[model_name].index(smallest)}")
             print("=====================================")
 
 
