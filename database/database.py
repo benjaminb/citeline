@@ -242,18 +242,12 @@ class DatabaseProcessor:
         conn.commit()
         print(f"Created table {name}")
 
-        # Create indexes
-        for metric in PGVECTOR_DISTANCE_METRICS:
-            cursor.execute(
-                f"CREATE INDEX ON {name} USING hnsw (embedding {metric})")
-        conn.commit()
-
         # Get all chunks for embedding
         ids_and_chunks = self._get_all_chunks(cursor)
         print(f"Embedding {len(ids_and_chunks)} chunks...")
 
         # Embed an insert in batches
-        batch_size = 64
+        batch_size = 16
         num_batches = len(ids_and_chunks) // batch_size
         for i in tqdm(range(num_batches), desc="Inserting embeddings", leave=False):
             # Prepare batch
@@ -266,6 +260,13 @@ class DatabaseProcessor:
             # Insert
             execute_values(
                 cursor, f"INSERT INTO {name} (embedding, chunk_id) VALUES %s;", data)
+            conn.commit()
+
+        # Create the IVFF index (~2.5MM chunks -> sqrt(2.5MM) ~ 1580)
+        for metric in PGVECTOR_DISTANCE_METRICS:
+            print(f"Creating IVFFlat index on {metric}...")
+            cursor.execute(
+                f"CREATE INDEX ON {name} USING ivfflat(embedding {metric}) WITH (lists = 1580);")
             conn.commit()
         cursor.close()
 
