@@ -258,9 +258,11 @@ class DatabaseProcessor:
                     for embedding, id_num in zip(embeddings, ids)]
 
             # Insert
+            print(f"Inserting batch {i+1}/{num_batches}...")
             execute_values(
                 cursor, f"INSERT INTO {name} (embedding, chunk_id) VALUES %s;", data)
             conn.commit()
+            print("Done.")
 
         # Create the IVFF index (~2.5MM chunks -> sqrt(2.5MM) ~ 1580)
         for metric in PGVECTOR_DISTANCE_METRICS:
