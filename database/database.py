@@ -305,13 +305,25 @@ class DatabaseProcessor:
 
         cursor.close()
 
-    def create_index(self, table_name, type, metric, num_lists, working_memory='2048MB'):
+    def create_index(self, 
+                     table_name: str, 
+                     index_type: str, # 'ivfflat' or 'hnsw'
+                     metric: str, 
+                     num_lists: int = 1580, # sqrt(num chunks, which is ~2.5M)
+                     maintenance_work_mem='5 GB',  
+                     max_parallel_maintenance_workers=4, 
+                     max_parallel_workers=4):
+        assert index_type in ['ivfflat', 'hnsw'], f"Invalid index type: {index_type}. Must be 'ivfflat' or 'hnsw'"
         assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
         conn = psycopg2.connect(**self.db_params)
         cursor = conn.cursor()
-        cursor.execute("SET maintenance_work_mem=%s;", working_memory)
+
+        cursor.execute(f"SET maintenance_work_mem={maintenance_work_mem};", )
+        cursor.execute(f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
+        cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
+
         cursor.execute(
-            f"CREATE INDEX ON {table_name} USING {type}(embedding {metric}) WITH (lists = {num_lists});")
+            f"CREATE INDEX ON {table_name} USING {index_type}(embedding {metric}) WITH (lists = {num_lists});")
         conn.commit()
         cursor.close()
         conn.close()
