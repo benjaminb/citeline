@@ -8,7 +8,7 @@ from database.database import DatabaseProcessor
 
 def main():
     # Load database
-    load_dotenv('.env')
+    load_dotenv('.env', override=True)
     db_params = {
         'dbname': os.getenv('DB_NAME'),
         'user': os.getenv('DB_USER'),

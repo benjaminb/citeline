@@ -1,5 +1,5 @@
-from collections import namedtuple
 import argparse
+import gc
 import os
 import psycopg2
 from psycopg2.extras import execute_values
@@ -11,6 +11,11 @@ from pgvector.psycopg2 import register_vector
 from semantic_text_splitter import TextSplitter
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
+
+from time import time
+
+import cProfile
+import pstats
 
 # Add the parent directory to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -60,6 +65,12 @@ def argument_parser():
         action='store_true',
         help='Test the database connection'
     )
+    parser.add_argument(
+        '--profile', '-p',
+        default=False,
+        action='store_true',
+        help='Profile the create_vector_table function'
+    )
     return parser.parse_args()
 
 
@@ -89,19 +100,15 @@ class DatabaseProcessor:
         self.device = 'cuda' if torch.cuda.is_available(
         ) else 'mps' if torch.mps.is_available() else 'cpu'
 
+    def __clear_gpu_memory(self):
+        if self.device == 'cuda':
+            torch.cuda.empty_cache()
+        elif self.device == 'mps':
+            torch.mps.empty_cache()
+
     def __remove_nul_chars(self, s: str) -> str:
         """Remove NUL characters from a string, which PostgreSQL does not like"""
         return s.replace('\x00', '')
-
-    def _insert_chunk(self, text: str, doi: str):
-        text = self.__remove_nul_chars(text)
-        conn = psycopg2.connect(**self.db_params)
-        cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO chunks (text, doi) VALUES (%s, %s);", (text, doi))
-        conn.commit()
-        cursor.close()
-        conn.close()
 
     def _chunk_record(self, record: dict, max_length: int, overlap: int):
         splitter = TextSplitter(capacity=max_length, overlap=overlap)
@@ -110,6 +117,18 @@ class DatabaseProcessor:
         chunks = splitter.chunks(full_text)
         doi = record['doi'][0]
         return [(chunk, doi) for chunk in chunks]
+
+    def _insert_chunk(data, table_name, db_params):
+        conn = psycopg2.connect(**db_params)
+        cursor = conn.cursor()
+        execute_values(
+            cursor,
+            f"INSERT INTO {table_name} (embedding, chunk_id) VALUES %s;",
+            data
+        )
+        conn.commit()
+        cursor.close()
+        conn.close()
 
     def chunk_and_insert_records(self, path: str, max_length: int = 1500, overlap: int = 150):
         from preprocessing import load_dataset
@@ -220,7 +239,7 @@ class DatabaseProcessor:
         cursor.close()
         conn.close()
 
-    def create_vector_table(self, name, dim, embedder):
+    def create_vector_table(self, name, dim, embedder, work_mem='1024MB', maintenance_work_mem='2048MB', batch_size=32):
         """
         1. Creates a vector table
         2. Creates indexes for all distance metrics
@@ -229,9 +248,15 @@ class DatabaseProcessor:
         available distance metrics:
         vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
         """
+
+        # Create connection and allocate session memory
         conn = psycopg2.connect(**self.db_params)
         register_vector(conn)
         cursor = conn.cursor()
+        cursor.execute(f"SET maintenance_work_mem='{maintenance_work_mem}';")
+        cursor.execute(f"SET work_mem='{work_mem}';")
+
+        # Create table
         cursor.execute(
             f"""CREATE TABLE {name} (
                 id SERIAL PRIMARY KEY,
@@ -247,30 +272,43 @@ class DatabaseProcessor:
         print(f"Embedding {len(ids_and_chunks)} chunks...")
 
         # Embed an insert in batches
-        batch_size = 16
-        num_batches = len(ids_and_chunks) // batch_size
+        num_batches = 1 + len(ids_and_chunks) // batch_size
         for i in tqdm(range(num_batches), desc="Inserting embeddings", leave=False):
+            # Clear GPU memory every 50 batches
+            if i % 50 == 0:
+                self.__clear_gpu_memory()
+
             # Prepare batch
             batch = ids_and_chunks[i * batch_size:(i + 1) * batch_size]
             ids, texts = list(zip(*batch))
+
+            # Embed texts
+            start_embeddings = time()
             embeddings = embedder(texts)
+            print(f"Embedding time: {time() - start_embeddings}")
+
             data = [(embedding, id_num)
                     for embedding, id_num in zip(embeddings, ids)]
 
             # Insert
-            print(f"Inserting batch {i+1}/{num_batches}...")
+            start_insert = time()
             execute_values(
                 cursor, f"INSERT INTO {name} (embedding, chunk_id) VALUES %s;", data)
+            print(f"Insert time: {time() - start_insert}")
             conn.commit()
-            print("Done.")
 
-        # Create the IVFF index (~2.5MM chunks -> sqrt(2.5MM) ~ 1580)
-        for metric in PGVECTOR_DISTANCE_METRICS:
-            print(f"Creating IVFFlat index on {metric}...")
-            cursor.execute(
-                f"CREATE INDEX ON {name} USING ivfflat(embedding {metric}) WITH (lists = 1580);")
-            conn.commit()
         cursor.close()
+
+    def create_index(self, table_name, type, metric, num_lists, working_memory='2048MB'):
+        assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
+        conn = psycopg2.connect(**self.db_params)
+        cursor = conn.cursor()
+        cursor.execute("SET maintenance_work_mem=%s;", working_memory)
+        cursor.execute(
+            f"CREATE INDEX ON {table_name} USING {type}(embedding {metric}) WITH (lists = {num_lists});")
+        conn.commit()
+        cursor.close()
+        conn.close()
 
     def _get_all_chunks(self, cursor, columns: list[str] = ['id', 'text']) -> list[dict]:
         cursor.execute(f"SELECT id, text FROM chunks;")
@@ -354,6 +392,8 @@ class DatabaseProcessor:
         conn = psycopg2.connect(**self.db_params)
         register_vector(conn)
         cursor = conn.cursor()
+
+        cursor.execute(f"SET ivfflat.probes={n};")
         cursor.execute(
             f"""
             SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance 
@@ -376,6 +416,13 @@ class DatabaseProcessor:
         conn = psycopg2.connect(**self.db_params)
         cursor = conn.cursor()
 
+        # Print a pretty table showing db name, user, host, and port from db_params
+        print("="*29 + "CONFIG" + "="*29)
+        print(f"{'Database':<16} {'User':<16} {'Host':<16} {'Port':<16}")
+        print(
+            f"{self.db_params['dbname']:<16} {self.db_params['user']:<16} {self.db_params['host']:<16} {self.db_params['port']:<16}")
+        print("="*64)
+
         # Execute a simple query
         cursor.execute("SELECT version();")
         db_version = cursor.fetchone()
@@ -384,10 +431,37 @@ class DatabaseProcessor:
         cursor.close()
         conn.close()
 
+    def set_ivf_probes(self, n=None):
+        """
+        Sets the number of probes for the IVFFlat index. If `n` not specified, it will be set to N**0.25,
+        where N is the number of chunks.
+        """
+        conn = psycopg2.connect(**self.db_params)
+        cursor = conn.cursor()
+        if n:
+            cursor.execute(f"SET ivfflat.probes={n};")
+        else:
+            # Get the number of chunks
+            cursor.execute("SELECT COUNT(*) FROM chunks;")
+            n = cursor.fetchone()[0]
+            print(f"Setting IVFFlat probes to {n}**0.25 = {int(n**0.25)}")
+            cursor.execute(f"SET ivfflat.probes={int(n**0.25)};")
+
+        conn.commit()
+        cursor.close()
+        conn.close()
+
+
+def profile_create_vector_table(db, table_name, embedder):
+    with cProfile.Profile() as pr:
+        db.create_vector_table(name=table_name, dim=768, embedder=embedder)
+    stats = pstats.Stats(pr)
+    stats.strip_dirs().sort_stats("cumulative").print_stats(40)
+
 
 def main():
-
-    load_dotenv()
+    # NOTE: assumes .env is in the parent directory
+    load_dotenv('../.env', override=True)
     db_params = {
         'dbname': os.getenv('DB_NAME'),
         'user': os.getenv('DB_USER'),
@@ -395,10 +469,18 @@ def main():
         'host': os.getenv('DB_HOST'),
         'port': os.getenv('DB_PORT')
     }
+    print(f"Database parameters: {db_params}")
     db = DatabaseProcessor(db_params)
-    print(db.db_params)
 
     args = argument_parser()
+
+    if args.profile:
+        from Embedders import get_embedder
+        print(
+            f"Creating vector table '{'test_table'}' with embedder {'astrobert'} on device {db.device}...")
+        embedder = get_embedder(
+            model_name="adsabs/astroBERT", device=db.device, normalize=False)
+        profile_create_vector_table(db, 'test_table', embedder=embedder)
 
     if args.add_chunks:
         db.chunk_and_insert_records(args.add_chunks)
@@ -411,12 +493,16 @@ def main():
 
         # Create embedding function and get its dimension
         from Embedders import get_embedder
-        print(f"Creating vector table '{table_name}' with embedder {embedder} on device {db.device}...")
+        print(
+            f"Creating vector table '{table_name}' with embedder {embedder} on device {db.device}...")
         embedder = get_embedder(embedder, db.device, normalize)
         dim = embedder(['test']).shape[1]
 
         db.create_vector_table(
             name=table_name, dim=dim, embedder=embedder)
+
+        # TODO: add calls to create indexes
+        # db.create_index(table_name, 'ivfflat', 'vector_cosine_ops', 1580)
         return
 
     if args.test_connection:

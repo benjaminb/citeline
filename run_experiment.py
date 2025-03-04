@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 from database.database import DatabaseProcessor
 from Enrichers import get_enricher
-from embedders import get_embedder
+from Embedders import get_embedder
 
 SIMILARITY_THRESHOLDS = np.arange(0, 1.0, 0.01)
 REQUIRED_EXPERIMENT_PARAMS = {'dataset', 'table',
@@ -79,7 +79,7 @@ def train_test_split_nontrivial(path, split=0.8):
 
 
 def get_db_params():
-    load_dotenv()
+    load_dotenv('.env', override=True)
     return {
         'dbname': os.getenv('DB_NAME'),
         'user': os.getenv('DB_USER'),
@@ -131,7 +131,6 @@ def main():
     # Load database
     db = DatabaseProcessor(get_db_params())
     db.test_connection()
-    print(f"Database config: {db.db_params}")
 
     # Load dataset
     examples = pd.read_json(config['dataset'], lines=True)
@@ -175,8 +174,8 @@ def main():
             example = batch.iloc[j]
             this_embedding = embeddings[j]
             results = db.query_vector_table(
-                config['table'],
-                this_embedding,
+                table_name=config['table'],
+                query_vector=this_embedding,
                 metric=config['metric'],
                 top_k=2453320
             )
@@ -208,7 +207,7 @@ def main():
     with open(f'experiments/results/{filename_base}/results_{filename_base}.json', 'w') as f:
         json.dump(output, f)
     plot_roc_curve(
-        averages, outfile=f"experiments/results/{filename_base}/roc_{filename_base}.png")
+        averages, outfile=f"experiments/results/{filename_base}/{filename_base}.png")
 
 
 if __name__ == "__main__":
