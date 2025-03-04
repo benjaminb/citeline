@@ -62,7 +62,7 @@ def argument_parser():
     )
     parser.add_argument(
         '--create-index', '-i',
-        type=str,
+        action='store_true',
         help='Create an index on the specified table'
     )
     parser.add_argument(
@@ -76,15 +76,15 @@ def argument_parser():
         help='Distance metric to use'
     )
     parser.add_argument(
-        '--add-chunks', '-a',
-        type=str,
-        help='Add chunks to the database from raw json files'
-    )
-    parser.add_argument(
         '--index-type', '-I',
         type=str,
         default='ivfflat',
         help='Type of index to create (default: ivfflat) or hnsw'
+    )
+    parser.add_argument(
+        '--add-chunks', '-a',
+        type=str,
+        help='Add chunks to the database from raw json files'
     )
     parser.add_argument(
         '--test-connection', '-t',
@@ -331,7 +331,7 @@ class DatabaseProcessor:
                      index_type: str, # 'ivfflat' or 'hnsw'
                      metric: str, 
                      num_lists: int = 1580, # sqrt(num chunks, which is ~2.5M)
-                     maintenance_work_mem='5 GB',  
+                     maintenance_work_mem='5GB',  
                      max_parallel_maintenance_workers=4, 
                      max_parallel_workers=4):
         assert index_type in ['ivfflat', 'hnsw'], f"Invalid index type: {index_type}. Must be 'ivfflat' or 'hnsw'"
@@ -339,7 +339,7 @@ class DatabaseProcessor:
         conn = psycopg2.connect(**self.db_params)
         cursor = conn.cursor()
 
-        cursor.execute(f"SET maintenance_work_mem={maintenance_work_mem};", )
+        cursor.execute(f"SET maintenance_work_mem='{maintenance_work_mem}';", )
         cursor.execute(f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
 
