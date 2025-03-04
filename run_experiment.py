@@ -207,7 +207,7 @@ def main():
     with open(f'experiments/results/{filename_base}/results_{filename_base}.json', 'w') as f:
         json.dump(output, f)
     plot_roc_curve(
-        averages, outfile=f"experiments/results/{filename_base}/{filename_base}.png")
+        averages, outfile=f"experiments/results/{filename_base}/roc_{filename_base}.png")
 
 
 if __name__ == "__main__":
