@@ -87,7 +87,7 @@ MODEL_DATA = {
 }
 
 
-def get_embedder(model_name: str, device, normalize: False):
+def get_embedder(model_name: str, device: str, normalize: bool=False) -> Embedder:
     try:
         return EMBEDDING_CLASS[model_name](model_name, device, normalize)
     except KeyError:
