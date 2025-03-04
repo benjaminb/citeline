@@ -61,9 +61,30 @@ def argument_parser():
         help='Batch size for embedding and insertion operations (default 32)'
     )
     parser.add_argument(
+        '--create-index', '-i',
+        type=str,
+        help='Create an index on the specified table'
+    )
+    parser.add_argument(
+        '--table', '-T',
+        type=str,
+        help='Name of the table to create an index on'
+    )
+    parser.add_argument(
+        '--metric', '-m',
+        type=str,
+        help='Distance metric to use'
+    )
+    parser.add_argument(
         '--add-chunks', '-a',
         type=str,
         help='Add chunks to the database from raw json files'
+    )
+    parser.add_argument(
+        '--index-type', '-I',
+        type=str,
+        default='ivfflat',
+        help='Type of index to create (default: ivfflat) or hnsw'
     )
     parser.add_argument(
         '--test-connection', '-t',
@@ -522,6 +543,13 @@ def main():
 
         # TODO: add calls to create indexes
         # db.create_index(table_name, 'ivfflat', 'vector_cosine_ops', 1580)
+        return
+    
+    if args.create_index:
+        # Extract parameters
+        table_name, index_type, metric = args.table, args.index_type, args.metric
+        print(f"Creating index on {table_name} with type {index_type} and metric {metric}")
+        db.create_index(table_name, index_type, metric)
         return
 
     if args.test_connection:
