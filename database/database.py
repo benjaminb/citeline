@@ -55,6 +55,12 @@ def argument_parser():
         help='Normalize embeddings before inserting into the database'
     )
     parser.add_argument(
+        '--batch-size', '-b',
+        type=int,
+        default=32,
+        help='Batch size for embedding and insertion operations (default 32)'
+    )
+    parser.add_argument(
         '--add-chunks', '-a',
         type=str,
         help='Add chunks to the database from raw json files'
@@ -393,7 +399,8 @@ class DatabaseProcessor:
         register_vector(conn)
         cursor = conn.cursor()
 
-        cursor.execute(f"SET ivfflat.probes={n};")
+        # TODO: implement this probes setting
+        # cursor.execute(f"SET ivfflat.probes={n};")
         cursor.execute(
             f"""
             SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance 
@@ -489,7 +496,7 @@ def main():
     if args.create_vector_table:
 
         # Extract parameters
-        table_name, embedder, normalize = args.create_vector_table, args.embedder, args.normalize
+        table_name, embedder, normalize, batch_size = args.create_vector_table, args.embedder, args.normalize, args.batch_size
 
         # Create embedding function and get its dimension
         from Embedders import get_embedder
@@ -499,7 +506,7 @@ def main():
         dim = embedder(['test']).shape[1]
 
         db.create_vector_table(
-            name=table_name, dim=dim, embedder=embedder)
+            name=table_name, dim=dim, embedder=embedder, batch_size=batch_size)
 
         # TODO: add calls to create indexes
         # db.create_index(table_name, 'ivfflat', 'vector_cosine_ops', 1580)
