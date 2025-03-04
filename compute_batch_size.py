@@ -65,7 +65,9 @@ def main():
         'host': os.getenv('DB_HOST'),
         'port': os.getenv('DB_PORT'),
     }
+    start = time()
     db = DatabaseProcessor(db_params)
+    print(f"Database loaded in {time() - start} seconds")
     print(db.db_params)
 
     # Time each embedding model
