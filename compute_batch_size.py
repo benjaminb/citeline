@@ -30,7 +30,7 @@ def stress_test(model_name: str, db: DatabaseProcessor):
             result = embedder(chunks)
             duration = time() - start
             print(f"Result shape: {result.shape}")
-            averages[model_name].append(duration/batch_size)
+            averages.append(duration/batch_size)
             print(
                 f"Batch size {batch_size} took {duration} seconds ({duration/batch_size} per chunk)")
             batch_size *= 2
