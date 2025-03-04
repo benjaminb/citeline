@@ -169,6 +169,11 @@ def main():
 
         # Enrich sentences
         enriched_examples = enricher.enrich_batch(examples)
+        print(f"length of enriched examples: {len(enriched_examples)}")
+        # Get the total length of each example text
+        total_length = [len(example) for example in enriched_examples]
+        print(f"Total length of examples: {total_length}")
+
         embeddings = embedder(enriched_examples)
         for j in range(len(batch)):
             example = batch.iloc[j]

@@ -458,9 +458,9 @@ class DatabaseProcessor:
 
         # Print a pretty table showing db name, user, host, and port from db_params
         print("="*29 + "CONFIG" + "="*29)
-        print(f"{'Database':<16} {'User':<16} {'Host':<16} {'Port':<16}")
+        print(f"{'Database':<16} {'User':<16} {'Host':<32} {'Port':<16}")
         print(
-            f"{self.db_params['dbname']:<16} {self.db_params['user']:<16} {self.db_params['host']:<16} {self.db_params['port']:<16}")
+            f"{self.db_params['dbname']:<16} {self.db_params['user']:<16} {self.db_params['host']:<32} {self.db_params['port']:<16}")
         print("="*64)
 
         # Execute a simple query
