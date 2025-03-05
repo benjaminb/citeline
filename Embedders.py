@@ -50,17 +50,19 @@ class EncoderEmbedder(Embedder):
         super().__init__(model_name, device, normalize)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
 
+        ## Set up the model
         kwargs = {'pretrained_model_name_or_path': model_name,
                   'trust_remote_code': True}
         
-        # Instantiate model
+        # If using multiple GPUs, use the 'auto' device map
         if device == 'cuda' and torch.cuda.device_count() > 1:
             kwargs['device_map'] = 'auto'
             self.model = AutoModel.from_pretrained(**kwargs)
         else:
             model = AutoModel.from_pretrained(**kwargs)
             self.model = model.to(device)
-        model.eval()
+
+        self.model.eval()
         self.max_length = MODEL_DATA[model_name]['max_length'] if model_name in MODEL_DATA and 'max_length' in MODEL_DATA[model_name] else None
 
     def __call__(self, docs: list[str]):
