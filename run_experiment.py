@@ -114,12 +114,32 @@ def plot_roc_curve(scores: dict, outfile: str):
     plt.grid(True)
     plt.savefig(outfile)
 
+class Experiment:
+    def __init__(self, device, dataset, table, embedder, normalize: bool, enrichment: str):
+        self.device = device
+        self.dataset = pd.read_json(dataset, lines=True)
+        self.table = table
+        self.embedder = get_embedder(
+            model_name=embedder,
+            device=device,
+            normalize=normalize
+        )
+        self.db = DatabaseProcessor(get_db_params())
+        self.db.test_connection()
+
+        # Prepare the enricher
+        json_files = [
+            'data/preprocessed/Astro_Reviews.json',
+            'data/preprocessed/Earth_Science_Reviews.json',
+            'data/preprocessed/Planetary_Reviews.json'
+        ]
+        dfs = [pd.read_json(file) for file in json_files]
+        data = pd.concat(dfs, ignore_index=True)
+        self.enricher = get_enricher(enrichment, data)
+
 
 def main():
     args = argument_parser()
-    device = 'cuda' if torch.cuda.is_available(
-    ) else 'mps' if torch.mps.is_available() else 'cpu'
-    print(f"Using device: {device}")
 
     # Load expermient configs
     with open(args.config, 'r') as config_file:
@@ -127,6 +147,8 @@ def main():
     if not REQUIRED_EXPERIMENT_PARAMS.issubset(config.keys()):
         raise ValueError(
             f"Configuration file must contain the following keys: {REQUIRED_EXPERIMENT_PARAMS}. Missing: {REQUIRED_EXPERIMENT_PARAMS - set(config.keys())}")
+
+    config['device'] = 'cuda' if torch.cuda.is_available() else 'mps' if torch.mps.is_available() else 'cpu'
 
     # Load database
     db = DatabaseProcessor(get_db_params())
@@ -165,6 +187,12 @@ def main():
     # Grab a batch
     batch_size = 32
     for i in tqdm(range(1 + len(examples) // batch_size), desc="Batches"):
+        if i % 50 == 0:
+            if device == 'cuda':
+                torch.cuda.empty_cache()
+            elif device == 'mps':
+                torch.mps.empty_cache()
+
         batch = examples.iloc[i * batch_size:(i + 1) * batch_size]
 
         # Enrich sentences

@@ -14,14 +14,14 @@ class Embedder:
         self.normalize = normalize
 
     def __str__(self):
-        return f"{self.model_name}, normalize={self.normalize}"
+        return f"{self.model_name}, device= {self.device}, normalize={self.normalize}"
 
 
 class SentenceTransformerEmbedder(Embedder):
     def __init__(self, model_name: str, device, normalize: bool):
         super().__init__(model_name, device, normalize)
         self.model = SentenceTransformer(model_name, trust_remote_code=True, device=device)
-
+        self.model.eval()
         if device == 'cuda' and torch.cuda.device_count() > 1:
             def encode(docs):
                 pool = self.model.start_multi_process_pool()
@@ -52,13 +52,15 @@ class EncoderEmbedder(Embedder):
 
         kwargs = {'pretrained_model_name_or_path': model_name,
                   'trust_remote_code': True}
+        
+        # Instantiate model
         if device == 'cuda' and torch.cuda.device_count() > 1:
             kwargs['device_map'] = 'auto'
             self.model = AutoModel.from_pretrained(**kwargs)
         else:
             model = AutoModel.from_pretrained(**kwargs)
             self.model = model.to(device)
-
+        model.eval()
         self.max_length = MODEL_DATA[model_name]['max_length'] if model_name in MODEL_DATA and 'max_length' in MODEL_DATA[model_name] else None
 
     def __call__(self, docs: list[str]):
@@ -66,11 +68,14 @@ class EncoderEmbedder(Embedder):
         if self.max_length:
             params['max_length'] = self.max_length
         inputs = self.tokenizer(docs, **params).to(self.device)
+        if inputs['input_ids'].shape[1] > self.max_length:
+            print(f"Warning: input length {inputs['input_ids'].shape[1]} exceeds max_length {self.max_length}")
         outputs = self.model(**inputs)
         embeddings = outputs.last_hidden_state[:, 0, :]
 
         if self.normalize:
             embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+
 
         return embeddings.detach().cpu().numpy()
 
