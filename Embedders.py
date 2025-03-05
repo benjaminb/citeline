@@ -20,23 +20,24 @@ class Embedder:
 class SentenceTransformerEmbedder(Embedder):
     def __init__(self, model_name: str, device, normalize: bool):
         super().__init__(model_name, device, normalize)
-        self.model = SentenceTransformer(model_name, trust_remote_code=True, device=device)
+        self.model = SentenceTransformer(
+            model_name, trust_remote_code=True, device=device)
         self.model.eval()
         if device == 'cuda' and torch.cuda.device_count() > 1:
             def encode(docs):
                 pool = self.model.start_multi_process_pool()
-                embeddings = self.model.encode_multi_process(docs, 
+                embeddings = self.model.encode_multi_process(docs,
                                                              pool=pool,
                                                              normalize_embeddings=self.normalize,
                                                              show_progress_bar=True)
                 self.model.stop_multi_process_pool(pool)
                 return embeddings
             self.encode = encode
-                
+
         else:
             self.encode = lambda docs: self.model.encode(
-                docs, 
-                convert_to_numpy=True, 
+                docs,
+                convert_to_numpy=True,
                 normalize_embeddings=self.normalize,
                 show_progress_bar=True)
 
@@ -44,16 +45,15 @@ class SentenceTransformerEmbedder(Embedder):
         return self.encode(docs)
 
 
-
 class EncoderEmbedder(Embedder):
     def __init__(self, model_name: str, device: str, normalize: bool):
         super().__init__(model_name, device, normalize)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-        ## Set up the model
+        # Set up the model
         kwargs = {'pretrained_model_name_or_path': model_name,
                   'trust_remote_code': True}
-        
+
         # If using multiple GPUs, use the 'auto' device map
         if device == 'cuda' and torch.cuda.device_count() > 1:
             kwargs['device_map'] = 'auto'
@@ -70,14 +70,16 @@ class EncoderEmbedder(Embedder):
         if self.max_length:
             params['max_length'] = self.max_length
         inputs = self.tokenizer(docs, **params).to(self.device)
-        if inputs['input_ids'].shape[1] > self.max_length:
-            print(f"Warning: input length {inputs['input_ids'].shape[1]} exceeds max_length {self.max_length}")
+        # Issue warning if input length exceeds model's max_length
+        # TODO: use AutoConfig to handle this more gracefully
+        if self.max_length and inputs['input_ids'].shape[1] > self.max_length:
+            print(
+                f"Warning: input length {inputs['input_ids'].shape[1]} exceeds max_length {self.max_length}")
         outputs = self.model(**inputs)
         embeddings = outputs.last_hidden_state[:, 0, :]
 
         if self.normalize:
             embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
-
 
         return embeddings.detach().cpu().numpy()
 
@@ -94,7 +96,7 @@ MODEL_DATA = {
 }
 
 
-def get_embedder(model_name: str, device: str, normalize: bool=False) -> Embedder:
+def get_embedder(model_name: str, device: str, normalize: bool = False) -> Embedder:
     try:
         return EMBEDDING_CLASS[model_name](model_name, device, normalize)
     except KeyError:
