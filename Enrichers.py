@@ -63,8 +63,16 @@ ENRICHMENT_FN = {
 }
 
 
-def get_enricher(name: str, data):
+# def get_enricher(name: str, data):
+def get_enricher(name: str) -> Enricher:
     try:
+        json_files = [
+            'data/preprocessed/Astro_Reviews.json',
+            'data/preprocessed/Earth_Science_Reviews.json',
+            'data/preprocessed/Planetary_Reviews.json'
+        ]
+        dfs = [pd.read_json(file) for file in json_files]
+        data = pd.concat(dfs, ignore_index=True)
         return Enricher(ENRICHMENT_FN[name], data)
     except KeyError:
         raise ValueError(

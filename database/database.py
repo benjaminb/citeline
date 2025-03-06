@@ -7,11 +7,13 @@ from psycopg2.extras import execute_values
 import sys
 import torch
 from collections import namedtuple
+from dataclasses import dataclass
 from dotenv import load_dotenv
 from pgvector.psycopg2 import register_vector
 from semantic_text_splitter import TextSplitter
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
+# import dataclass
 
 from time import time
 
@@ -102,6 +104,33 @@ def argument_parser():
     return parser.parse_args()
 
 
+"""
+DATACLASSES
+"""
+
+@dataclass
+class SingleQueryResult:
+    chunk_id: int
+    doi: str
+    text: str
+    distance: float
+
+"""
+DATABASE RELATED FUNCTIONS FOR EXPORT
+"""
+
+def get_db_params(env_file: str = '.env') -> dict[str, str]:
+    """
+    Load database parameters from a .env file
+    """    
+    load_dotenv(env_file, override=True)
+    return {
+        'dbname': os.getenv('DB_NAME'),
+        'user': os.getenv('DB_USER'),
+        'password': os.getenv('DB_PASSWORD'),
+        'host': os.getenv('DB_HOST'),
+        'port': os.getenv('DB_PORT')
+    }
 """
 Helper functions for vector table insertion. These must be outside the class definition to be pickled,
 which is necessary for multiprocessing.
@@ -468,7 +497,7 @@ class DatabaseProcessor:
 
         cursor.execute(
             f"""
-            EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
+            -- EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
             SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance 
             FROM {table_name} 
             JOIN chunks ON {table_name}.chunk_id = chunks.id
@@ -478,15 +507,17 @@ class DatabaseProcessor:
             (query_vector, query_vector, top_k)
         )
         results = cursor.fetchall()
-        print(f"Explain results:\n{results}")
-        with open('results.json', 'w') as f:
-            json.dump(results, f, indent=2)
+        # print(f"Explain results:\n{results}")
+        # with open('results.json', 'w') as f:
+        #     json.dump(results, f, indent=2)
         cursor.close()
 
         # Define the named tuple
-        VectorQueryResult = namedtuple(
-            'VectorQueryResult', ['chunk_id', 'doi', 'text', 'similarity'])
-        return [VectorQueryResult(*result) for result in results]
+        # VectorQueryResult = namedtuple(
+        #     'VectorQueryResult', ['chunk_id', 'doi', 'text', 'distance'])
+        # return [VectorQueryResult(*result) for result in results]
+
+        return [SingleQueryResult(*result) for result in results]
 
     def test_connection(self):
         conn = psycopg2.connect(**self.db_params)
