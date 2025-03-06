@@ -1,5 +1,6 @@
 import argparse
 import gc
+import json
 import os
 import psycopg2
 from psycopg2.extras import execute_values
@@ -461,6 +462,9 @@ class DatabaseProcessor:
             (query_vector, query_vector, top_k)
         )
         results = cursor.fetchall()
+        print(f"Explain results:\n{results}")
+        with open('results.json', 'w') as f:
+            json.dumps(results, f)
         cursor.close()
 
         # Define the named tuple
