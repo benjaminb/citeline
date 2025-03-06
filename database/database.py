@@ -356,13 +356,31 @@ class DatabaseProcessor:
         cursor.execute(f"SELECT id, text FROM chunks;")
         return cursor.fetchall()
 
-    def batch_query_vector_table(self, table_name, query_vectors, metric, top_k=5):
+    def batch_query_vector_table(self,
+                                 table_name,
+                                 query_vectors,
+                                 metric,
+                                 top_k=5,
+                                 probes=40,
+                                 work_mem='2GB',
+                                 max_parallel_workers=8,
+                                 max_parallel_workers_per_gather=8):
         """
         TODO: this isn't working, figure out why
         table_name: name of the vector table
         query_vectors: list of vectors to query
         metric: a key in PGVECTOR_DISTANCE_METRICS to resolve the distance operator
         top_k: number of results to return for each query vector
+
+        Returns a list of lists, where each inner list contains the results for one query vector
+        """
+
+        """
+        table_name: name of the vector table
+        query_vectors: list of vectors to query
+        metric: a key in PGVECTOR_DISTANCE_METRICS to resolve the distance operator
+        top_k: number of results to return for each query vector
+        threshold: the maximum distance to consider a vector as a neighbor
 
         Returns a list of lists, where each inner list contains the results for one query vector
         """
@@ -375,30 +393,27 @@ class DatabaseProcessor:
         register_vector(conn)
         cursor = conn.cursor()
 
-        # Prepare the query
+        # Prepare the query. The threshold is crucial for IVFFlat index effectiveness.
         query = f"""
-        WITH query_vectors AS (
-            SELECT * FROM unnest(%s::vector[]) WITH ORDINALITY AS t(query_vector, query_index)
-        )
-        SELECT 
-            qv.query_index,
-            {table_name}.chunk_id, 
-            chunks.doi, 
-            chunks.text, 
-            {table_name}.embedding {operator} qv.query_vector AS distance
-        FROM query_vectors qv
-        CROSS JOIN LATERAL (
-            SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding
-            FROM {table_name}
-            JOIN chunks ON {table_name}.chunk_id = chunks.id
-            ORDER BY {table_name}.embedding {operator} qv.query_vector
-            LIMIT %s
-        ) AS results
-        ORDER BY qv.query_index, distance DESC
+            WITH query_vectors AS (
+                SELECT unnest(%s::vector[]) AS query_vector, generate_series(1, array_length(%s, 1)) as query_index
+            )
+            SELECT 
+                qv.query_index,
+                vt.chunk_id, 
+                c.doi, 
+                c.text, 
+                vt.embedding {operator} qv.query_vector AS distance  
+            FROM query_vectors qv
+            JOIN {table_name} vt ON vt.embedding {operator} qv.query_vector
+            JOIN chunks c ON vt.chunk_id = c.id
+            ORDER BY qv.query_index, distance DESC  
+            LIMIT {top_k};
         """
 
         # Execute the query
-        cursor.execute(query, (query_vectors, top_k))
+        # Pass query_vectors twice
+        cursor.execute(query, (query_vectors, query_vectors))
         results = cursor.fetchall()
         cursor.close()
         conn.close()
@@ -449,6 +464,7 @@ class DatabaseProcessor:
         cursor.execute(
             f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
         cursor.execute(f"SET ivfflat.probes={probes};")
+        cursor.execute(f"SET enable_seqscan = off;")
 
         cursor.execute(
             f"""
@@ -456,7 +472,7 @@ class DatabaseProcessor:
             SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance 
             FROM {table_name} 
             JOIN chunks ON {table_name}.chunk_id = chunks.id
-            ORDER BY embedding {operator} %s DESC 
+            ORDER BY embedding {operator} %s ASC 
             LIMIT %s;
             """,
             (query_vector, query_vector, top_k)
