@@ -326,21 +326,23 @@ class DatabaseProcessor:
 
         cursor.close()
 
-    def create_index(self, 
-                     table_name: str, 
-                     index_type: str, # 'ivfflat' or 'hnsw'
-                     metric: str, 
-                     num_lists: int = 1580, # sqrt(num chunks, which is ~2.5M)
-                     maintenance_work_mem='5GB',  
-                     max_parallel_maintenance_workers=4, 
+    def create_index(self,
+                     table_name: str,
+                     index_type: str,  # 'ivfflat' or 'hnsw'
+                     metric: str,
+                     num_lists: int = 1580,  # sqrt(num chunks, which is ~2.5M)
+                     maintenance_work_mem='5GB',
+                     max_parallel_maintenance_workers=4,
                      max_parallel_workers=4):
-        assert index_type in ['ivfflat', 'hnsw'], f"Invalid index type: {index_type}. Must be 'ivfflat' or 'hnsw'"
+        assert index_type in [
+            'ivfflat', 'hnsw'], f"Invalid index type: {index_type}. Must be 'ivfflat' or 'hnsw'"
         assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
         conn = psycopg2.connect(**self.db_params)
         cursor = conn.cursor()
 
         cursor.execute(f"SET maintenance_work_mem='{maintenance_work_mem}';", )
-        cursor.execute(f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
+        cursor.execute(
+            f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
 
         cursor.execute(
@@ -415,7 +417,15 @@ class DatabaseProcessor:
         # Return results as a list of lists, maintaining the order of input query vectors
         return [grouped_results.get(i+1, []) for i in range(len(query_vectors))]
 
-    def query_vector_table(self, table_name, query_vector, metric, top_k=5):
+    def query_vector_table(self,
+                           table_name,
+                           query_vector,
+                           metric,
+                           top_k=5,
+                           probes=1,
+                           work_mem='2GB',
+                           max_parallel_workers=8,
+                           max_parallel_workers_per_gather=8):
         """
         table_name: name of the vector table
         query_vector: the vector to query
@@ -432,8 +442,13 @@ class DatabaseProcessor:
         register_vector(conn)
         cursor = conn.cursor()
 
-        # TODO: implement this probes setting
-        # cursor.execute(f"SET ivfflat.probes={n};")
+        # Set the session resources
+        cursor.execute(f"SET work_mem='{work_mem}';")
+        cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
+        cursor.execute(
+            f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
+        cursor.execute(f"SET ivfflat.probes={probes};")
+
         cursor.execute(
             f"""
             SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance 
@@ -544,11 +559,12 @@ def main():
         # TODO: add calls to create indexes
         # db.create_index(table_name, 'ivfflat', 'vector_cosine_ops', 1580)
         return
-    
+
     if args.create_index:
         # Extract parameters
         table_name, index_type, metric = args.table, args.index_type, args.metric
-        print(f"Creating index on {table_name} with type {index_type} and metric {metric}")
+        print(
+            f"Creating index on {table_name} with type {index_type} and metric {metric}")
         db.create_index(table_name, index_type, metric)
         return
 
