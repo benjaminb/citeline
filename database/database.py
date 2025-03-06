@@ -6,14 +6,15 @@ import psycopg2
 from psycopg2.extras import execute_values
 import sys
 import torch
-from collections import namedtuple
+# from collections import namedtuple
 from dataclasses import dataclass
 from dotenv import load_dotenv
 from pgvector.psycopg2 import register_vector
 from semantic_text_splitter import TextSplitter
+from time import time
 from tqdm import tqdm
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
-# import dataclass
+
 
 from time import time
 
@@ -362,8 +363,8 @@ class DatabaseProcessor:
                      metric: str,
                      num_lists: int = 1580,  # sqrt(num chunks, which is ~2.5M)
                      maintenance_work_mem='5GB',
-                     max_parallel_maintenance_workers=4,
-                     max_parallel_workers=4):
+                     max_parallel_maintenance_workers=8,
+                     max_parallel_workers=8):
         assert index_type in [
             'ivfflat', 'hnsw'], f"Invalid index type: {index_type}. Must be 'ivfflat' or 'hnsw'"
         assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
@@ -375,9 +376,14 @@ class DatabaseProcessor:
             f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
 
+        print(f"Starting index creation on {table_name}...")
+        start = time()
         cursor.execute(
             f"CREATE INDEX ON {table_name} USING {index_type}(embedding {metric}) WITH (lists = {num_lists});")
         conn.commit()
+        end = time()
+        print(
+            f"Created {index_type} index on {table_name} with {metric} metric in {end - start:.2f} seconds")
         cursor.close()
         conn.close()
 
@@ -447,20 +453,18 @@ class DatabaseProcessor:
         cursor.close()
         conn.close()
 
-        # Define the named tuple
-        VectorQueryResult = namedtuple(
-            'VectorQueryResult', ['chunk_id', 'doi', 'text', 'similarity'])
+        # TODO: pull results out into dataclass
 
         # Group results by query_index
-        grouped_results = {}
-        for result in results:
-            query_index = result[0]
-            if query_index not in grouped_results:
-                grouped_results[query_index] = []
-            grouped_results[query_index].append(VectorQueryResult(*result[1:]))
+        # grouped_results = {}
+        # for result in results:
+        #     query_index = result[0]
+        #     if query_index not in grouped_results:
+        #         grouped_results[query_index] = []
+        #     grouped_results[query_index].append(VectorQueryResult(*result[1:]))
 
         # Return results as a list of lists, maintaining the order of input query vectors
-        return [grouped_results.get(i+1, []) for i in range(len(query_vectors))]
+        # return [grouped_results.get(i+1, []) for i in range(len(query_vectors))]
 
     def query_vector_table(self,
                            table_name,
@@ -512,10 +516,7 @@ class DatabaseProcessor:
         #     json.dump(results, f, indent=2)
         cursor.close()
 
-        # Define the named tuple
-        # VectorQueryResult = namedtuple(
-        #     'VectorQueryResult', ['chunk_id', 'doi', 'text', 'distance'])
-        # return [VectorQueryResult(*result) for result in results]
+
 
         return [SingleQueryResult(*result) for result in results]
 
@@ -538,25 +539,25 @@ class DatabaseProcessor:
         cursor.close()
         conn.close()
 
-    def set_ivf_probes(self, n=None):
-        """
-        Sets the number of probes for the IVFFlat index. If `n` not specified, it will be set to N**0.25,
-        where N is the number of chunks.
-        """
-        conn = psycopg2.connect(**self.db_params)
-        cursor = conn.cursor()
-        if n:
-            cursor.execute(f"SET ivfflat.probes={n};")
-        else:
-            # Get the number of chunks
-            cursor.execute("SELECT COUNT(*) FROM chunks;")
-            n = cursor.fetchone()[0]
-            print(f"Setting IVFFlat probes to {n}**0.25 = {int(n**0.25)}")
-            cursor.execute(f"SET ivfflat.probes={int(n**0.25)};")
+    # def set_ivf_probes(self, n=None):
+    #     """
+    #     Sets the number of probes for the IVFFlat index. If `n` not specified, it will be set to N**0.25,
+    #     where N is the number of chunks.
+    #     """
+    #     conn = psycopg2.connect(**self.db_params)
+    #     cursor = conn.cursor()
+    #     if n:
+    #         cursor.execute(f"SET ivfflat.probes={n};")
+    #     else:
+    #         # Get the number of chunks
+    #         cursor.execute("SELECT COUNT(*) FROM chunks;")
+    #         n = cursor.fetchone()[0]
+    #         print(f"Setting IVFFlat probes to {n}**0.25 = {int(n**0.25)}")
+    #         cursor.execute(f"SET ivfflat.probes={int(n**0.25)};")
 
-        conn.commit()
-        cursor.close()
-        conn.close()
+    #     conn.commit()
+    #     cursor.close()
+    #     conn.close()
 
 
 def profile_create_vector_table(db, table_name, embedder):

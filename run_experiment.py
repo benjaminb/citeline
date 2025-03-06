@@ -180,8 +180,12 @@ class Experiment:
         }
 
     def run(self):
+        # Compute number of batches. If the dataset size is not a multiple of the batch size, add one more batch
+        num_iterations = len(self.dataset) // self.batch_size if len(
+            self.dataset) % self.batch_size == 0 else 1 + len(self.dataset) // self.batch_size
+        
         # Grab a batch
-        for i in tqdm(range(1 + len(self.dataset) // self.batch_size), desc="Batches", leave=True):
+        for i in tqdm(range(num_iterations), desc="Batches", leave=True):
             if i % 50 == 0:
                 if self.device == 'cuda':
                     torch.cuda.empty_cache()
