@@ -422,7 +422,7 @@ class DatabaseProcessor:
                            query_vector,
                            metric,
                            top_k=5,
-                           probes=1,
+                           probes=40,
                            work_mem='2GB',
                            max_parallel_workers=8,
                            max_parallel_workers_per_gather=8):

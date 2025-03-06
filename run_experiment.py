@@ -114,6 +114,7 @@ def plot_roc_curve(scores: dict, outfile: str):
     plt.grid(True)
     plt.savefig(outfile)
 
+
 class Experiment:
     def __init__(self, device, dataset, table, embedder, normalize: bool, enrichment: str):
         self.device = device
@@ -148,7 +149,8 @@ def main():
         raise ValueError(
             f"Configuration file must contain the following keys: {REQUIRED_EXPERIMENT_PARAMS}. Missing: {REQUIRED_EXPERIMENT_PARAMS - set(config.keys())}")
 
-    device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.mps.is_available() else 'cpu'
+    device = 'cuda' if torch.cuda.is_available(
+    ) else 'mps' if torch.mps.is_available() else 'cpu'
 
     # Load database
     db = DatabaseProcessor(get_db_params())
@@ -188,7 +190,7 @@ def main():
     jaccard_scores = {threshold: [] for threshold in SIMILARITY_THRESHOLDS}
 
     # Grab a batch
-    for i in tqdm(range(1 + len(examples) // batch_size), desc="Batches"):
+    for i in tqdm(range(1 + len(examples) // batch_size), desc="Batches", leave=True):
         if i % 50 == 0:
             if device == 'cuda':
                 torch.cuda.empty_cache()
@@ -197,15 +199,11 @@ def main():
 
         batch = examples.iloc[i * batch_size:(i + 1) * batch_size]
 
-        # Enrich sentences
+        # Enrich and embed batch
         enriched_batch = enricher.enrich_batch(batch)
-        print(f"length of enriched examples: {len(batch)}")
-        # Get the total length of each example text
-        # total_length = [len(example) for example in enriched_examples]
-        # print(f"Total length of examples: {total_length}")
-
         embeddings = embedder(enriched_batch)
-        for j in range(len(batch)):
+
+        for j in tqdm(range(len(batch)), desc="Querying vectors", leave=True):
             example = batch.iloc[j]
             this_embedding = embeddings[j]
             results = db.query_vector_table(
