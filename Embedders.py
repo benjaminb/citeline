@@ -14,7 +14,7 @@ class Embedder:
         self.normalize = normalize
 
     def __str__(self):
-        return f"{self.model_name}, device= {self.device}, normalize={self.normalize}"
+        return f"{self.model_name}, device={self.device}, normalize={self.normalize}"
 
 
 class SentenceTransformerEmbedder(Embedder):

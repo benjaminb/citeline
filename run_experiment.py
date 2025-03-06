@@ -198,13 +198,13 @@ def main():
         batch = examples.iloc[i * batch_size:(i + 1) * batch_size]
 
         # Enrich sentences
-        enriched_examples = enricher.enrich_batch(examples)
-        print(f"length of enriched examples: {len(enriched_examples)}")
+        enriched_batch = enricher.enrich_batch(batch)
+        print(f"length of enriched examples: {len(batch)}")
         # Get the total length of each example text
         # total_length = [len(example) for example in enriched_examples]
         # print(f"Total length of examples: {total_length}")
 
-        embeddings = embedder(enriched_examples)
+        embeddings = embedder(enriched_batch)
         for j in range(len(batch)):
             example = batch.iloc[j]
             this_embedding = embeddings[j]
