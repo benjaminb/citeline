@@ -464,7 +464,7 @@ class DatabaseProcessor:
         results = cursor.fetchall()
         print(f"Explain results:\n{results}")
         with open('results.json', 'w') as f:
-            json.dumps(results, f)
+            json.dump(results, f, indent=2)
         cursor.close()
 
         # Define the named tuple
