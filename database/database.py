@@ -501,7 +501,7 @@ class DatabaseProcessor:
 
         cursor.execute(
             f"""
-            -- EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
+            EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
             SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance 
             FROM {table_name} 
             JOIN chunks ON {table_name}.chunk_id = chunks.id
@@ -511,9 +511,9 @@ class DatabaseProcessor:
             (query_vector, query_vector, top_k)
         )
         results = cursor.fetchall()
-        # print(f"Explain results:\n{results}")
-        # with open('results.json', 'w') as f:
-        #     json.dump(results, f, indent=2)
+        print(f"Explain results:\n{results}")
+        with open('results.json', 'w') as f:
+            json.dump(results, f, indent=2)
         cursor.close()
 
 
@@ -525,7 +525,7 @@ class DatabaseProcessor:
         cursor = conn.cursor()
 
         # Print a pretty table showing db name, user, host, and port from db_params
-        print("="*29 + "CONFIG" + "="*29)
+        print("="*33 + "CONFIG" + "="*33)
         print(f"{'Database':<16} {'User':<16} {'Host':<32} {'Port':<16}")
         print(
             f"{self.db_params['dbname']:<16} {self.db_params['user']:<16} {self.db_params['host']:<32} {self.db_params['port']:<16}")
