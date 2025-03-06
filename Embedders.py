@@ -1,5 +1,5 @@
 import torch
-import numpy as np
+# import numpy as np
 from sentence_transformers import SentenceTransformer
 from transformers import AutoModel, AutoTokenizer
 

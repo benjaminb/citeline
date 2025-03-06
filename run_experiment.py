@@ -148,7 +148,7 @@ def main():
         raise ValueError(
             f"Configuration file must contain the following keys: {REQUIRED_EXPERIMENT_PARAMS}. Missing: {REQUIRED_EXPERIMENT_PARAMS - set(config.keys())}")
 
-    config['device'] = 'cuda' if torch.cuda.is_available() else 'mps' if torch.mps.is_available() else 'cpu'
+    device = 'cuda' if torch.cuda.is_available() else 'mps' if torch.mps.is_available() else 'cpu'
 
     # Load database
     db = DatabaseProcessor(get_db_params())
@@ -179,13 +179,15 @@ def main():
     data = pd.concat(dfs, ignore_index=True)
     enricher = get_enricher(config['enrichment'], data)
 
+    batch_size = config.get(batch_size, 32)
+    print(f"Batch size: {batch_size}")
+
     """
     Experiment procedure
     """
     jaccard_scores = {threshold: [] for threshold in SIMILARITY_THRESHOLDS}
 
     # Grab a batch
-    batch_size = 32
     for i in tqdm(range(1 + len(examples) // batch_size), desc="Batches"):
         if i % 50 == 0:
             if device == 'cuda':
@@ -199,8 +201,8 @@ def main():
         enriched_examples = enricher.enrich_batch(examples)
         print(f"length of enriched examples: {len(enriched_examples)}")
         # Get the total length of each example text
-        total_length = [len(example) for example in enriched_examples]
-        print(f"Total length of examples: {total_length}")
+        # total_length = [len(example) for example in enriched_examples]
+        # print(f"Total length of examples: {total_length}")
 
         embeddings = embedder(enriched_examples)
         for j in range(len(batch)):
