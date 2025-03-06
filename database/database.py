@@ -451,6 +451,7 @@ class DatabaseProcessor:
 
         cursor.execute(
             f"""
+            EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
             SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance 
             FROM {table_name} 
             JOIN chunks ON {table_name}.chunk_id = chunks.id
