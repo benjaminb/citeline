@@ -179,7 +179,7 @@ def main():
     data = pd.concat(dfs, ignore_index=True)
     enricher = get_enricher(config['enrichment'], data)
 
-    batch_size = config.get(batch_size, 32)
+    batch_size = config.get('batch_size', 32)
     print(f"Batch size: {batch_size}")
 
     """
