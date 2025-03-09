@@ -241,33 +241,44 @@ class Experiment:
             # Enrich and embed batch
             enriched_batch = self.enricher.enrich_batch(batch)
             embeddings = self.embedder(enriched_batch)
-            results = self.db.batch_query_vector_table(
-                table_name=self.table,
-                query_vectors=embeddings,
-                metric=self.metric,
-                top_k=100
-            )
-            print(f"results length: {len(results)}")
-            print(f"First result: {results[0]}")
 
-            assert len(results) == len(batch) == len(
-                embeddings), f"Length mismatch: {len(results)} results, {len(batch)} examples, {len(embeddings)} embeddings"
+            # TODO: test batch query code here
+            # results = self.db.batch_query_vector_table(
+            #     table_name=self.table,
+            #     query_vectors=embeddings,
+            #     metric=self.metric,
+            #     top_k=100
+            # )
+            # print(f"results length: {len(results)}")
+            # print(f"First result: {results[0]}")
 
-            # for j in tqdm(range(len(batch)), desc="Querying vectors", leave=True):
-            #     example = batch.iloc[j]
-            #     this_embedding = embeddings[j]
-            #     results = self.db.query_vector_table(
-            #         table_name=self.table,
-            #         query_vector=this_embedding,
-            #         metric=self.metric,
-            #         top_k=2453320
-            #     )
+            # assert len(results) == len(batch) == len(
+            #     embeddings), f"Length mismatch: {len(results)} results, {len(batch)} examples, {len(embeddings)} embeddings"
+
             # for query_results, example in zip(results, batch):
-            for i in range(len(batch)):
-                example, query_results = batch.iloc[i], results[i]
+
+            # for j in range(len(batch)):
+            #     example, query_results = batch.iloc[j], results[j]
+            #     for threshold in DISTANCE_THRESHOLDS:
+            #         predicted_chunks = self._closest_neighbors(
+            #             query_results, threshold)
+            #         score = self._evaluate_prediction(
+            #             example, predicted_chunks)
+            #         self.jaccard_scores[threshold].append(score)
+
+            for j in tqdm(range(len(batch)), desc="Querying vectors", leave=True):
+                example = batch.iloc[j]
+                this_embedding = embeddings[j]
+                results = self.db.query_vector_table(
+                    table_name=self.table,
+                    query_vector=this_embedding,
+                    metric=self.metric,
+                    use_index=False,
+                    top_k=2453320
+                )
                 for threshold in DISTANCE_THRESHOLDS:
                     predicted_chunks = self._closest_neighbors(
-                        query_results, threshold)
+                        results, threshold)
                     score = self._evaluate_prediction(
                         example, predicted_chunks)
                     self.jaccard_scores[threshold].append(score)
