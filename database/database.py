@@ -1,8 +1,10 @@
 import argparse
 import gc
 import json
+import numpy as np
 import os
 import psycopg2
+from psycopg2 import Binary
 from psycopg2.extras import execute_values
 import sys
 import torch
@@ -109,6 +111,7 @@ def argument_parser():
 DATACLASSES
 """
 
+
 @dataclass
 class SingleQueryResult:
     chunk_id: int
@@ -116,14 +119,20 @@ class SingleQueryResult:
     text: str
     distance: float
 
+@dataclass
+class ChunkAndVector:
+    text: str
+    vector: np.array
+
 """
 DATABASE RELATED FUNCTIONS FOR EXPORT
 """
 
+
 def get_db_params(env_file: str = '.env') -> dict[str, str]:
     """
     Load database parameters from a .env file
-    """    
+    """
     load_dotenv(env_file, override=True)
     return {
         'dbname': os.getenv('DB_NAME'),
@@ -132,6 +141,8 @@ def get_db_params(env_file: str = '.env') -> dict[str, str]:
         'host': os.getenv('DB_HOST'),
         'port': os.getenv('DB_PORT')
     }
+
+
 """
 Helper functions for vector table insertion. These must be outside the class definition to be pickled,
 which is necessary for multiprocessing.
@@ -390,6 +401,24 @@ class DatabaseProcessor:
     def _get_all_chunks(self, cursor, columns: list[str] = ['id', 'text']) -> list[dict]:
         cursor.execute(f"SELECT id, text FROM chunks;")
         return cursor.fetchall()
+    
+
+    def get_vectors_by_doi(self, doi: str, vector_table: str) -> list[str]:
+        conn = psycopg2.connect(**self.db_params)
+        cursor = conn.cursor()
+        cursor.execute(
+            f"""
+            SELECT 
+                text,
+                {vector_table}.embedding AS embedding
+            FROM chunks 
+            JOIN {vector_table} ON chunks.id = {vector_table}.chunk_id
+            WHERE doi = '{doi}';
+            """)
+        results = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return [ChunkAndVector(text, np.array(lst)) for text, lst in results]
 
     def batch_query_vector_table(self,
                                  table_name,
@@ -397,7 +426,7 @@ class DatabaseProcessor:
                                  metric,
                                  top_k=5,
                                  probes=40,
-                                 work_mem='2GB',
+                                 work_mem='8GB',
                                  max_parallel_workers=8,
                                  max_parallel_workers_per_gather=8):
         """
@@ -427,44 +456,81 @@ class DatabaseProcessor:
         conn = psycopg2.connect(**self.db_params)
         register_vector(conn)
         cursor = conn.cursor()
+        dim = query_vectors.shape[1]
+        query_vectors_list = [
+            f"[{','.join(map(str, vec.astype(float)))}]" for vec in query_vectors
+        ]
+        # query_vectors_string = 
 
-        # Prepare the query. The threshold is crucial for IVFFlat index effectiveness.
+        # Create a temporary table to hold the query vectors
+        cursor.execute(
+            f"CREATE TEMP TABLE temp_query_vectors (embedding VECTOR({dim}));")
+        execute_values(cursor,
+                       "INSERT INTO temp_query_vectors (embedding) VALUES %s;",
+                       query_vectors_list,
+                       template="(%s)")
+
         query = f"""
-            WITH query_vectors AS (
-                SELECT unnest(%s::vector[]) AS query_vector, generate_series(1, array_length(%s, 1)) as query_index
-            )
-            SELECT 
-                qv.query_index,
-                vt.chunk_id, 
-                c.doi, 
-                c.text, 
-                vt.embedding {operator} qv.query_vector AS distance  
-            FROM query_vectors qv
-            JOIN {table_name} vt ON vt.embedding {operator} qv.query_vector
-            JOIN chunks c ON vt.chunk_id = c.id
-            ORDER BY qv.query_index, distance DESC  
+            SELECT
+                t.chunk_id,
+                c.doi,
+                c.text,
+                t.embedding {operator} qv.embedding AS distance
+            FROM {table_name} AS t
+            JOIN chunks AS c ON t.chunk_id = c.id
+            JOIN temp_query_vectors AS qv
+            ON TRUE  -- Creates a CROSS JOIN
+            ORDER BY distance ASC
             LIMIT {top_k};
-        """
-
-        # Execute the query
-        # Pass query_vectors twice
-        cursor.execute(query, (query_vectors, query_vectors))
+            """
+        cursor.execute(query)
         results = cursor.fetchall()
         cursor.close()
         conn.close()
+        return [[SingleQueryResult(*res) for res in result] for result in results]
+        # Set the session resources
+        # cursor.execute(f"SET work_mem='{work_mem}';")
+        # cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
+        # cursor.execute(
+        #     f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
+        # cursor.execute(f"SET ivfflat.probes={probes};")
+        # cursor.execute(f"SET enable_seqscan = off;")
 
-        # TODO: pull results out into dataclass
+        # # Convert numpy array to a list of vector strings
+        # query_vectors_list = [
+        #     f"'[{','.join(map(str, vec))}]'::vector" for vec in query_vectors]
+        # query_vectors_str = "ARRAY[" + ",".join(query_vectors_list) + "]"
 
-        # Group results by query_index
-        # grouped_results = {}
-        # for result in results:
-        #     query_index = result[0]
-        #     if query_index not in grouped_results:
-        #         grouped_results[query_index] = []
-        #     grouped_results[query_index].append(VectorQueryResult(*result[1:]))
+        # query = f"""
+        # WITH query_vectors AS (
+        #     SELECT unnest({query_vectors_str}::vector[]) AS query_vector
+        # )
+        # SELECT
+        #     {table_name}.chunk_id AS chunk_id,
+        #     chunks.doi AS doi,
+        #     chunks.text AS text,
+        #     {table_name}.embedding {operator} query_vector AS distance
+        # FROM
+        #     {table_name}
+        # JOIN
+        #     chunks ON {table_name}.chunk_id = chunks.id
+        # CROSS JOIN
+        #     query_vectors
+        # ORDER BY
+        #     distance ASC
+        # LIMIT {top_k};
+        # """
 
-        # Return results as a list of lists, maintaining the order of input query vectors
-        # return [grouped_results.get(i+1, []) for i in range(len(query_vectors))]
+        # cursor.execute(query)
+        # results = cursor.fetchall()
+        # cursor.close()
+        # conn.close()
+        # return_results = []
+        # for row in results:
+        #     return_results.append(SingleQueryResult(*row))
+        # return return_results
+
+        # return [[SingleQueryResult(*res) for res in result] for result in results]
 
     def query_vector_table(self,
                            table_name,
@@ -472,6 +538,7 @@ class DatabaseProcessor:
                            metric,
                            top_k=5,
                            probes=40,
+                           use_index=True,
                            work_mem='2GB',
                            max_parallel_workers=8,
                            max_parallel_workers_per_gather=8):
@@ -496,12 +563,15 @@ class DatabaseProcessor:
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
         cursor.execute(
             f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
-        cursor.execute(f"SET ivfflat.probes={probes};")
-        cursor.execute(f"SET enable_seqscan = off;")
+        if not use_index:
+            cursor.execute(f"SET enable_indexscan = off;")
+        else:
+            cursor.execute(f"SET ivfflat.probes={probes};")
+            cursor.execute("SET enable_seqscan = off;")
 
         cursor.execute(
             f"""
-            EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
+            -- EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
             SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance 
             FROM {table_name} 
             JOIN chunks ON {table_name}.chunk_id = chunks.id
@@ -511,12 +581,11 @@ class DatabaseProcessor:
             (query_vector, query_vector, top_k)
         )
         results = cursor.fetchall()
-        print(f"Explain results:\n{results}")
-        with open('results.json', 'w') as f:
-            json.dump(results, f, indent=2)
+        # print(f"Explain results:\n{results}")
+        # with open('results.json', 'w') as f:
+        #     json.dump(results, f, indent=2)
         cursor.close()
-
-
+        conn.close()
 
         return [SingleQueryResult(*result) for result in results]
 
@@ -529,7 +598,7 @@ class DatabaseProcessor:
         print(f"{'Database':<16} {'User':<16} {'Host':<32} {'Port':<16}")
         print(
             f"{self.db_params['dbname']:<16} {self.db_params['user']:<16} {self.db_params['host']:<32} {self.db_params['port']:<16}")
-        print("="*64)
+        print("="*72)
 
         # Execute a simple query
         cursor.execute("SELECT version();")
@@ -538,26 +607,6 @@ class DatabaseProcessor:
 
         cursor.close()
         conn.close()
-
-    # def set_ivf_probes(self, n=None):
-    #     """
-    #     Sets the number of probes for the IVFFlat index. If `n` not specified, it will be set to N**0.25,
-    #     where N is the number of chunks.
-    #     """
-    #     conn = psycopg2.connect(**self.db_params)
-    #     cursor = conn.cursor()
-    #     if n:
-    #         cursor.execute(f"SET ivfflat.probes={n};")
-    #     else:
-    #         # Get the number of chunks
-    #         cursor.execute("SELECT COUNT(*) FROM chunks;")
-    #         n = cursor.fetchone()[0]
-    #         print(f"Setting IVFFlat probes to {n}**0.25 = {int(n**0.25)}")
-    #         cursor.execute(f"SET ivfflat.probes={int(n**0.25)};")
-
-    #     conn.commit()
-    #     cursor.close()
-    #     conn.close()
 
 
 def profile_create_vector_table(db, table_name, embedder):

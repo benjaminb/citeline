@@ -5,10 +5,11 @@
 # Mac OS files
 .DS_Store
 
-# Plain text files generally used for scratch purposes
+# Plain text and temp files generally used for scratch purposes
 *.txt
 !requirements.txt
 *.csv
+temp_*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

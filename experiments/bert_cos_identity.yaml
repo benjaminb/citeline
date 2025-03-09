@@ -1,0 +1,9 @@
+dataset: 'data/dataset/no_reviews/nontrivial.jsonl'
+table: 'bert'
+metric: 'vector_cosine_ops'
+embedder: 'bert-base-uncased'
+normalize: False
+enrichment: 'identity'
+batch_size: 256
+
+singularity exec --env PGHOST=holy8a24203.rc.fas.harvard.edu,PGPORT=10569,PGDATABASE=postgres,PGUSER=bbasseri,PGPASSWORD=citeline25 <imagepsql

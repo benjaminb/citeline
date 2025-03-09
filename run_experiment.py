@@ -183,7 +183,7 @@ class Experiment:
         # Compute number of batches. If the dataset size is not a multiple of the batch size, add one more batch
         num_iterations = len(self.dataset) // self.batch_size if len(
             self.dataset) % self.batch_size == 0 else 1 + len(self.dataset) // self.batch_size
-        
+
         # Grab a batch
         for i in tqdm(range(num_iterations), desc="Batches", leave=True):
             if i % 50 == 0:
@@ -221,6 +221,62 @@ class Experiment:
                          for threshold, scores in self.jaccard_scores.items()}
         self._write_results()
 
+    def run_batch(self):
+        # num_batches = len(self.dataset) // self.batch_size if len(
+        #     self.dataset) % self.batch_size == 0 else 1 + len(self.dataset) // self.batch_size
+        num_batches = len(self.dataset) // self.batch_size + \
+            int(len(self.dataset) % self.batch_size > 0)
+
+        # Grab a batch
+        for i in tqdm(range(num_batches), desc="Batches", leave=True):
+            if i % 50 == 0:
+                if self.device == 'cuda':
+                    torch.cuda.empty_cache()
+                elif self.device == 'mps':
+                    torch.mps.empty_cache()
+
+            batch = self.dataset.iloc[i *
+                                      self.batch_size:(i + 1) * self.batch_size]
+
+            # Enrich and embed batch
+            enriched_batch = self.enricher.enrich_batch(batch)
+            embeddings = self.embedder(enriched_batch)
+            results = self.db.batch_query_vector_table(
+                table_name=self.table,
+                query_vectors=embeddings,
+                metric=self.metric,
+                top_k=100
+            )
+            print(f"results length: {len(results)}")
+            print(f"First result: {results[0]}")
+
+            assert len(results) == len(batch) == len(
+                embeddings), f"Length mismatch: {len(results)} results, {len(batch)} examples, {len(embeddings)} embeddings"
+
+            # for j in tqdm(range(len(batch)), desc="Querying vectors", leave=True):
+            #     example = batch.iloc[j]
+            #     this_embedding = embeddings[j]
+            #     results = self.db.query_vector_table(
+            #         table_name=self.table,
+            #         query_vector=this_embedding,
+            #         metric=self.metric,
+            #         top_k=2453320
+            #     )
+            # for query_results, example in zip(results, batch):
+            for i in range(len(batch)):
+                example, query_results = batch.iloc[i], results[i]
+                for threshold in DISTANCE_THRESHOLDS:
+                    predicted_chunks = self._closest_neighbors(
+                        query_results, threshold)
+                    score = self._evaluate_prediction(
+                        example, predicted_chunks)
+                    self.jaccard_scores[threshold].append(score)
+
+        # Compute average scores and write out results
+        self.averages = {round(threshold, 2): float(sum(scores) / len(scores))
+                         for threshold, scores in self.jaccard_scores.items()}
+        self._write_results()
+
 
 def main():
     args = argument_parser()
@@ -243,7 +299,7 @@ def main():
         enrichment=config['enrichment'],
         batch_size=config.get('batch_size', 16)
     )
-    experiment.run()
+    experiment.run_batch()
 
 
 if __name__ == "__main__":
