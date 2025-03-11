@@ -435,7 +435,7 @@ class DatabaseProcessor:
 
         # Create index
         cursor.execute(
-            f"CREATE INDEX {index_name} ON {table_name} USING {index_type} (embedding {metric}) {parameters}")
+            f"CREATE INDEX {index_name} ON {table_name} USING {index_type} (embedding {metric}) WITH {parameters}")
         conn.commit()
 
         # Cleanup
