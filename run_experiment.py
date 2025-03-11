@@ -19,11 +19,45 @@ DISTANCE_THRESHOLDS = np.arange(1.0, 0.0, -0.01)
 def argument_parser():
     # Set up argument parser
     parser = argparse.ArgumentParser(
-        description='Run an experiment with specified configuration.')
-    parser.add_argument('config', type=str,
+        description='Run an experiment with specified configuration or build a dataset.')
+
+    # Create mutually exclusive operation groups
+    operation_group = parser.add_mutually_exclusive_group(required=True)
+    operation_group.add_argument(
+        '--run', action='store_true', help='run the experiment')
+    operation_group.add_argument(
+        '--build', action='store_true', help='build a dataset')
+
+    # Config argument is optional now
+    parser.add_argument('--config', type=str,
                         help='Path to the YAML configuration file.')
 
-    return parser.parse_args()
+    # Dataset building arguments
+    parser.add_argument('--num', type=int,
+                        help='number of examples to include')
+    parser.add_argument('--source', type=str,
+                        help='path to source dataset (jsonl)')
+    parser.add_argument('--dest', type=str,
+                        help='path to destination dataset (jsonl)')
+    parser.add_argument('--seed', type=int,
+                        help='random seed for dataset sampling')
+
+    args = parser.parse_args()
+
+    # Apply custom validation
+    if args.run and not args.config:
+        parser.error("--run requires --config")
+
+    if args.build and (not args.num or not args.source or not args.dest):
+        parser.error("--build requires --num, --source, and --dest arguments")
+
+    return args
+
+
+def build_training_dataset(num_examples, source_path, dest_path, seed=None):
+    examples = pd.read_json(source_path, lines=True)
+    examples = examples.sample(num_examples, random_state=seed)
+    examples.to_json(dest_path, orient='records', lines=True)
 
 
 def train_test_split_nontrivial(path, split=0.8):
@@ -206,7 +240,8 @@ class Experiment:
                     table_name=self.table,
                     query_vector=this_embedding,
                     metric=self.metric,
-                    top_k=2453320
+                    # top_k=2453320
+                    top_k=40
                 )
 
                 for threshold in DISTANCE_THRESHOLDS:
@@ -273,8 +308,9 @@ class Experiment:
                     table_name=self.table,
                     query_vector=this_embedding,
                     metric=self.metric,
-                    use_index=False,
-                    top_k=2453320
+                    use_index=True,
+                    # top_k=2453320
+                    top_k=1_200_000
                 )
                 for threshold in DISTANCE_THRESHOLDS:
                     predicted_chunks = self._closest_neighbors(
@@ -292,25 +328,39 @@ class Experiment:
 def main():
     args = argument_parser()
 
-    # Load expermient configs
-    with open(args.config, 'r') as config_file:
-        config = yaml.safe_load(config_file)
+    if args.build:
+        num, source, dest, seed = args.num, args.source, args.dest, args.seed
+        print(
+            f"Building dataset with {num} examples from {source} to {dest}. Using seed: {seed}")
+        build_training_dataset(
+            num_examples=num,
+            source_path=source,
+            dest_path=dest,
+            seed=seed
+        )
+        print("Dataset built.")
+        return
 
-    device = 'cuda' if torch.cuda.is_available(
-    ) else 'mps' if torch.mps.is_available() else 'cpu'
+    if args.run:
+        # Load expermient configs
+        with open(args.config, 'r') as config_file:
+            config = yaml.safe_load(config_file)
 
-    # Set up and run experiment
-    experiment = Experiment(
-        device=device,
-        dataset_path=config['dataset'],
-        table=config['table'],
-        metric=config['metric'],
-        embedding_model_name=config['embedder'],
-        normalize=config['normalize'],
-        enrichment=config['enrichment'],
-        batch_size=config.get('batch_size', 16)
-    )
-    experiment.run_batch()
+        device = 'cuda' if torch.cuda.is_available(
+        ) else 'mps' if torch.mps.is_available() else 'cpu'
+
+        # Set up and run experiment
+        experiment = Experiment(
+            device=device,
+            dataset_path=config['dataset'],
+            table=config['table'],
+            metric=config['metric'],
+            embedding_model_name=config['embedder'],
+            normalize=config['normalize'],
+            enrichment=config['enrichment'],
+            batch_size=config.get('batch_size', 16)
+        )
+        experiment.run_batch()
 
 
 if __name__ == "__main__":

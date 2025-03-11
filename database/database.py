@@ -31,6 +31,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # fmt: on
 
+
 MAX_CPU_CORES = 12
 PGVECTOR_DISTANCE_METRICS = {
     'vector_l2_ops': '<->',
@@ -119,10 +120,12 @@ class SingleQueryResult:
     text: str
     distance: float
 
+
 @dataclass
 class ChunkAndVector:
     text: str
     vector: np.array
+
 
 """
 DATABASE RELATED FUNCTIONS FOR EXPORT
@@ -401,7 +404,6 @@ class DatabaseProcessor:
     def _get_all_chunks(self, cursor, columns: list[str] = ['id', 'text']) -> list[dict]:
         cursor.execute(f"SELECT id, text FROM chunks;")
         return cursor.fetchall()
-    
 
     def get_vectors_by_doi(self, doi: str, vector_table: str) -> list[str]:
         conn = psycopg2.connect(**self.db_params)
@@ -460,7 +462,7 @@ class DatabaseProcessor:
         query_vectors_list = [
             f"[{','.join(map(str, vec.astype(float)))}]" for vec in query_vectors
         ]
-        # query_vectors_string = 
+        # query_vectors_string =
 
         # Create a temporary table to hold the query vectors
         cursor.execute(
@@ -575,7 +577,7 @@ class DatabaseProcessor:
             SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance 
             FROM {table_name} 
             JOIN chunks ON {table_name}.chunk_id = chunks.id
-            ORDER BY embedding {operator} %s ASC 
+            ORDER BY {table_name}.embedding {operator} %s ASC 
             LIMIT %s;
             """,
             (query_vector, query_vector, top_k)
