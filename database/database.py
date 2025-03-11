@@ -44,11 +44,36 @@ def argument_parser():
     parser = argparse.ArgumentParser(
         description='Database operations'
     )
-    parser.add_argument(
+    operation_group = parser.add_mutually_exclusive_group(required=True)
+    operation_group.add_argument(
         '--create-vector-table', '-v',
-        type=str,
+        action='store_true',
         help='Create a new vector table with the specified name'
     )
+    operation_group.add_argument(
+        '--create-index', '-i',
+        action='store_true',
+        help='Create an index on the specified table'
+    )
+    operation_group.add_argument(
+        '--add-chunks', '-a',
+        type=str,
+        help='Add chunks to the database from raw json files'
+    )
+    operation_group.add_argument(
+        '--test-connection', '-t',
+        default=False,
+        action='store_true',
+        help='Test the database connection'
+    )
+    operation_group.add_argument(
+        '--profile', '-p',
+        default=False,
+        action='store_true',
+        help='Profile the create_vector_table function'
+    )
+
+    # Create vector table arguments
     parser.add_argument(
         '--embedder', '-e',
         type=str,
@@ -67,11 +92,8 @@ def argument_parser():
         default=32,
         help='Batch size for embedding and insertion operations (default 32)'
     )
-    parser.add_argument(
-        '--create-index', '-i',
-        action='store_true',
-        help='Create an index on the specified table'
-    )
+
+    # Create index arguments
     parser.add_argument(
         '--table', '-T',
         type=str,
@@ -85,26 +107,33 @@ def argument_parser():
     parser.add_argument(
         '--index-type', '-I',
         type=str,
-        default='ivfflat',
-        help='Type of index to create (default: ivfflat) or hnsw'
+        default='hnsw',
+        help='Type of index to create (default: hnsw) or ivfflat'
     )
+
+    # Add HNSW-specific parameters
     parser.add_argument(
-        '--add-chunks', '-a',
-        type=str,
-        help='Add chunks to the database from raw json files'
+        '--m', '-M',
+        type=int,
+        default=32,
+        help='M parameter for HNSW index (default: 32)'
     )
+
     parser.add_argument(
-        '--test-connection', '-t',
-        default=False,
-        action='store_true',
-        help='Test the database connection'
+        '--ef-construction', '-E',
+        type=int,
+        default=512,
+        help='Ef construction parameter for HNSW index (default: 512)'
     )
+
+    # Add IVFFlat-specific parameter
     parser.add_argument(
-        '--profile', '-p',
-        default=False,
-        action='store_true',
-        help='Profile the create_vector_table function'
+        '--num-lists', '-N',
+        type=int,
+        default=1580,  # sqrt(~2.5M)
+        help='Number of lists for IVFFlat index (default: 1580)'
     )
+
     return parser.parse_args()
 
 
@@ -376,25 +405,40 @@ class DatabaseProcessor:
                      index_type: str,  # 'ivfflat' or 'hnsw'
                      metric: str,
                      num_lists: int = 1580,  # sqrt(num chunks, which is ~2.5M)
-                     maintenance_work_mem='5GB',
+                     m: int = 32,
+                     ef_construction: int = 512,
+                     maintenance_work_mem='16GB',
                      max_parallel_maintenance_workers=8,
                      max_parallel_workers=8):
+        # Check input
         assert index_type in [
             'ivfflat', 'hnsw'], f"Invalid index type: {index_type}. Must be 'ivfflat' or 'hnsw'"
         assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
         conn = psycopg2.connect(**self.db_params)
         cursor = conn.cursor()
 
+        # Set session resources
         cursor.execute(f"SET maintenance_work_mem='{maintenance_work_mem}';", )
         cursor.execute(
             f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
 
-        print(f"Starting index creation on {table_name}...")
+        # Resolve index name and parameters
+        index_name = f"{table_name}_{index_type}_{metric}_m{m}_ef{ef_construction}"
+        print(f"Creating index {index_name}")
+        parameters = ''
         start = time()
+        if index_type == 'hsnw':
+            parameters = f"(m = {m}, ef_construction = {ef_construction});"
+        elif index_type == 'ivfflat':
+            parameters = f"(lists = {num_lists});"
+
+        # Create index
         cursor.execute(
-            f"CREATE INDEX ON {table_name} USING {index_type}(embedding {metric}) WITH (lists = {num_lists});")
+            f"CREATE INDEX {index_name} ON {table_name} USING {index_type} (embedding {metric}) {parameters}")
         conn.commit()
+
+        # Cleanup
         end = time()
         print(
             f"Created {index_type} index on {table_name} with {metric} metric in {end - start:.2f} seconds")
@@ -665,11 +709,24 @@ def main():
         return
 
     if args.create_index:
-        # Extract parameters
-        table_name, index_type, metric = args.table, args.index_type, args.metric
-        print(
-            f"Creating index on {table_name} with type {index_type} and metric {metric}")
-        db.create_index(table_name, index_type, metric)
+        if args.index_type == 'hnsw':
+            m, ef_construction = args.m, args.ef_construction
+            print(
+                f"Creating index on {args.table} with type {args.index_type} and metric {args.metric}")
+            db.create_index(
+                table_name=args.table,
+                index_type=args.index_type,
+                metric=args.metric,
+                m=args.m,
+                ef_construction=args.ef_construction)
+        elif args.index_type == 'ivfflat':
+            db.create_index(
+                table_name=args.table_name,
+                index_type=args.index_type,
+                metric=args.metric,
+                num_lists=args.num_lists)
+        else:
+            print(f"Invalid index type: {index_type}")
         return
 
     if args.test_connection:
