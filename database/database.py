@@ -338,7 +338,7 @@ class DatabaseProcessor:
         cursor.close()
         conn.close()
 
-    def create_vector_table(self, name, dim, embedder, work_mem='1024MB', maintenance_work_mem='2048MB', batch_size=32):
+    def create_vector_table(self, name, dim, embedder, work_mem='2048MB', maintenance_work_mem='2048MB', batch_size=32):
         """
         1. Creates a vector table
         2. Creates indexes for all distance metrics
@@ -352,8 +352,22 @@ class DatabaseProcessor:
         conn = psycopg2.connect(**self.db_params)
         register_vector(conn)
         cursor = conn.cursor()
-        cursor.execute(f"SET maintenance_work_mem='{maintenance_work_mem}';")
+
+        # Set session resources
+        cores = os.cpu_count()
+        max_worker_processes = max_parallel_workers = max(1, cores - 2)
+        max_parallel_maintenance_workers = int(0.2 * max_worker_processes)
+        print("="*33 + "CONFIG" + "="*33)
+        print("max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | work_mem | maintenance_work_mem")
+        print(
+            f"{max_worker_processes:^21} {max_parallel_workers:^21} {max_parallel_maintenance_workers:^33} {work_mem:^9} {maintenance_work_mem:^21}")
+        print("="*72)
+        cursor.execute(f"SET max_worker_processes={max_worker_processes};")
+        cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
+        cursor.execute(
+            f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
         cursor.execute(f"SET work_mem='{work_mem}';")
+        cursor.execute(f"SET maintenance_work_mem='{maintenance_work_mem}';", )
 
         # Create table
         cursor.execute(
