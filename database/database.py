@@ -356,7 +356,7 @@ class DatabaseProcessor:
         # Set session resources
         cores = os.cpu_count()
         cursor.execute("SHOW max_worker_processes;")
-        max_worker_processes = cursor.fetchone()[0]
+        max_worker_processes = int(cursor.fetchone()[0])
         max_parallel_workers = max(1, cores - 2)
         max_parallel_maintenance_workers = int(0.2 * max_worker_processes)
         print("="*33 + "CONFIG" + "="*33)
