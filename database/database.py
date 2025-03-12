@@ -77,7 +77,7 @@ def argument_parser():
     create_index_parser = subparsers.add_parser('create-index',
                                                 help='Create an index on a table')
     create_index_parser.add_argument(
-        '--table', '-T',
+        '--table-name', '-T',
         required=True,  # Required for this operation
         type=str,
         help='Name of the table to create an index on'
@@ -727,21 +727,29 @@ def main():
 
     if args.operation == 'create-index':
         if args.index_type == 'hnsw':
-            m, ef_construction = args.m, args.ef_construction
+            # m, ef_construction = args.m, args.ef_construction
+            values = ['table_name', 'index_type', 'metric', 'm', 'ef_construction']
+            kwargs = {k: v for k, v in vars(args).items() if k in values}
             print(
                 f"Creating index on {args.table} with type {args.index_type} and metric {args.metric}")
-            db.create_index(
-                table_name=args.table,
-                index_type=args.index_type,
-                metric=args.metric,
-                m=args.m,
-                ef_construction=args.ef_construction)
+            db.create_index(**kwargs)
+            # db.create_index(
+            #     table_name=args.table,
+            #     index_type=args.index_type,
+            #     metric=args.metric,
+            #     m=args.m,
+            #     ef_construction=args.ef_construction)
         elif args.index_type == 'ivfflat':
-            db.create_index(
-                table_name=args.table_name,
-                index_type=args.index_type,
-                metric=args.metric,
-                num_lists=args.num_lists)
+            values = ['table_name', 'index_type', 'metric', 'num_lists']
+            kwargs = {k: v for k, v in vars(args).items() if k in values}
+            print(
+                f"Creating index on {args.table_name} with type {args.index_type} and metric {args.metric}")
+            db.create_index(**kwargs)
+            # db.create_index(
+            #     table_name=args.table_name,
+            #     index_type=args.index_type,
+            #     metric=args.metric,
+            #     num_lists=args.num_lists)
         else:
             print(f"Invalid index type: {index_type}")
         return

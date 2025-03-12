@@ -11,4 +11,4 @@ module load python
 mamba activate citeline
 cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline/database
 git pull
-python database.py create-vector-table --table-name="bge" --embedder="BAAI/bge-small-en" --batch-size=256
+python database.py create-vector-table --table-name="bge" --embedder="BAAI/bge-small-en" --batch-size=16
