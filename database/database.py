@@ -95,7 +95,7 @@ def argument_parser():
         help='Distance metric to use for the index (default: vector_cosine_ops)'
     )
     create_index_parser.add_argument(
-        '--m', 'M',
+        '--m', '-M',
         default=32,
         type=int,
         help='M parameter for HNSW (default: 32)'
