@@ -39,97 +39,81 @@ PGVECTOR_DISTANCE_METRICS = {
 
 
 def argument_parser():
-    parser = argparse.ArgumentParser(
-        description='Database operations'
-    )
-    operation_group = parser.add_mutually_exclusive_group(required=True)
-    operation_group.add_argument(
-        '--create-vector-table', '-v',
-        action='store_true',
-        help='Create a new vector table with the specified name'
-    )
-    operation_group.add_argument(
-        '--create-index', '-i',
-        action='store_true',
-        help='Create an index on the specified table'
-    )
-    operation_group.add_argument(
-        '--add-chunks', '-a',
-        type=str,
-        help='Add chunks to the database from raw json files'
-    )
-    operation_group.add_argument(
-        '--test-connection', '-t',
-        default=False,
-        action='store_true',
-        help='Test the database connection'
-    )
-    operation_group.add_argument(
-        '--profile', '-p',
-        default=False,
-        action='store_true',
-        help='Profile the create_vector_table function'
-    )
+    parser = argparse.ArgumentParser(description='Database operations')
 
-    # Create vector table arguments
-    parser.add_argument(
+    # Create subparsers for different operations
+    subparsers = parser.add_subparsers(dest='operation', required=True,
+                                       help='Operation to perform')
+
+    # Create vector table operation
+    create_vector_parser = subparsers.add_parser('create-vector-table',
+                                                 help='Create a new vector table')
+    create_vector_parser.add_argument(
+        '--table-name', '-T',
+        required=True,  # This is now required for this operation
+        type=str,
+        help='Name of the vector table to create'
+    )
+    create_vector_parser.add_argument(
         '--embedder', '-e',
         type=str,
         default='BAAI/bge-small-en',
         help='Name of the embedding model to use (default: BAAI/bge-small-en)'
     )
-    parser.add_argument(
+    create_vector_parser.add_argument(
         '--normalize', '-n',
         default=False,
         action='store_true',
         help='Normalize embeddings before inserting into the database'
     )
-    parser.add_argument(
+    create_vector_parser.add_argument(
         '--batch-size', '-b',
         type=int,
         default=32,
-        help='Batch size for embedding and insertion operations (default 32)'
+        help='Batch size for embedding and insertion operations'
     )
 
-    # Create index arguments
-    parser.add_argument(
+    # Create index operation
+    create_index_parser = subparsers.add_parser('create-index',
+                                                help='Create an index on a table')
+    create_index_parser.add_argument(
         '--table', '-T',
+        required=True,  # Required for this operation
         type=str,
         help='Name of the table to create an index on'
     )
-    parser.add_argument(
-        '--metric', '-m',
+
+    # Add chunks operation
+    add_chunks_parser = subparsers.add_parser(
+        'add-chunks', help='Add chunks to the database')
+    add_chunks_parser.add_argument(
+        '--path', '-p',
+        required=True,
         type=str,
-        help='Distance metric to use'
+        help='Path to the dataset to add to the database'
     )
-    parser.add_argument(
-        '--index-type', '-I',
+    add_chunks_parser.add_argument(
+        '--max-length', '-m',
+        type=int,
+        default=1500,
+        help='Maximum length of each chunk'
+    )
+    add_chunks_parser.add_argument(
+        '--overlap', '-o',
+        type=int,
+        default=150,
+        help='Overlap between chunks'
+    )
+
+    # TODO: update this or fix it
+    # Profile operation
+    profile_parser = subparsers.add_parser(
+        'profile', help='Profile a function')
+    profile_parser.add_argument(
+        '--function', '-f',
+        required=True,
         type=str,
-        default='hnsw',
-        help='Type of index to create (default: hnsw) or ivfflat'
-    )
-
-    # Add HNSW-specific parameters
-    parser.add_argument(
-        '--m', '-M',
-        type=int,
-        default=32,
-        help='M parameter for HNSW index (default: 32)'
-    )
-
-    parser.add_argument(
-        '--ef-construction', '-E',
-        type=int,
-        default=512,
-        help='Ef construction parameter for HNSW index (default: 512)'
-    )
-
-    # Add IVFFlat-specific parameter
-    parser.add_argument(
-        '--num-lists', '-N',
-        type=int,
-        default=1580,  # sqrt(~2.5M)
-        help='Number of lists for IVFFlat index (default: 1580)'
+        help='Name of the function to profile'
     )
 
     return parser.parse_args()
@@ -338,7 +322,13 @@ class DatabaseProcessor:
         cursor.close()
         conn.close()
 
-    def create_vector_table(self, name, dim, embedder, work_mem='2048MB', maintenance_work_mem='2048MB', batch_size=32):
+    def create_vector_table(self,
+                            table_name: str,
+                            dim: int,
+                            embedder,  # Embedder
+                            work_mem='2048MB',
+                            maintenance_work_mem='2048MB',
+                            batch_size=32):
         """
         1. Creates a vector table
         2. Creates indexes for all distance metrics
@@ -372,14 +362,14 @@ class DatabaseProcessor:
 
         # Create table
         cursor.execute(
-            f"""CREATE TABLE {name} (
+            f"""CREATE TABLE {table_name} (
                 id SERIAL PRIMARY KEY,
                 embedding VECTOR({dim}),
                 chunk_id INTEGER REFERENCES chunks(id)
                 );
             """)
         conn.commit()
-        print(f"Created table {name}")
+        print(f"Created table {table_name}")
 
         # Get all chunks for embedding
         ids_and_chunks = self._get_all_chunks(cursor)
@@ -407,7 +397,7 @@ class DatabaseProcessor:
             # Insert
             start_insert = time()
             execute_values(
-                cursor, f"INSERT INTO {name} (embedding, chunk_id) VALUES %s;", data)
+                cursor, f"INSERT INTO {table_name} (embedding, chunk_id) VALUES %s;", data)
             print(f"Insert time: {time() - start_insert}")
             conn.commit()
 
@@ -679,7 +669,8 @@ class DatabaseProcessor:
 
 def profile_create_vector_table(db, table_name, embedder):
     with cProfile.Profile() as pr:
-        db.create_vector_table(name=table_name, dim=768, embedder=embedder)
+        db.create_vector_table(table_name=table_name,
+                               dim=768, embedder=embedder)
     stats = pstats.Stats(pr)
     stats.strip_dirs().sort_stats("cumulative").print_stats(40)
 
@@ -687,6 +678,8 @@ def profile_create_vector_table(db, table_name, embedder):
 def main():
     # NOTE: assumes .env is in the parent directory
     load_dotenv('../.env', override=True)
+
+    # Database setup
     db_params = {
         'dbname': os.getenv('DB_NAME'),
         'user': os.getenv('DB_USER'),
@@ -694,12 +687,12 @@ def main():
         'host': os.getenv('DB_HOST'),
         'port': os.getenv('DB_PORT')
     }
-    print(f"Database parameters: {db_params}")
     db = DatabaseProcessor(db_params)
+    db.test_connection()
 
     args = argument_parser()
 
-    if args.profile:
+    if args.operation == 'profile':
         from Embedders import get_embedder
         print(
             f"Creating vector table '{'test_table'}' with embedder {'astrobert'} on device {db.device}...")
@@ -707,11 +700,13 @@ def main():
             model_name="adsabs/astroBERT", device=db.device, normalize=False)
         profile_create_vector_table(db, 'test_table', embedder=embedder)
 
-    if args.add_chunks:
-        db.chunk_and_insert_records(args.add_chunks)
+    if args.operation == 'add-chunks':
+
+        db.chunk_and_insert_records(
+            path=args.path, max_length=args.max_length, overlap=args.overlap)
         return
 
-    if args.create_vector_table:
+    if args.operation == 'create-vector-table':
 
         # Extract parameters
         table_name, embedder, normalize, batch_size = args.create_vector_table, args.embedder, args.normalize, args.batch_size
@@ -724,13 +719,13 @@ def main():
         dim = embedder(['test']).shape[1]
 
         db.create_vector_table(
-            name=table_name, dim=dim, embedder=embedder, batch_size=batch_size)
+            table_name=table_name, dim=dim, embedder=embedder, batch_size=batch_size)
 
         # TODO: add calls to create indexes
         # db.create_index(table_name, 'ivfflat', 'vector_cosine_ops', 1580)
         return
 
-    if args.create_index:
+    if args.operation == 'create-index':
         if args.index_type == 'hnsw':
             m, ef_construction = args.m, args.ef_construction
             print(
