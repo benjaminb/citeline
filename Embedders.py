@@ -18,28 +18,28 @@ class Embedder:
 
 
 class SentenceTransformerEmbedder(Embedder):
-    def __init__(self, model_name: str, device, normalize: bool):
+    def __init__(self, model_name: str, device: str, normalize: bool):
         super().__init__(model_name, device, normalize)
         self.model = SentenceTransformer(
             model_name, trust_remote_code=True, device=device)
         self.model.eval()
-        if device == 'cuda' and torch.cuda.device_count() > 1:
-            def encode(docs):
-                pool = self.model.start_multi_process_pool()
-                embeddings = self.model.encode_multi_process(docs,
-                                                             pool=pool,
-                                                             normalize_embeddings=self.normalize,
-                                                             show_progress_bar=True)
-                self.model.stop_multi_process_pool(pool)
-                return embeddings
-            self.encode = encode
+        # Found this to be much slower than using a single GPU
+        # if device == 'cuda' and torch.cuda.device_count() > 1:
+        #     self.pool = self.model.start_multi_process_pool()
+        #     def encode(docs):
+        #         embeddings = self.model.encode_multi_process(docs,
+        #                                                      pool=self.pool,
+        #                                                      normalize_embeddings=self.normalize,
+        #                                                      show_progress_bar=True)
+        #         return embeddings
+        #     self.encode = encode
 
-        else:
-            self.encode = lambda docs: self.model.encode(
-                docs,
-                convert_to_numpy=True,
-                normalize_embeddings=self.normalize,
-                show_progress_bar=True)
+        # else:
+        self.encode = lambda docs: self.model.encode(
+            docs,
+            convert_to_numpy=True,
+            normalize_embeddings=self.normalize,
+            show_progress_bar=True)
 
     def __call__(self, docs):
         return self.encode(docs)
