@@ -289,11 +289,11 @@ class DatabaseProcessor:
         print(f"Created table {name}")
 
         # Create indexes
-        for metric in PGVECTOR_DISTANCE_METRICS:
-            print(f"Creating index on {metric}...", end="")
-            cursor.execute(
-                f"CREATE INDEX ON {name} USING hnsw (embedding {metric})")
-            print("done.")
+        # for metric in PGVECTOR_DISTANCE_METRICS:
+        #     print(f"Creating index on {metric}...", end="")
+        #     cursor.execute(
+        #         f"CREATE INDEX ON {name} USING hnsw (embedding {metric})")
+        #     print("done.")
         conn.commit()
 
         # Get all chunks for embedding
@@ -432,14 +432,17 @@ class DatabaseProcessor:
         print(f"Creating index {index_name}")
         parameters = ''
         start = time()
-        if index_type == 'hsnw':
+        if index_type == 'hnsw':
             parameters = f"(m = {m}, ef_construction = {ef_construction});"
         elif index_type == 'ivfflat':
             parameters = f"(lists = {num_lists});"
+        else:
+            print(f"Invalid index type: {index_type}")
+            return
 
         # Create index
-        cursor.execute(
-            f"CREATE INDEX {index_name} ON {table_name} USING {index_type} (embedding {metric}) WITH {parameters}")
+        query = f"CREATE INDEX {index_name} ON {table_name} USING {index_type} (embedding {metric}) WITH {parameters}"
+        cursor.execute(query)
         conn.commit()
 
         # Cleanup
