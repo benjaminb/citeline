@@ -31,8 +31,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # fmt: on
 
-
-MAX_CPU_CORES = 12
 PGVECTOR_DISTANCE_METRICS = {
     'vector_l2_ops': '<->',
     'vector_ip_ops': '<#>',
@@ -237,7 +235,7 @@ class DatabaseProcessor:
         all_chunks = []
 
         # Use ProcessPoolExecutor to parallelize chunking
-        cores = min(os.cpu_count(), MAX_CPU_CORES)
+        cores = min(1, os.cpu_count() - 2)
         with ProcessPoolExecutor(max_workers=cores) as process_executor:
             futures = [process_executor.submit(
                 self._chunk_record, record, max_length, overlap) for record in records]
@@ -406,10 +404,7 @@ class DatabaseProcessor:
                      metric: str,
                      num_lists: int = 1580,  # sqrt(num chunks, which is ~2.5M)
                      m: int = 32,
-                     ef_construction: int = 512,
-                     maintenance_work_mem='16GB',
-                     max_parallel_maintenance_workers=8,
-                     max_parallel_workers=8):
+                     ef_construction: int = 512):
         # Check input
         assert index_type in [
             'ivfflat', 'hnsw'], f"Invalid index type: {index_type}. Must be 'ivfflat' or 'hnsw'"
@@ -418,6 +413,15 @@ class DatabaseProcessor:
         cursor = conn.cursor()
 
         # Set session resources
+        cores = os.cpu_count()
+        max_worker_processes = max_parallel_workers = max(1, cores - 2)
+        max_parallel_maintenance_workers = int(0.8 * max_worker_processes)
+        maintenance_work_mem = '4GB'
+        print("="*33 + "CONFIG" + "="*33)
+        print("max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | maintenance_work_mem")
+        print(
+            f"{max_worker_processes:^21} {max_parallel_workers:^21} {max_parallel_maintenance_workers:^33} {maintenance_work_mem:^21}")
+        print("="*72)
         cursor.execute(f"SET maintenance_work_mem='{maintenance_work_mem}';", )
         cursor.execute(
             f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
