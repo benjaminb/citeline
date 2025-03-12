@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-#SBATCH -p seas_gpu # partition (queue)
+#SBATCH -p sapphire # partition (queue)
 #SBATCH -c 20 # number of cores
 #SBATCH --gres=gpu:1 # number of GPUs
 #SBATCH --mem 64000 # memory pool for all cores
