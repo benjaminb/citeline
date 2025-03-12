@@ -82,6 +82,36 @@ def argument_parser():
         type=str,
         help='Name of the table to create an index on'
     )
+    create_index_parser.add_argument(
+        '--index-type', 'i',
+        default='hnsw',
+        type=str,
+        help='Type of index to create (default: hnsw)'
+    )
+    create_index_parser.add_argument(
+        '--metric', '-m',
+        default='vector_cosine_ops',
+        type=str,
+        help='Distance metric to use for the index (default: vector_cosine_ops)'
+    )
+    create_index_parser.add_argument(
+        '--m', 'M',
+        default=32,
+        type=int,
+        help='M parameter for HNSW (default: 32)'
+    )
+    create_index_parser.add_argument(
+        '--ef-construction', '-ef',
+        default=512,
+        type=int,
+        help='efConstruction parameter for HNSW (default: 512)'
+    )
+    create_index_parser.add_argument(
+        '--num-lists', '-l',
+        default=1580,
+        type=int,
+        help='Number of lists for IVFFlat (default: 1580)'
+    )
 
     # Add chunks operation
     add_chunks_parser = subparsers.add_parser(
