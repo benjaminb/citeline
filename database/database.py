@@ -761,7 +761,7 @@ def main():
             values = ['table_name', 'index_type', 'metric', 'm', 'ef_construction']
             kwargs = {k: v for k, v in vars(args).items() if k in values}
             print(
-                f"Creating index on {args.table} with type {args.index_type} and metric {args.metric}")
+                f"Creating index on {args.table_name} with type {args.index_type} and metric {args.metric}")
             db.create_index(**kwargs)
             # db.create_index(
             #     table_name=args.table,
