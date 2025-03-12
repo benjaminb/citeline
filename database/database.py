@@ -709,7 +709,7 @@ def main():
     if args.operation == 'create-vector-table':
 
         # Extract parameters
-        table_name, embedder, normalize, batch_size = args.create_vector_table, args.embedder, args.normalize, args.batch_size
+        table_name, embedder, normalize, batch_size = args.table_name, args.embedder, args.normalize, args.batch_size
 
         # Create embedding function and get its dimension
         from Embedders import get_embedder
