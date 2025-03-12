@@ -83,7 +83,7 @@ def argument_parser():
         help='Name of the table to create an index on'
     )
     create_index_parser.add_argument(
-        '--index-type', 'i',
+        '--index-type', '-i',
         default='hnsw',
         type=str,
         help='Type of index to create (default: hnsw)'
