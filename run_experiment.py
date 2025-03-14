@@ -167,14 +167,13 @@ class Experiment:
         avg_scores = [self.averages[threshold] for threshold in thresholds]
         plt.plot(thresholds, avg_scores, marker='.',
                  linestyle='-', label='Average Jaccard Score')
-        plt.xlabel('Distance Threshold')
-        plt.legend()
+        plt.xlabel(f'Distance Threshold (n = {len(self.dataset)})')
         plt.grid(True)
         plt.savefig(outfile)
 
     def _get_output_filename_base(self):
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f'{self.table}_{self.enrichment}_norm{self.normalize}_{self.metric_to_str[self.metric]}_{current_time}'
+        return f'{self.table}_{self.enrichment}_norm{self.normalize}_{self.metric_to_str[self.metric]}_n{len(self.dataset)}_{current_time}'
 
     def _write_json_results(self, filename_base):
         # Prep results and outfile name

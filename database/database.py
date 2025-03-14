@@ -41,15 +41,20 @@ PGVECTOR_DISTANCE_METRICS = {
 def argument_parser():
     parser = argparse.ArgumentParser(description='Database operations')
 
-    # Create subparsers for different operations
-    subparsers = parser.add_subparsers(dest='operation', required=True,
-                                       help='Operation to perform')
+    # # Create subparsers for different operations
+    # subparsers = parser.add_subparsers(dest='operation', required=True,
+    #                                    help='Operation to perform')
 
-    # Create vector table operation
-    create_vector_parser = subparsers.add_parser('create-vector-table',
-                                                 help='Create a new vector table')
+    # # Create vector table operation
+    # create_vector_parser = subparsers.add_parser('create-vector-table',
+    #                                              help='Create a new vector table')
 
     operation_group = parser.add_mutually_exclusive_group(required=True)
+    operation_group.add_argument(
+        '--test-connection', '-t',
+        action='store_true',
+        help='Test database connection'
+    )
     operation_group.add_argument(
         '--create-vector-table', '-V',
         action='store_true',
@@ -93,7 +98,7 @@ def argument_parser():
     )
 
     # Create index arguments
-    # --table-name already defined 
+    # --table-name already defined
     parser.add_argument(
         '--index-type', '-i',
         default='hnsw',
@@ -128,12 +133,11 @@ def argument_parser():
     # Add chunks arguments
     parser.add_argument(
         '--path', '-p',
-        required=True,
         type=str,
         help='Path to the dataset to add to the database'
     )
     parser.add_argument(
-        '--max-length', '-m',
+        '--max-length', '-L',
         type=int,
         default=1500,
         help='Maximum length of each chunk'
@@ -157,20 +161,28 @@ def argument_parser():
         help='Name of the function to profile'
     )
     """
+    args = parser.parse_args()
 
     # Validate args
     if args.create_vector_table and not all([args.table_name, args.embedder]):
-        parser.error("--create-vector-table requires --table-name and --embedder")
-
-    if args.create_index and not all([args.table_name, args.index_type, args.metric]):
         parser.error(
-            "--create-index requires --table-name, --index-type, and --metric")
+            "--create-vector-table requires --table-name and --embedder")
+
+    if args.create_index:
+        if not args.index_type or not args.table_name:
+            parser.error(
+                "--create-index requires --index-type and --table-name")
+        if args.index_type == 'ivfflat' and notall([args.num_lists]):
+            parser.error("--create-index requires --num-lists for ivfflat")
+        if args.index_type == 'hnsw' and not all([args.m, args.ef_construction]):
+            parser.error(
+                "--create-index requires --m and --ef-construction for hnsw")
 
     if args.add_chunks and not all([args.path, args.max_length, args.overlap]):
         parser.error(
             "--add-chunks requires --path, --max-length, and --overlap")
 
-    return parser.parse_args()
+    return args
 
 
 """
@@ -746,21 +758,21 @@ def main():
 
     args = argument_parser()
 
-    if args.operation == 'profile':
-        from Embedders import get_embedder
-        print(
-            f"Creating vector table '{'test_table'}' with embedder {'astrobert'} on device {db.device}...")
-        embedder = get_embedder(
-            model_name="adsabs/astroBERT", device=db.device, normalize=False)
-        profile_create_vector_table(db, 'test_table', embedder=embedder)
+    # if args.operation == 'profile':
+    #     from Embedders import get_embedder
+    #     print(
+    #         f"Creating vector table '{'test_table'}' with embedder {'astrobert'} on device {db.device}...")
+    #     embedder = get_embedder(
+    #         model_name="adsabs/astroBERT", device=db.device, normalize=False)
+    #     profile_create_vector_table(db, 'test_table', embedder=embedder)
 
-    if args.operation == 'add-chunks':
+    if args.add_chunks:
 
         db.chunk_and_insert_records(
             path=args.path, max_length=args.max_length, overlap=args.overlap)
         return
 
-    if args.operation == 'create-vector-table':
+    if args.create_vector_table:
 
         # Extract parameters
         table_name, embedder, normalize, batch_size = args.table_name, args.embedder, args.normalize, args.batch_size
@@ -779,31 +791,21 @@ def main():
         # db.create_index(table_name, 'ivfflat', 'vector_cosine_ops', 1580)
         return
 
-    if args.operation == 'create-index':
+    if args.create_index:
         if args.index_type == 'hnsw':
             # m, ef_construction = args.m, args.ef_construction
-            values = ['table_name', 'index_type', 'metric', 'm', 'ef_construction']
+            values = ['table_name', 'index_type',
+                      'metric', 'm', 'ef_construction']
             kwargs = {k: v for k, v in vars(args).items() if k in values}
             print(
                 f"Creating index on {args.table_name} with type {args.index_type} and metric {args.metric}")
             db.create_index(**kwargs)
-            # db.create_index(
-            #     table_name=args.table,
-            #     index_type=args.index_type,
-            #     metric=args.metric,
-            #     m=args.m,
-            #     ef_construction=args.ef_construction)
         elif args.index_type == 'ivfflat':
             values = ['table_name', 'index_type', 'metric', 'num_lists']
             kwargs = {k: v for k, v in vars(args).items() if k in values}
             print(
                 f"Creating index on {args.table_name} with type {args.index_type} and metric {args.metric}")
             db.create_index(**kwargs)
-            # db.create_index(
-            #     table_name=args.table_name,
-            #     index_type=args.index_type,
-            #     metric=args.metric,
-            #     num_lists=args.num_lists)
         else:
             print(f"Invalid index type: {index_type}")
         return
