@@ -48,87 +48,97 @@ def argument_parser():
     # Create vector table operation
     create_vector_parser = subparsers.add_parser('create-vector-table',
                                                  help='Create a new vector table')
-    create_vector_parser.add_argument(
+
+    operation_group = parser.add_mutually_exclusive_group(required=True)
+    operation_group.add_argument(
+        '--create-vector-table', '-V',
+        action='store_true',
+        help='Create a new vector table'
+    )
+    operation_group.add_argument(
+        '--create-index', '-I',
+        action='store_true',
+        help='Create an index on a table'
+    )
+    operation_group.add_argument(
+        '--add-chunks', '-A',
+        action='store_true',
+        help='Add chunks to the database'
+    )
+
+    # Create vector table arguments
+    parser.add_argument(
         '--table-name', '-T',
         required=True,  # This is now required for this operation
         type=str,
-        help='Name of the vector table to create'
+        help='Name of target table'
     )
-    create_vector_parser.add_argument(
+    parser.add_argument(
         '--embedder', '-e',
         type=str,
         default='BAAI/bge-small-en',
         help='Name of the embedding model to use (default: BAAI/bge-small-en)'
     )
-    create_vector_parser.add_argument(
+    parser.add_argument(
         '--normalize', '-n',
         default=False,
         action='store_true',
         help='Normalize embeddings before inserting into the database'
     )
-    create_vector_parser.add_argument(
+    parser.add_argument(
         '--batch-size', '-b',
         type=int,
         default=32,
         help='Batch size for embedding and insertion operations'
     )
 
-    # Create index operation
-    create_index_parser = subparsers.add_parser('create-index',
-                                                help='Create an index on a table')
-    create_index_parser.add_argument(
-        '--table-name', '-T',
-        required=True,  # Required for this operation
-        type=str,
-        help='Name of the table to create an index on'
-    )
-    create_index_parser.add_argument(
+    # Create index arguments
+    # --table-name already defined 
+    parser.add_argument(
         '--index-type', '-i',
         default='hnsw',
         type=str,
         help='Type of index to create (default: hnsw)'
     )
-    create_index_parser.add_argument(
+    parser.add_argument(
         '--metric', '-m',
         default='vector_cosine_ops',
         type=str,
         help='Distance metric to use for the index (default: vector_cosine_ops)'
     )
-    create_index_parser.add_argument(
+    parser.add_argument(
         '--m', '-M',
         default=32,
         type=int,
         help='M parameter for HNSW (default: 32)'
     )
-    create_index_parser.add_argument(
+    parser.add_argument(
         '--ef-construction', '-ef',
         default=512,
         type=int,
         help='efConstruction parameter for HNSW (default: 512)'
     )
-    create_index_parser.add_argument(
+    parser.add_argument(
         '--num-lists', '-l',
         default=1580,
         type=int,
         help='Number of lists for IVFFlat (default: 1580)'
     )
 
-    # Add chunks operation
-    add_chunks_parser = subparsers.add_parser(
-        'add-chunks', help='Add chunks to the database')
-    add_chunks_parser.add_argument(
+    # Add chunks arguments
+    parser.add_argument(
         '--path', '-p',
         required=True,
         type=str,
         help='Path to the dataset to add to the database'
     )
-    add_chunks_parser.add_argument(
+    parser.add_argument(
         '--max-length', '-m',
         type=int,
         default=1500,
         help='Maximum length of each chunk'
     )
-    add_chunks_parser.add_argument(
+    parser.add_argument(
         '--overlap', '-o',
         type=int,
         default=150,
@@ -137,6 +147,7 @@ def argument_parser():
 
     # TODO: update this or fix it
     # Profile operation
+    """
     profile_parser = subparsers.add_parser(
         'profile', help='Profile a function')
     profile_parser.add_argument(
@@ -145,6 +156,19 @@ def argument_parser():
         type=str,
         help='Name of the function to profile'
     )
+    """
+
+    # Validate args
+    if args.create_vector_table and not all([args.table_name, args.embedder]):
+        parser.error("--create-vector-table requires --table-name and --embedder")
+
+    if args.create_index and not all([args.table_name, args.index_type, args.metric]):
+        parser.error(
+            "--create-index requires --table-name, --index-type, and --metric")
+
+    if args.add_chunks and not all([args.path, args.max_length, args.overlap]):
+        parser.error(
+            "--add-chunks requires --path, --max-length, and --overlap")
 
     return parser.parse_args()
 
