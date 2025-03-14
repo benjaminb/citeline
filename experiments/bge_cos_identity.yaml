@@ -1,4 +1,4 @@
-dataset: 'data/dataset/256/nontrivial.jsonl'
+dataset: 'data/dataset/small/nontrivial.jsonl'
 table: 'bge'
 metric: 'vector_cosine_ops'
 embedder: 'BAAI/bge-small-en'

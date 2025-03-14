@@ -13,6 +13,8 @@ from database.database import DatabaseProcessor, get_db_params
 from Enrichers import get_enricher
 from Embedders import get_embedder
 
+from time import time
+
 DISTANCE_THRESHOLDS = np.arange(1.0, 0.0, -0.01)
 
 
@@ -234,7 +236,10 @@ class Experiment:
 
             for j in tqdm(range(len(batch)), desc="Querying vectors", leave=True):
                 example = batch.iloc[j]
+                start = time()
                 this_embedding = embeddings[j]
+                print(f"Embedding time: {time() - start}")
+                start = time()
                 results = self.db.query_vector_table(
                     table_name=self.table,
                     query_vector=this_embedding,
@@ -242,7 +247,7 @@ class Experiment:
                     # top_k=2453320
                     top_k=40
                 )
-
+                print(f"Query time: {time() - start}")
                 for threshold in DISTANCE_THRESHOLDS:
                     predicted_chunks = self._closest_neighbors(
                         results, threshold)
@@ -256,72 +261,70 @@ class Experiment:
         self._write_results()
 
     def run_batch(self):
-        # num_batches = len(self.dataset) // self.batch_size if len(
-        #     self.dataset) % self.batch_size == 0 else 1 + len(self.dataset) // self.batch_size
-        num_batches = len(self.dataset) // self.batch_size + \
-            int(len(self.dataset) % self.batch_size > 0)
+        # num_batches = len(self.dataset) // self.batch_size + \
+        #     int(len(self.dataset) % self.batch_size > 0)
 
         # Grab a batch
-        for i in tqdm(range(num_batches), desc="Batches", leave=True):
+        for i in tqdm(range(0, len(self.dataset), self.batch_size), desc="Batch number", leave=True):
             if i % 50 == 0:
                 if self.device == 'cuda':
                     torch.cuda.empty_cache()
                 elif self.device == 'mps':
                     torch.mps.empty_cache()
 
+            # Enrich and embed batch
             batch = self.dataset.iloc[i *
                                       self.batch_size:(i + 1) * self.batch_size]
-
-            # Enrich and embed batch
             enriched_batch = self.enricher.enrich_batch(batch)
+            start = time()
             embeddings = self.embedder(enriched_batch)
+            print(f"Embedding time: {time() - start}")
 
-            # TODO: test batch query code here
-            # results = self.db.batch_query_vector_table(
-            #     table_name=self.table,
-            #     query_vectors=embeddings,
-            #     metric=self.metric,
-            #     top_k=100
-            # )
-            # print(f"results length: {len(results)}")
-            # print(f"First result: {results[0]}")
-
-            # assert len(results) == len(batch) == len(
-            #     embeddings), f"Length mismatch: {len(results)} results, {len(batch)} examples, {len(embeddings)} embeddings"
-
-            # for query_results, example in zip(results, batch):
-
-            # for j in range(len(batch)):
-            #     example, query_results = batch.iloc[j], results[j]
-            #     for threshold in DISTANCE_THRESHOLDS:
-            #         predicted_chunks = self._closest_neighbors(
-            #             query_results, threshold)
-            #         score = self._evaluate_prediction(
-            #             example, predicted_chunks)
-            #         self.jaccard_scores[threshold].append(score)
+            # TODO: implement batch querying?
 
             for j in tqdm(range(len(batch)), desc="Querying vectors", leave=True):
                 example = batch.iloc[j]
                 this_embedding = embeddings[j]
+                start = time()
                 results = self.db.query_vector_table(
                     table_name=self.table,
                     query_vector=this_embedding,
                     metric=self.metric,
                     use_index=True,
                     # top_k=2453320
-                    top_k=1_200_000
+                    top_k=1000
                 )
+                print(f"Query time: {time() - start}")
+                start = time()
                 for threshold in DISTANCE_THRESHOLDS:
                     predicted_chunks = self._closest_neighbors(
                         results, threshold)
                     score = self._evaluate_prediction(
                         example, predicted_chunks)
                     self.jaccard_scores[threshold].append(score)
+                print(f"Statistics computation time: {time() - start}")
 
         # Compute average scores and write out results
         self.averages = {round(threshold, 2): float(sum(scores) / len(scores))
                          for threshold, scores in self.jaccard_scores.items()}
         self._write_results()
+
+    def __str__(self):
+        return (
+            f"Experiment Configuration:\n"
+            f"{'='*40}\n"
+            f"{'Device':<20}: {self.device}\n"
+            f"{'Dataset Path':<20}: {self.dataset_path}\n"
+            f"{'Dataset Size':<20}: {len(self.dataset)}\n'"
+            f"{'Table':<20}: {self.table}\n"
+            f"{'Metric':<20}: {self.metric_to_str.get(self.metric, self.metric)}\n"
+            f"{'Embedder':<20}: {self.embedder.model_name}\n"
+            f"{'Normalize':<20}: {self.normalize}\n"
+            f"{'Enrichment':<20}: {self.enrichment}\n"
+            f"{'Batch Size':<20}: {self.batch_size}\n"
+            f"{'Number of Examples':<20}: {len(self.dataset)}\n"
+            f"{'='*40}\n"
+        )
 
 
 def main():
@@ -359,6 +362,7 @@ def main():
             enrichment=config['enrichment'],
             batch_size=config.get('batch_size', 16)
         )
+        print(experiment)
         experiment.run_batch()
 
 

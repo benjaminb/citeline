@@ -74,7 +74,6 @@ def argument_parser():
     # Create vector table arguments
     parser.add_argument(
         '--table-name', '-T',
-        required=True,  # This is now required for this operation
         type=str,
         help='Name of target table'
     )
@@ -313,7 +312,7 @@ class DatabaseProcessor:
 
     def create_vector_table_mp(self, name, dim, embedder):
         """
-        1. Creates a vector table 
+        1. Creates a vector table
         2. Creates indexes for all distance metrics
         3. Batch embeds all records in the `chunks` table using the given embedder
         """
@@ -532,10 +531,10 @@ class DatabaseProcessor:
         cursor = conn.cursor()
         cursor.execute(
             f"""
-            SELECT 
+            SELECT
                 text,
                 {vector_table}.embedding AS embedding
-            FROM chunks 
+            FROM chunks
             JOIN {vector_table} ON chunks.id = {vector_table}.chunk_id
             WHERE doi = '{doi}';
             """)
@@ -662,10 +661,7 @@ class DatabaseProcessor:
                            metric,
                            top_k=5,
                            probes=40,
-                           use_index=True,
-                           work_mem='2GB',
-                           max_parallel_workers=8,
-                           max_parallel_workers_per_gather=8):
+                           use_index=True):
         """
         table_name: name of the vector table
         query_vector: the vector to query
@@ -683,31 +679,51 @@ class DatabaseProcessor:
         cursor = conn.cursor()
 
         # Set the session resources
-        cursor.execute(f"SET work_mem='{work_mem}';")
+        cores = os.cpu_count()
+        max_parallel_workers = max(1, cores - 2)
+        max_parallel_workers_per_gather = max_parallel_workers - 1
+        work_mem = '4GB'
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
         cursor.execute(
             f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
+        cursor.execute(f"SET work_mem='{work_mem}'")
+
+        # Confirm settings
+        cursor.execute("SHOW max_worker_processes;")
+        max_worker_processes = int(cursor.fetchone()[0])
+        cursor.execute("SHOW max_parallel_workers;")
+        max_parallel_workers = int(cursor.fetchone()[0])
+        cursor.execute("SHOW max_parallel_workers_per_gather;")
+        max_parallel_workers_per_gather = int(
+            cursor.fetchone()[0])
+
+        print("="*40 + "CONFIG" + "="*40)
+        print("max_worker_processes | max_parallel_workers | max_parallel_workers_per_gather | work_mem")
+        print(
+            f"{max_worker_processes:^20} | {max_parallel_workers:^20} | {max_parallel_workers_per_gather:^31} | {work_mem:^10}")
+        print("="*88)
+
+        # Set index search parameters
         if not use_index:
             cursor.execute(f"SET enable_indexscan = off;")
         else:
-            cursor.execute(f"SET ivfflat.probes={probes};")
-            cursor.execute("SET enable_seqscan = off;")
+            cursor.execute(f"SET enable_indexscan = on;")
+            # cursor.execute(f"SET ivfflat.probes={probes};")
+            cursor.execute("SET hnsw.ef_search = 40;")
+        #     cursor.execute("SET enable_seqscan = off;")
 
         cursor.execute(
             f"""
             -- EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
-            SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance 
-            FROM {table_name} 
+            SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance
+            FROM {table_name}
             JOIN chunks ON {table_name}.chunk_id = chunks.id
-            ORDER BY {table_name}.embedding {operator} %s ASC 
+            ORDER BY {table_name}.embedding {operator} %s ASC
             LIMIT %s;
             """,
             (query_vector, query_vector, top_k)
         )
         results = cursor.fetchall()
-        # print(f"Explain results:\n{results}")
-        # with open('results.json', 'w') as f:
-        #     json.dump(results, f, indent=2)
         cursor.close()
         conn.close()
 
@@ -758,14 +774,6 @@ def main():
 
     args = argument_parser()
 
-    # if args.operation == 'profile':
-    #     from Embedders import get_embedder
-    #     print(
-    #         f"Creating vector table '{'test_table'}' with embedder {'astrobert'} on device {db.device}...")
-    #     embedder = get_embedder(
-    #         model_name="adsabs/astroBERT", device=db.device, normalize=False)
-    #     profile_create_vector_table(db, 'test_table', embedder=embedder)
-
     if args.add_chunks:
 
         db.chunk_and_insert_records(
@@ -811,8 +819,7 @@ def main():
         return
 
     if args.test_connection:
-        print(f"Connection result:")
-        db.test_connection()
+        # Connection test invoked before switching on command line args
         return
 
 
