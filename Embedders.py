@@ -39,7 +39,7 @@ class SentenceTransformerEmbedder(Embedder):
             docs,
             convert_to_numpy=True,
             normalize_embeddings=self.normalize,
-            show_progress_bar=True)
+            show_progress_bar=False)
 
     def __call__(self, docs):
         return self.encode(docs)

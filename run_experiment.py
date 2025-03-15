@@ -29,6 +29,8 @@ def argument_parser():
         '--run', action='store_true', help='run the experiment')
     operation_group.add_argument(
         '--build', action='store_true', help='build a dataset')
+    operation_group.add_argument(
+        '--write', action='store_true', help='write out train/test datasets')
 
     # Config argument is optional now
     parser.add_argument('--config', type=str,
@@ -66,33 +68,13 @@ def train_test_split_nontrivial(path, split=0.8):
     examples = pd.read_json(path, lines=True)
     train = examples.sample(frac=split, random_state=42)
     test = examples.drop(train.index)
+
     return train, test
 
-# def train_test_split(trivial_proportion=1.0, split=0.8):
-#     nontrivial_examples = read_jsonl(
-#         'data/dataset/no_reviews/nontrivial.jsonl')
-#     trivial_examples = read_jsonl('data/dataset/no_reviews/trivial.jsonl')
 
-#     # Select a proportion of trivial examples to use
-#     num_trivial_to_sample = min(len(trivial_examples), int(
-#         len(nontrivial_examples) * trivial_proportion))
-#     trivial_examples = trivial_examples.sample(
-#         num_trivial_to_sample, random_state=42)
-
-#     # Select 80% of nontrivial examples for training
-#     nontrivial_train = nontrivial_examples.sample(frac=split, random_state=42)
-#     nontrivial_test = nontrivial_examples.drop(nontrivial_train.index)
-
-#     # Select 80% of trivial examples for training
-#     trivial_train = trivial_examples.sample(frac=split, random_state=42)
-#     trivial_test = trivial_examples.drop(trivial_train.index)
-
-#     print(
-#         f"Selected {len(nontrivial_train)} nontrivial examples for training out of {len(nontrivial_examples)}")
-#     print(
-#         f"Selected {len(trivial_train)} trivial examples for training out of {len(trivial_examples)}")
-
-#     return nontrivial_train, nontrivial_test, trivial_train, trivial_test
+def write_train_test_to_file(train: pd.DataFrame, test: pd.DataFrame, path: str):
+    train.to_json(path + 'train.jsonl', orient='records', lines=True)
+    test.to_json(path + 'test.jsonl', orient='records', lines=True)
 
 
 class Experiment:
@@ -261,10 +243,6 @@ class Experiment:
         self._write_results()
 
     def run_batch(self):
-        # num_batches = len(self.dataset) // self.batch_size + \
-        #     int(len(self.dataset) % self.batch_size > 0)
-
-        # Grab a batch
         for i in tqdm(range(0, len(self.dataset), self.batch_size), desc="Batch number", leave=True):
             if i % 50 == 0:
                 if self.device == 'cuda':
@@ -364,6 +342,11 @@ def main():
         )
         print(experiment)
         experiment.run_batch()
+
+    if args.write:
+        train, test = train_test_split_nontrivial(
+            'data/dataset/full/nontrivial.jsonl')
+        write_train_test_to_file(train, test, 'data/dataset/split/')
 
 
 if __name__ == "__main__":

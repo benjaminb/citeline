@@ -8,7 +8,6 @@ from psycopg2 import Binary
 from psycopg2.extras import execute_values
 import sys
 import torch
-# from collections import namedtuple
 from dataclasses import dataclass
 from dotenv import load_dotenv
 from pgvector.psycopg2 import register_vector
@@ -682,13 +681,14 @@ class DatabaseProcessor:
         cores = os.cpu_count()
         max_parallel_workers = max(1, cores - 2)
         max_parallel_workers_per_gather = max_parallel_workers - 1
-        work_mem = '4GB'
+        work_mem = '1GB'
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
         cursor.execute(
             f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
         cursor.execute(f"SET work_mem='{work_mem}'")
 
         # Confirm settings
+        '''
         cursor.execute("SHOW max_worker_processes;")
         max_worker_processes = int(cursor.fetchone()[0])
         cursor.execute("SHOW max_parallel_workers;")
@@ -702,14 +702,15 @@ class DatabaseProcessor:
         print(
             f"{max_worker_processes:^20} | {max_parallel_workers:^20} | {max_parallel_workers_per_gather:^31} | {work_mem:^10}")
         print("="*88)
+        '''
 
         # Set index search parameters
         if not use_index:
             cursor.execute(f"SET enable_indexscan = off;")
         else:
             cursor.execute(f"SET enable_indexscan = on;")
-            # cursor.execute(f"SET ivfflat.probes={probes};")
             cursor.execute("SET hnsw.ef_search = 40;")
+            # cursor.execute(f"SET ivfflat.probes={probes};")
         #     cursor.execute("SET enable_seqscan = off;")
 
         cursor.execute(
@@ -723,10 +724,11 @@ class DatabaseProcessor:
             """,
             (query_vector, query_vector, top_k)
         )
+
+        # Close up
         results = cursor.fetchall()
         cursor.close()
         conn.close()
-
         return [SingleQueryResult(*result) for result in results]
 
     def test_connection(self):
