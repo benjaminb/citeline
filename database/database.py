@@ -449,23 +449,96 @@ class DatabaseProcessor:
             # Prepare batch
             batch = ids_and_chunks[i * batch_size:(i + 1) * batch_size]
             ids, texts = list(zip(*batch))
-
-            # Embed texts
-            start_embeddings = time()
             embeddings = embedder(texts)
-            print(f"Embedding time: {time() - start_embeddings}")
-
-            data = [(embedding, id_num)
-                    for embedding, id_num in zip(embeddings, ids)]
+            data_batch = [(embedding, id_num)
+                          for embedding, id_num in zip(embeddings, ids)]
 
             # Insert
             start_insert = time()
             execute_values(
-                cursor, f"INSERT INTO {table_name} (embedding, chunk_id) VALUES %s;", data)
+                cursor, f"INSERT INTO {table_name} (embedding, chunk_id) VALUES %s;", data_batch)
             print(f"Insert time: {time() - start_insert}")
             conn.commit()
 
         cursor.close()
+
+    def create_vector_table_copy(self,
+                                 table_name: str,
+                                 dim: int,
+                                 embedder,  # Embedder
+                                 work_mem='2048MB',
+                                 maintenance_work_mem='2048MB',
+                                 batch_size=32):
+        """
+        1. Creates a vector table
+        2. Creates indexes for all distance metrics
+        3. Batch embeds all records in the `chunks` table using the given embedder
+
+        available distance metrics:
+        vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
+        """
+
+        # Create connection and allocate session memory
+        conn = psycopg2.connect(**self.db_params)
+        register_vector(conn)
+        cursor = conn.cursor()
+
+        # Set session resources
+        cores = os.cpu_count()
+        cursor.execute("SHOW max_worker_processes;")
+        max_worker_processes = int(cursor.fetchone()[0])
+        max_parallel_workers = max(1, cores - 2)
+        max_parallel_maintenance_workers = int(0.2 * max_worker_processes)
+        print("="*33 + "CONFIG" + "="*33)
+        print("max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | work_mem | maintenance_work_mem")
+        print(
+            f"{max_worker_processes:^21} {max_parallel_workers:^22} {max_parallel_maintenance_workers:^34} {work_mem:^10} {maintenance_work_mem:^21}")
+        print("="*72)
+        cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
+        cursor.execute(
+            f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
+        cursor.execute(f"SET work_mem='{work_mem}';")
+        cursor.execute(f"SET maintenance_work_mem='{maintenance_work_mem}';", )
+
+        # Create table
+        cursor.execute(
+            f"""CREATE TABLE {table_name} (
+                id SERIAL PRIMARY KEY,
+                embedding VECTOR({dim}),
+                chunk_id INTEGER REFERENCES chunks(id)
+                );
+            """)
+        conn.commit()
+        print(f"Created table {table_name}")
+
+        # Get all chunks for embedding
+        ids_and_chunks = self._get_all_chunks(cursor)
+        # print("ids and chunks: ")
+        # for i in range(2):
+        #     print(f"{i}: {ids_and_chunks[i]}")
+
+        ids, texts = list(zip(*ids_and_chunks))
+        print(f"Embedding {len(texts)} chunks...")
+
+        # Get all the embeddings in batches
+        embeddings = np.zeros((len(texts), dim))
+        for i in tqdm(range(0, len(texts), batch_size), desc="Embedding chunks", leave=False):
+            if i % 50 == 0:
+                self.__clear_gpu_memory()
+            batch_texts = texts[i:i + batch_size]
+            # Note: last batch might be smaller than batch_size
+            embeddings[i:i + len(batch_texts)] = embedder(batch_texts)
+
+        start = time()
+        with cursor.copy(f'COPY {table_name} (embedding, chunk_id) FROM STDIN WITH (FORMAT BINARY);') as copy:
+            copy.set_types(['vector', 'int4'])
+            for embedding, chunk_id in tqdm(zip(embeddings, ids), desc="Inserting embeddings", leave=False):
+                copy.write_row([embedding, chunk_id])
+
+        print(
+            f"Total time: {time() - start:.2f} seconds to insert {len(ids_and_chunks)} chunks and embeddings")
+        cursor.close()
+        conn.commit()
 
     def create_index(self,
                      table_name: str,
@@ -794,9 +867,11 @@ def main():
         embedder = get_embedder(embedder, db.device, normalize)
         dim = embedder(['test']).shape[1]
 
-        db.create_vector_table(
-            table_name=table_name, dim=dim, embedder=embedder, batch_size=batch_size)
+        # db.create_vector_table(
+        #     table_name=table_name, dim=dim, embedder=embedder, batch_size=batch_size)
 
+        db.create_vector_table_copy(
+            table_name=table_name, dim=dim, embedder=embedder, batch_size=batch_size)
         # TODO: add calls to create indexes
         # db.create_index(table_name, 'ivfflat', 'vector_cosine_ops', 1580)
         return

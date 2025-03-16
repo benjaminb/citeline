@@ -46,9 +46,31 @@ def add_title_and_abstract(example, record):
 
 def add_previous_3_sentences(example, record):
     sent_idx = example.sent_idx
-    prev_3 = record['body_sentences'][sent_idx-3:sent_idx]
+    start_idx = max(sent_idx-3, 0)
+    prev_3 = record['body_sentences'][start_idx:sent_idx]
     return ' '.join(prev_3) + '\n' + example.sent_no_cit
 
+def add_previous_7_sentences(example, record):
+    sent_idx = example.sent_idx
+    start_idx = max(sent_idx-7, 0)
+    prev_7 = record['body_sentences'][start_idx:sent_idx]
+    return ' '.join(prev_7) + '\n' + example.sent_no_cit
+
+def add_headers_and_previous_3_sentences(example, record):
+    sent_idx = example.sent_idx
+    start_idx = max(sent_idx-3, 0)
+    prev_3 = record['body_sentences'][start_idx:sent_idx]
+    title = record['title']
+    abstract = record['abstract']
+    return title + '\n' + abstract + '\n' + ' '.join(prev_3) + '\n' + example.sent_no_cit
+
+def add_headers_previous_7_sentences(example, record):
+    sent_idx = example.sent_idx
+    start_idx = max(sent_idx-7, 0)
+    prev_7 = record['body_sentences'][start_idx:sent_idx]
+    title = record['title']
+    abstract = record['abstract']
+    return title + '\n' + abstract + '\n' + ' '.join(prev_7) + '\n' + example.sent_no_cit
 
 def no_augmentation(example, record):
     return example.sent_no_cit
@@ -60,6 +82,9 @@ ENRICHMENT_FN = {
     'add_title': add_title,
     'add_title_and_abstract': add_title_and_abstract,
     'add_previous_3_sentences': add_previous_3_sentences,
+    'add_previous_7_sentences': add_previous_7_sentences,
+    'add_headers_and_previous_3_sentences': add_headers_and_previous_3_sentences,
+    'add_headers_and_previous_7_sentences': add_headers_previous_7_sentences
 }
 
 
