@@ -788,7 +788,7 @@ class DatabaseProcessor:
 
         cursor.execute(
             f"""
-            -- EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
+            EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
             SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance
             FROM {table_name}
             JOIN chunks ON {table_name}.chunk_id = chunks.id
@@ -798,8 +798,12 @@ class DatabaseProcessor:
             (query_vector, query_vector, top_k)
         )
 
-        # Close up
         results = cursor.fetchall()
+
+        with open('query_plan.json', 'w') as f:
+            json.dump(results, f, indent=4)
+
+        # Close up
         cursor.close()
         conn.close()
         return [SingleQueryResult(*result) for result in results]
