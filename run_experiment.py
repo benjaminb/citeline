@@ -260,11 +260,12 @@ class Experiment:
 
             # TODO: implement batch querying?
 
-            for j in tqdm(range(len(batch)), desc="Querying vectors", leave=True):
+            for j in range(len(batch)):
+                print(f"Querying example {j}/{len(batch)}")
                 example = batch.iloc[j]
                 this_embedding = embeddings[j]
                 start = time()
-                results = self.db.query_vector_table(
+                results, return_time = self.db.query_vector_table(
                     table_name=self.table,
                     query_vector=this_embedding,
                     metric=self.metric,
@@ -272,7 +273,13 @@ class Experiment:
                     # top_k=2453320
                     top_k=1000
                 )
-                print(f"db.query_vector_table (top_k=1000): {time() - start}")
+                end = time()
+                print(
+                    f"  db.query_vector_table (return) to run_batch: {end - return_time:.2f} seconds")
+                print(
+                    f"  db.query_vector_table (top_k=1000): {time() - start:.2f} seconds")
+
+                # Statistics
                 start = time()
                 for threshold in DISTANCE_THRESHOLDS:
                     predicted_chunks = self._closest_neighbors(
@@ -280,7 +287,8 @@ class Experiment:
                     score = self._evaluate_prediction(
                         example, predicted_chunks)
                     self.jaccard_scores[threshold].append(score)
-                print(f"Statistics computation time: {time() - start}")
+                print(
+                    f"  Statistics computation time: {time() - start:.2f} seconds")
 
         # Compute average scores and write out results
         self.averages = {round(threshold, 2): float(sum(scores) / len(scores))
