@@ -733,6 +733,7 @@ class DatabaseProcessor:
                            metric,
                            top_k=5,
                            probes=40,
+                           ef_search=20,
                            use_index=True):
         """
         table_name: name of the vector table
@@ -741,8 +742,6 @@ class DatabaseProcessor:
         top_k: number of results to return
 
         """
-        print(f"  Entering query_vector_table function...")
-        start = time()
         # Resolve the distance operator
         assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
         operator = PGVECTOR_DISTANCE_METRICS[metric]
@@ -750,6 +749,10 @@ class DatabaseProcessor:
         conn = psycopg2.connect(**self.db_params)
         register_vector(conn)
         cursor = conn.cursor()
+
+        # Best practice is ef_search should be at least top_k
+        if ef_search < top_k:
+            print(f"  WARNING: ef_search ({ef_search}) is less than top_k ({top_k}).")
 
         # Set the session resources
         cores = os.cpu_count()
@@ -783,11 +786,10 @@ class DatabaseProcessor:
             cursor.execute(f"SET enable_indexscan = off;")
         else:
             cursor.execute(f"SET enable_indexscan = on;")
-            cursor.execute("SET hnsw.ef_search = 40;")
+            cursor.execute(f"SET hnsw.ef_search = {ef_search};")
+            cursor.execute("SET enable_seqscan = off;")
             # cursor.execute(f"SET ivfflat.probes={probes};")
-        #     cursor.execute("SET enable_seqscan = off;")
-        print(
-            f"  query_vector_table setup complete in {time() - start:.2f} seconds")
+
 
         start = time()
         cursor.execute(
@@ -811,15 +813,9 @@ class DatabaseProcessor:
         #     json.dump(results, f, indent=4)
 
         # Close up
-        start = time()
         cursor.close()
         conn.close()
-        print(f"  Cursor close time: {time() - start:.2f} seconds")
-        start = time()
-        query_results = [SingleQueryResult(*result) for result in results]
-        print(
-            f"  SingleQueryResult processing time: {time() - start:.2f} seconds")
-        return query_results, time()
+        return [SingleQueryResult(*result) for result in results]
 
     def test_connection(self):
         conn = psycopg2.connect(**self.db_params)

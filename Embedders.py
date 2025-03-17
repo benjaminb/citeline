@@ -88,7 +88,7 @@ EMBEDDING_CLASS = {
     "BAAI/bge-small-en": SentenceTransformerEmbedder,
     "adsabs/astroBERT": EncoderEmbedder,
     "bert-base-uncased": EncoderEmbedder,
-    "nvidia/NV-Embed-v2": SentenceTransformerEmbedder
+    # "nvidia/NV-Embed-v2": SentenceTransformerEmbedder
 }
 
 MODEL_DATA = {

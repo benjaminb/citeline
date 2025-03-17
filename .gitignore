@@ -8,7 +8,7 @@
 # Plain text and temp files generally used for scratch purposes
 *.txt
 !requirements.txt
-*.csv
+./*.csv
 temp_*
 
 # Byte-compiled / optimized / DLL files

@@ -84,7 +84,7 @@ class Experiment:
         'vector_ip_ops': 'ip'
     }
 
-    def __init__(self, device: str, dataset_path: str, table: str, metric: str, embedding_model_name: str, normalize: bool, enrichment: str, batch_size: int = 16):
+    def __init__(self, device: str, dataset_path: str, table: str, metric: str, embedding_model_name: str, normalize: bool, enrichment: str, batch_size: int = 16, top_k: int = 100):
         # Set up configs
         self.device = device
 
@@ -110,6 +110,7 @@ class Experiment:
         # Initialize database
         self.db = DatabaseProcessor(get_db_params())
         self.db.test_connection()
+        self.top_k = top_k
 
         # Prepare attributes for results
         self.jaccard_scores = {threshold: []
@@ -197,52 +198,6 @@ class Experiment:
         }
 
     def run(self):
-        # Compute number of batches. If the dataset size is not a multiple of the batch size, add one more batch
-        num_iterations = len(self.dataset) // self.batch_size if len(
-            self.dataset) % self.batch_size == 0 else 1 + len(self.dataset) // self.batch_size
-
-        # Grab a batch
-        for i in tqdm(range(num_iterations), desc="Batches", leave=True):
-            if i % 50 == 0:
-                if self.device == 'cuda':
-                    torch.cuda.empty_cache()
-                elif self.device == 'mps':
-                    torch.mps.empty_cache()
-
-            batch = self.dataset.iloc[i *
-                                      self.batch_size:(i + 1) * self.batch_size]
-
-            # Enrich and embed batch
-            enriched_batch = self.enricher.enrich_batch(batch)
-            embeddings = self.embedder(enriched_batch)
-
-            for j in tqdm(range(len(batch)), desc="Querying vectors", leave=True):
-                example = batch.iloc[j]
-                start = time()
-                this_embedding = embeddings[j]
-                print(f"Embedding time: {time() - start}")
-                start = time()
-                results = self.db.query_vector_table(
-                    table_name=self.table,
-                    query_vector=this_embedding,
-                    metric=self.metric,
-                    # top_k=2453320
-                    top_k=40
-                )
-                print(f"Query time: {time() - start}")
-                for threshold in DISTANCE_THRESHOLDS:
-                    predicted_chunks = self._closest_neighbors(
-                        results, threshold)
-                    score = self._evaluate_prediction(
-                        example, predicted_chunks)
-                    self.jaccard_scores[threshold].append(score)
-
-        # Compute average scores and write out results
-        self.averages = {round(threshold, 2): float(sum(scores) / len(scores))
-                         for threshold, scores in self.jaccard_scores.items()}
-        self._write_results()
-
-    def run_batch(self):
         for i in tqdm(range(0, len(self.dataset), self.batch_size), desc="Batch number", leave=True):
             if i % 50 == 0:
                 if self.device == 'cuda':
@@ -256,27 +211,26 @@ class Experiment:
             enriched_batch = self.enricher.enrich_batch(batch)
             start = time()
             embeddings = self.embedder(enriched_batch)
-            print(f"Embedding time: {time() - start}")
 
             # TODO: implement batch querying?
 
+            status_str = print(f"Querying: ", end="")
+            print(status_str)
             for j in range(len(batch)):
-                print(f"Querying example {j}/{len(batch)}")
+                status_str = "\r" + status_str + "."
+                print(status_str, end="")
                 example = batch.iloc[j]
                 this_embedding = embeddings[j]
                 start = time()
-                results, return_time = self.db.query_vector_table(
+                results= self.db.query_vector_table(
                     table_name=self.table,
                     query_vector=this_embedding,
                     metric=self.metric,
                     use_index=True,
                     top_k=100000  # 2453320 total chunks
                 )
-                end = time()
-                print(
-                    f"  db.query_vector_table (return) to run_batch: {end - return_time:.2f} seconds")
-                print(
-                    f"  db.query_vector_table (top_k=1000): {time() - start:.2f} seconds")
+                status_str = "\r" + status_str[:-1] + "*"
+                print(status_str, end="")
 
                 # Statistics
                 start = time()
@@ -286,8 +240,8 @@ class Experiment:
                     score = self._evaluate_prediction(
                         example, predicted_chunks)
                     self.jaccard_scores[threshold].append(score)
-                print(
-                    f"  Statistics computation time: {time() - start:.2f} seconds")
+                # print(
+                #     f"  Statistics computation time: {time() - start:.2f} seconds")
 
         # Compute average scores and write out results
         self.averages = {round(threshold, 2): float(sum(scores) / len(scores))
@@ -307,15 +261,13 @@ class Experiment:
             f"{'Normalize':<20}: {self.normalize}\n"
             f"{'Enrichment':<20}: {self.enrichment}\n"
             f"{'Batch Size':<20}: {self.batch_size}\n"
-            f"{'Number of Examples':<20}: {len(self.dataset)}\n"
+            f"{'Top k':<20}: {self.top_k}\n"
             f"{'='*40}\n"
         )
 
 
 def main():
-    start = time()
     args = argument_parser()
-    print(f"Args parsed: {time() - start:.2f} seconds")
 
     if args.build:
         num, source, dest, seed = args.num, args.source, args.dest, args.seed
@@ -332,10 +284,8 @@ def main():
 
     if args.run:
         # Load expermient configs
-        start = time()
         with open(args.config, 'r') as config_file:
             config = yaml.safe_load(config_file)
-        print(f"Config loaded: {time() - start:.2f} seconds")
 
         device = 'cuda' if torch.cuda.is_available(
         ) else 'mps' if torch.mps.is_available() else 'cpu'
@@ -349,10 +299,11 @@ def main():
             embedding_model_name=config['embedder'],
             normalize=config['normalize'],
             enrichment=config['enrichment'],
-            batch_size=config.get('batch_size', 16)
+            batch_size=config.get('batch_size', 16),
+            top_k=config.get('top_k')
         )
         print(experiment)
-        experiment.run_batch()
+        experiment.run()
 
     if args.write:
         train, test = train_test_split_nontrivial(
