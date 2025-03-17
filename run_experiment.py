@@ -214,23 +214,18 @@ class Experiment:
 
             # TODO: implement batch querying?
 
-            status_str = print(f"Querying: ", end="")
-            print(status_str)
             for j in range(len(batch)):
-                status_str = "\r" + status_str + "."
-                print(status_str, end="")
                 example = batch.iloc[j]
                 this_embedding = embeddings[j]
                 start = time()
-                results= self.db.query_vector_table(
+                results = self.db.query_vector_table(
                     table_name=self.table,
                     query_vector=this_embedding,
                     metric=self.metric,
                     use_index=True,
-                    top_k=100000  # 2453320 total chunks
+                    top_k=self.top_k,  # 2453320 total chunks
+                    ef_search=self.top_k  # TODO: should this be a separate parameter?
                 )
-                status_str = "\r" + status_str[:-1] + "*"
-                print(status_str, end="")
 
                 # Statistics
                 start = time()
