@@ -5,4 +5,4 @@ embedder: 'adsabs/astroBERT'
 normalize: False
 enrichment: 'identity'
 batch_size: 16
-top_k: 50
+top_k: 1000

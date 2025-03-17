@@ -615,118 +615,6 @@ class DatabaseProcessor:
         conn.close()
         return [ChunkAndVector(text, np.array(lst)) for text, lst in results]
 
-    def batch_query_vector_table(self,
-                                 table_name,
-                                 query_vectors,
-                                 metric,
-                                 top_k=5,
-                                 probes=40,
-                                 work_mem='8GB',
-                                 max_parallel_workers=8,
-                                 max_parallel_workers_per_gather=8):
-        """
-        TODO: this isn't working, figure out why
-        table_name: name of the vector table
-        query_vectors: list of vectors to query
-        metric: a key in PGVECTOR_DISTANCE_METRICS to resolve the distance operator
-        top_k: number of results to return for each query vector
-
-        Returns a list of lists, where each inner list contains the results for one query vector
-        """
-
-        """
-        table_name: name of the vector table
-        query_vectors: list of vectors to query
-        metric: a key in PGVECTOR_DISTANCE_METRICS to resolve the distance operator
-        top_k: number of results to return for each query vector
-        threshold: the maximum distance to consider a vector as a neighbor
-
-        Returns a list of lists, where each inner list contains the results for one query vector
-        """
-
-        # Resolve the distance operator
-        assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
-        operator = PGVECTOR_DISTANCE_METRICS[metric]
-
-        conn = psycopg2.connect(**self.db_params)
-        register_vector(conn)
-        cursor = conn.cursor()
-        dim = query_vectors.shape[1]
-        query_vectors_list = [
-            f"[{','.join(map(str, vec.astype(float)))}]" for vec in query_vectors
-        ]
-        # query_vectors_string =
-
-        # Create a temporary table to hold the query vectors
-        cursor.execute(
-            f"CREATE TEMP TABLE temp_query_vectors (embedding VECTOR({dim}));")
-        execute_values(cursor,
-                       "INSERT INTO temp_query_vectors (embedding) VALUES %s;",
-                       query_vectors_list,
-                       template="(%s)")
-
-        query = f"""
-            SELECT
-                t.chunk_id,
-                c.doi,
-                c.text,
-                t.embedding {operator} qv.embedding AS distance
-            FROM {table_name} AS t
-            JOIN chunks AS c ON t.chunk_id = c.id
-            JOIN temp_query_vectors AS qv
-            ON TRUE  -- Creates a CROSS JOIN
-            ORDER BY distance ASC
-            LIMIT {top_k};
-            """
-        cursor.execute(query)
-        results = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return [[SingleQueryResult(*res) for res in result] for result in results]
-        # Set the session resources
-        # cursor.execute(f"SET work_mem='{work_mem}';")
-        # cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-        # cursor.execute(
-        #     f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
-        # cursor.execute(f"SET ivfflat.probes={probes};")
-        # cursor.execute(f"SET enable_seqscan = off;")
-
-        # # Convert numpy array to a list of vector strings
-        # query_vectors_list = [
-        #     f"'[{','.join(map(str, vec))}]'::vector" for vec in query_vectors]
-        # query_vectors_str = "ARRAY[" + ",".join(query_vectors_list) + "]"
-
-        # query = f"""
-        # WITH query_vectors AS (
-        #     SELECT unnest({query_vectors_str}::vector[]) AS query_vector
-        # )
-        # SELECT
-        #     {table_name}.chunk_id AS chunk_id,
-        #     chunks.doi AS doi,
-        #     chunks.text AS text,
-        #     {table_name}.embedding {operator} query_vector AS distance
-        # FROM
-        #     {table_name}
-        # JOIN
-        #     chunks ON {table_name}.chunk_id = chunks.id
-        # CROSS JOIN
-        #     query_vectors
-        # ORDER BY
-        #     distance ASC
-        # LIMIT {top_k};
-        # """
-
-        # cursor.execute(query)
-        # results = cursor.fetchall()
-        # cursor.close()
-        # conn.close()
-        # return_results = []
-        # for row in results:
-        #     return_results.append(SingleQueryResult(*row))
-        # return return_results
-
-        # return [[SingleQueryResult(*res) for res in result] for result in results]
-
     def query_vector_table(self,
                            table_name,
                            query_vector,
@@ -752,7 +640,8 @@ class DatabaseProcessor:
 
         # Best practice is ef_search should be at least top_k
         if ef_search < top_k:
-            print(f"  WARNING: ef_search ({ef_search}) is less than top_k ({top_k}).")
+            print(
+                f"  WARNING: ef_search ({ef_search}) is less than top_k ({top_k}).")
 
         # Set the session resources
         cores = os.cpu_count()
@@ -790,7 +679,6 @@ class DatabaseProcessor:
             cursor.execute("SET enable_seqscan = off;")
             # cursor.execute(f"SET ivfflat.probes={probes};")
 
-
         start = time()
         cursor.execute(
             f"""
@@ -816,7 +704,8 @@ class DatabaseProcessor:
         cursor.close()
         conn.close()
 
-        assert len(results) <= top_k, f"Query returned {len(results)} results, but top_k is set to {top_k}"
+        assert len(
+            results) <= top_k, f"Query returned {len(results)} results, but top_k is set to {top_k}"
         return [SingleQueryResult(*result) for result in results]
 
     def test_connection(self):
