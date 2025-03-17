@@ -788,7 +788,7 @@ class DatabaseProcessor:
         start = time()
         cursor.execute(
             f"""
-            EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
+            -- EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
             SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance
             FROM {table_name}
             JOIN chunks ON {table_name}.chunk_id = chunks.id
@@ -802,14 +802,19 @@ class DatabaseProcessor:
         start = time()
         results = cursor.fetchall()
         print(f"Query fetch time: {time() - start:.2f} seconds")
-        
-        with open('query_plan.json', 'w') as f:
-            json.dump(results, f, indent=4)
+
+        # with open('query_plan.json', 'w') as f:
+        #     json.dump(results, f, indent=4)
 
         # Close up
+        start = time()
         cursor.close()
         conn.close()
-        return [SingleQueryResult(*result) for result in results]
+        print(f"Cursor close time: {time() - start:.2f} seconds")
+        start = time()
+        query_results = [SingleQueryResult(*result) for result in results]
+        print(f"SingleQueryResult processing time: {time() - start:.2f} seconds")
+        return query_results
 
     def test_connection(self):
         conn = psycopg2.connect(**self.db_params)
