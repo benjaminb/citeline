@@ -785,7 +785,7 @@ class DatabaseProcessor:
             cursor.execute("SET hnsw.ef_search = 40;")
             # cursor.execute(f"SET ivfflat.probes={probes};")
         #     cursor.execute("SET enable_seqscan = off;")
-
+        start = time()
         cursor.execute(
             f"""
             EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
@@ -797,9 +797,12 @@ class DatabaseProcessor:
             """,
             (query_vector, query_vector, top_k)
         )
+        print(f"Query execution time: {time() - start:.2f} seconds")
 
+        start = time()
         results = cursor.fetchall()
-
+        print(f"Query fetch time: {time() - start:.2f} seconds")
+        
         with open('query_plan.json', 'w') as f:
             json.dump(results, f, indent=4)
 

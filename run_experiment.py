@@ -272,7 +272,7 @@ class Experiment:
                     # top_k=2453320
                     top_k=1000
                 )
-                print(f"Query time: {time() - start}")
+                print(f"db.query_vector_table (top_k=1000): {time() - start}")
                 start = time()
                 for threshold in DISTANCE_THRESHOLDS:
                     predicted_chunks = self._closest_neighbors(
