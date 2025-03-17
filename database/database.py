@@ -3,6 +3,7 @@ import gc
 import json
 import numpy as np
 import os
+from datetime import datetime
 import psycopg2
 from psycopg2 import Binary
 from psycopg2.extras import execute_values
@@ -246,6 +247,12 @@ class DatabaseProcessor:
         self.db_params = db_params
         self.device = 'cuda' if torch.cuda.is_available(
         ) else 'mps' if torch.mps.is_available() else 'cpu'
+        self.conn = psycopg2.connect(**db_params)
+        register_vector(self.conn)
+
+    def __del__(self):
+        if self.conn:
+            self.conn.close()
 
     def __clear_gpu_memory(self):
         if self.device == 'cuda':
@@ -323,8 +330,8 @@ class DatabaseProcessor:
         available distance metrics:
         vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
         """
-        conn = psycopg2.connect(**self.db_params)
-        register_vector(conn)
+        # conn = psycopg2.connect(**self.db_params)
+        # register_vector(conn)
         cursor = conn.cursor()
         cursor.execute(
             f"""CREATE TABLE {name} (
@@ -403,9 +410,9 @@ class DatabaseProcessor:
         """
 
         # Create connection and allocate session memory
-        conn = psycopg2.connect(**self.db_params)
-        register_vector(conn)
-        cursor = conn.cursor()
+        # conn = psycopg2.connect(**self.db_params)
+        # register_vector(conn)
+        cursor = self.conn.cursor()
 
         # Set session resources
         cores = os.cpu_count()
@@ -551,8 +558,8 @@ class DatabaseProcessor:
         assert index_type in [
             'ivfflat', 'hnsw'], f"Invalid index type: {index_type}. Must be 'ivfflat' or 'hnsw'"
         assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
-        conn = psycopg2.connect(**self.db_params)
-        cursor = conn.cursor()
+        # conn = psycopg2.connect(**self.db_params)
+        cursor = self.conn.cursor()
 
         # Set session resources
         cores = os.cpu_count()
@@ -599,8 +606,8 @@ class DatabaseProcessor:
         return cursor.fetchall()
 
     def get_vectors_by_doi(self, doi: str, vector_table: str) -> list[str]:
-        conn = psycopg2.connect(**self.db_params)
-        cursor = conn.cursor()
+        # conn = psycopg2.connect(**self.db_params)
+        cursor = self.conn.cursor()
         cursor.execute(
             f"""
             SELECT
@@ -634,9 +641,9 @@ class DatabaseProcessor:
         assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
         operator = PGVECTOR_DISTANCE_METRICS[metric]
 
-        conn = psycopg2.connect(**self.db_params)
-        register_vector(conn)
-        cursor = conn.cursor()
+        # conn = psycopg2.connect(**self.db_params)
+        # register_vector(conn)
+        cursor = self.conn.cursor()
 
         # Best practice is ef_search should be at least top_k
         if ef_search < top_k:
@@ -693,9 +700,7 @@ class DatabaseProcessor:
         )
         print(f"  Query execution time: {time() - start:.2f} seconds")
 
-        start = time()
         results = cursor.fetchall()
-        print(f"  Query fetch time: {time() - start:.2f} seconds")
 
         # with open('query_plan.json', 'w') as f:
         #     json.dump(results, f, indent=4)
@@ -707,6 +712,52 @@ class DatabaseProcessor:
         assert len(
             results) <= top_k, f"Query returned {len(results)} results, but top_k is set to {top_k}"
         return [SingleQueryResult(*result) for result in results]
+
+    def explain_analyze(self,
+        query_vector: str,
+        table_name: str,
+        metric: str = 'vector_cosine_ops',
+        top_k: int = 50,
+        outdir: str = 'tests/db/'
+    ):
+        # Set up db connection
+        assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
+        operator = PGVECTOR_DISTANCE_METRICS[metric]
+        cursor = self.conn.cursor()
+
+        # Set session resources
+        cores = os.cpu_count()
+        max_parallel_workers = max(1, cores - 2)
+        max_parallel_workers_per_gather = max_parallel_workers - 1
+        work_mem = '1GB'
+        cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
+        cursor.execute(
+            f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
+        cursor.execute(f"SET work_mem='{work_mem}'")
+        cursor.execute(f"SET enable_indexscan = on;")
+        cursor.execute(f"SET hnsw.ef_search = {top_k};") #NOTE: ef_search could be higher
+        cursor.execute("SET enable_seqscan = off;")
+
+        # Execute query
+        cursor.execute(
+            f"""
+            EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
+            SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance
+            FROM {table_name}
+            JOIN chunks ON {table_name}.chunk_id = chunks.id
+            ORDER BY {table_name}.embedding {operator} %s ASC
+            LIMIT %s;
+            """,
+            (query_vector, query_vector, top_k)
+        )
+
+        query_plan = cursor.fetchall()
+        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"explain_analyze_{table_name}_topk{top_k}_{current_time}.json"
+        with open(outdir+filename, 'w') as f:
+            json.dump(query_plan, f, indent=4)
+        print(f"Query plan saved to {outdir+filename}")
+        cursor.close()
 
     def test_connection(self):
         conn = psycopg2.connect(**self.db_params)
@@ -771,13 +822,9 @@ def main():
         embedder = get_embedder(embedder, db.device, normalize)
         dim = embedder(['test']).shape[1]
 
-        # db.create_vector_table(
-        #     table_name=table_name, dim=dim, embedder=embedder, batch_size=batch_size)
-
         db.create_vector_table_copy(
             table_name=table_name, dim=dim, embedder=embedder, batch_size=batch_size)
         # TODO: add calls to create indexes
-        # db.create_index(table_name, 'ivfflat', 'vector_cosine_ops', 1580)
         return
 
     if args.create_index:

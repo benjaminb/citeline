@@ -31,6 +31,8 @@ def argument_parser():
         '--build', action='store_true', help='build a dataset')
     operation_group.add_argument(
         '--write', action='store_true', help='write out train/test datasets')
+    operation_group.add_argument(
+        '--query-plan', action='store_true', help='generate EXPLAIN/ANALYZE query plan for database')
 
     # Config argument is optional now
     parser.add_argument('--config', type=str,
@@ -45,6 +47,12 @@ def argument_parser():
                         help='path to destination dataset (jsonl)')
     parser.add_argument('--seed', type=int,
                         help='random seed for dataset sampling')
+    parser.add_argument('--table_name', type=str,
+                        help='name of the database table for query plan generation')
+    parser.add_argument('--embedder', type=str,
+                        help='embedding model name (e.g., "bert-base-uncased")')
+    parser.add_argument('--top-k', type=int,
+                        help='number of nearest neighbors to return from the database')
 
     args = parser.parse_args()
 
@@ -54,6 +62,9 @@ def argument_parser():
 
     if args.build and (not args.num or not args.source or not args.dest):
         parser.error("--build requires --num, --source, and --dest arguments")
+
+    if args.query_plan and (not args.table_name or not args.embedder or not args.top_k):
+        parser.error("--query-plan requires --table_name argument")
 
     return args
 
@@ -200,6 +211,7 @@ class Experiment:
     def run(self):
         for i in tqdm(range(0, len(self.dataset), self.batch_size), desc="Batch number", leave=True):
             if i % 50 == 0:
+                print(f"Batch {i+1}")
                 if self.device == 'cuda':
                     torch.cuda.empty_cache()
                 elif self.device == 'mps':
@@ -263,6 +275,8 @@ class Experiment:
 
 def main():
     args = argument_parser()
+    device = 'cuda' if torch.cuda.is_available(
+    ) else 'mps' if torch.mps.is_available() else 'cpu'
 
     if args.build:
         num, source, dest, seed = args.num, args.source, args.dest, args.seed
@@ -282,9 +296,6 @@ def main():
         with open(args.config, 'r') as config_file:
             config = yaml.safe_load(config_file)
 
-        device = 'cuda' if torch.cuda.is_available(
-        ) else 'mps' if torch.mps.is_available() else 'cpu'
-
         # Set up and run experiment
         experiment = Experiment(
             device=device,
@@ -299,11 +310,44 @@ def main():
         )
         print(experiment)
         experiment.run()
+        return
 
     if args.write:
         train, test = train_test_split_nontrivial(
             'data/dataset/full/nontrivial.jsonl')
         write_train_test_to_file(train, test, 'data/dataset/split/')
+        return
+
+    if args.query_plan:
+        # Set up resources
+        embedder = get_embedder(args.embedder, device=device)
+        db = DatabaseProcessor(get_db_params())
+        db.test_connection()
+
+        # Generate query vector and query plan
+        embedding = embedder(['dummy text'])
+        embedding = embedding[0]
+        print(f"Query vector shape: {embedding.shape}")
+        print(f"type(embedding): {type(embedding)}")
+        # Print configuration table
+        print("\n" + "="*60)
+        print("QUERY PLAN CONFIGURATION")
+        print("="*60)
+        print(f"{'Parameter':<15} {'Value':<40}")
+        print("-"*60)
+        print(f"{'Embedder':<15} {args.embedder:<40}")
+        print(f"{'Device':<15} {device:<40}")
+        print(f"{'Table Name':<15} {args.table_name:<40}")
+        print(f"{'Metric':<15} {'vector_cosine_ops':<40}")
+        print(f"{'Top K':<15} {args.top_k:<40}")
+        print("="*60 + "\n")
+
+        db.explain_analyze(
+            query_vector=embedding,
+            table_name=args.table_name,
+            metric='vector_cosine_ops',
+            top_k=args.top_k
+        )
 
 
 if __name__ == "__main__":
