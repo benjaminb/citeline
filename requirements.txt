@@ -1,5 +1,6 @@
 dotenv
 matplotlib==3.10.0
+pandas==2.2.3
 psycopg2==2.9.10
 pgvector
 torch==2.5.1
