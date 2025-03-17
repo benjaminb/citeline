@@ -282,9 +282,6 @@ class Experiment:
                     self.jaccard_scores[threshold].append(score)
                 print(f"Statistics computation time: {time() - start}")
 
-                # TODO: remove this
-                return
-
         # Compute average scores and write out results
         self.averages = {round(threshold, 2): float(sum(scores) / len(scores))
                          for threshold, scores in self.jaccard_scores.items()}
