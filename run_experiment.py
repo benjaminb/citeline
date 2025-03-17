@@ -270,7 +270,7 @@ class Experiment:
                     query_vector=this_embedding,
                     metric=self.metric,
                     use_index=True,
-                    top_k=10000 # 2453320 total chunks
+                    top_k=100000  # 2453320 total chunks
                 )
                 end = time()
                 print(
@@ -300,7 +300,7 @@ class Experiment:
             f"{'='*40}\n"
             f"{'Device':<20}: {self.device}\n"
             f"{'Dataset Path':<20}: {self.dataset_path}\n"
-            f"{'Dataset Size':<20}: {len(self.dataset)}\n'"
+            f"{'Dataset Size':<20}: {len(self.dataset)}\n"
             f"{'Table':<20}: {self.table}\n"
             f"{'Metric':<20}: {self.metric_to_str.get(self.metric, self.metric)}\n"
             f"{'Embedder':<20}: {self.embedder.model_name}\n"
@@ -313,7 +313,9 @@ class Experiment:
 
 
 def main():
+    start = time()
     args = argument_parser()
+    print(f"Args parsed: {time() - start:.2f} seconds")
 
     if args.build:
         num, source, dest, seed = args.num, args.source, args.dest, args.seed
@@ -330,8 +332,10 @@ def main():
 
     if args.run:
         # Load expermient configs
+        start = time()
         with open(args.config, 'r') as config_file:
             config = yaml.safe_load(config_file)
+        print(f"Config loaded: {time() - start:.2f} seconds")
 
         device = 'cuda' if torch.cuda.is_available(
         ) else 'mps' if torch.mps.is_available() else 'cpu'
