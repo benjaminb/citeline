@@ -270,8 +270,7 @@ class Experiment:
                     query_vector=this_embedding,
                     metric=self.metric,
                     use_index=True,
-                    # top_k=2453320
-                    top_k=300000
+                    top_k=10000 # 2453320 total chunks
                 )
                 end = time()
                 print(
