@@ -1,7 +1,7 @@
 dataset: 'data/dataset/small/nontrivial.jsonl'
-table: 'bge'
+table: 'bge_hnsw'
 metric: 'vector_cosine_ops'
 embedder: 'BAAI/bge-small-en'
 normalize: True
 enrichment: 'identity'
-top_k: 25
+top_k: 50
