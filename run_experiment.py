@@ -271,7 +271,7 @@ class Experiment:
                     metric=self.metric,
                     use_index=True,
                     # top_k=2453320
-                    top_k=1000
+                    top_k=300000
                 )
                 end = time()
                 print(
