@@ -815,6 +815,8 @@ class DatabaseProcessor:
         # Close up
         cursor.close()
         conn.close()
+
+        assert len(results) <= top_k, f"Query returned {len(results)} results, but top_k is set to {top_k}"
         return [SingleQueryResult(*result) for result in results]
 
     def test_connection(self):
