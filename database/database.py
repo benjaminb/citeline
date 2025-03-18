@@ -630,10 +630,9 @@ class DatabaseProcessor:
         assert index_type in [
             'ivfflat', 'hnsw'], f"Invalid index type: {index_type}. Must be 'ivfflat' or 'hnsw'"
         assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
-        # conn = psycopg2.connect(**self.db_params)
-        cursor = self.conn.cursor()
 
         # Set session resources
+        cursor = self.conn.cursor()
         cores = os.cpu_count()
         max_worker_processes = max_parallel_workers = max(1, cores - 2)
         max_parallel_maintenance_workers = int(0.8 * max_worker_processes)
@@ -836,9 +835,9 @@ class DatabaseProcessor:
         # Set up db connection
         assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
         operator = PGVECTOR_DISTANCE_METRICS[metric]
-        cursor = self.conn.cursor()
 
         # Set session resources
+        cursor = self.conn.cursor()
         cores = os.cpu_count()
         max_parallel_workers = max(1, cores - 2)
         max_parallel_workers_per_gather = max_parallel_workers - 1
@@ -852,6 +851,8 @@ class DatabaseProcessor:
         cursor.execute(f"SET hnsw.ef_search = {top_k};")
         cursor.execute("SET enable_seqscan = off;")
 
+        self.prewarm_table(table_name)
+        
         # Execute query
         cursor.execute(
             f"""
