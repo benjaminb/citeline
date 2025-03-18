@@ -47,7 +47,7 @@ def argument_parser():
                         help='path to destination dataset (jsonl)')
     parser.add_argument('--seed', type=int,
                         help='random seed for dataset sampling')
-    parser.add_argument('--table_name', type=str,
+    parser.add_argument('--table-name', type=str,
                         help='name of the database table for query plan generation')
     parser.add_argument('--embedder', type=str,
                         help='embedding model name (e.g., "bert-base-uncased")')
