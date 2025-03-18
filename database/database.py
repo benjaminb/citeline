@@ -15,6 +15,7 @@ from pgvector.psycopg2 import register_vector
 from semantic_text_splitter import TextSplitter
 from time import time
 from tqdm import tqdm
+from Enricher import get_enricher
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
 
@@ -82,6 +83,12 @@ def argument_parser():
         type=str,
         default='BAAI/bge-small-en',
         help='Name of the embedding model to use (default: BAAI/bge-small-en)'
+    )
+    parser.add_argument(
+        '--enricher', '-E',
+        type=str,
+        default=None,
+        help="Name of the enricher to use (default: None). If provided, it will be used to enrich the chunks before embedding"
     )
     parser.add_argument(
         '--normalize', '-n',
@@ -343,14 +350,6 @@ class DatabaseProcessor:
         conn.commit()
         print(f"Created table {name}")
 
-        # Create indexes
-        # for metric in PGVECTOR_DISTANCE_METRICS:
-        #     print(f"Creating index on {metric}...", end="")
-        #     cursor.execute(
-        #         f"CREATE INDEX ON {name} USING hnsw (embedding {metric})")
-        #     print("done.")
-        conn.commit()
-
         # Get all chunks for embedding
         ids_and_chunks = self._get_all_chunks(cursor)
         print(f"Embedding {len(ids_and_chunks)} chunks...")
@@ -409,12 +408,8 @@ class DatabaseProcessor:
         vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
         """
 
-        # Create connection and allocate session memory
-        # conn = psycopg2.connect(**self.db_params)
-        # register_vector(conn)
-        cursor = self.conn.cursor()
-
         # Set session resources
+        cursor = self.conn.cursor()
         cores = os.cpu_count()
         cursor.execute("SHOW max_worker_processes;")
         max_worker_processes = int(cursor.fetchone()[0])
@@ -439,7 +434,7 @@ class DatabaseProcessor:
                 chunk_id INTEGER REFERENCES chunks(id)
                 );
             """)
-        conn.commit()
+        self.conn.commit()
         print(f"Created table {table_name}")
 
         # Get all chunks for embedding
@@ -447,16 +442,18 @@ class DatabaseProcessor:
         print(f"Embedding {len(ids_and_chunks)} chunks...")
 
         # Embed an insert in batches
-        num_batches = 1 + len(ids_and_chunks) // batch_size
-        for i in tqdm(range(num_batches), desc="Inserting embeddings", leave=False):
+        for i in tqdm(range(0, len(ids_and_chunks), batch_size), desc="Inserting embeddings", leave=False):
             # Clear GPU memory every 50 batches
             if i % 50 == 0:
                 self.__clear_gpu_memory()
 
             # Prepare batch
-            batch = ids_and_chunks[i * batch_size:(i + 1) * batch_size]
+            batch = ids_and_chunks[i:i+batch_size]
             ids, texts = list(zip(*batch))
+            start = time()
             embeddings = embedder(texts)
+            print(
+                f"Embedding time: {time() - start:.2f} seconds for {len(texts)} chunks")
             data_batch = [(embedding, id_num)
                           for embedding, id_num in zip(embeddings, ids)]
 
@@ -465,7 +462,82 @@ class DatabaseProcessor:
             execute_values(
                 cursor, f"INSERT INTO {table_name} (embedding, chunk_id) VALUES %s;", data_batch)
             print(f"Insert time: {time() - start_insert}")
-            conn.commit()
+            self.conn.commit()
+
+        cursor.close()
+
+    def create_vector_table_enriched(self,
+                            table_name: str,
+                            dim: int,
+                            embedder,
+                            enricher,
+                            work_mem='2048MB',
+                            maintenance_work_mem='2048MB',
+                            batch_size=32):
+        """
+        1. Creates a vector table
+        2. Creates indexes for all distance metrics
+        3. Batch embeds all records in the `chunks` table using the given embedder
+
+        available distance metrics:
+        vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
+        """
+
+        # Set session resources
+        cursor = self.conn.cursor()
+        cores = os.cpu_count()
+        cursor.execute("SHOW max_worker_processes;")
+        max_worker_processes = int(cursor.fetchone()[0])
+        max_parallel_workers = max(1, cores - 2)
+        max_parallel_maintenance_workers = int(0.2 * max_worker_processes)
+        print("="*33 + "CONFIG" + "="*33)
+        print("max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | work_mem | maintenance_work_mem")
+        print(
+            f"{max_worker_processes:^21} {max_parallel_workers:^22} {max_parallel_maintenance_workers:^34} {work_mem:^10} {maintenance_work_mem:^21}")
+        print("="*72)
+        cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
+        cursor.execute(
+            f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
+        cursor.execute(f"SET work_mem='{work_mem}';")
+        cursor.execute(f"SET maintenance_work_mem='{maintenance_work_mem}';", )
+
+        # Create table
+        cursor.execute(
+            f"""CREATE TABLE {table_name} (
+                id SERIAL PRIMARY KEY,
+                embedding VECTOR({dim}),
+                chunk_id INTEGER REFERENCES chunks(id)
+                );
+            """)
+        self.conn.commit()
+        print(f"Created table {table_name}")
+
+        # Get all chunks for embedding
+        ids_and_chunks = self._get_all_chunks(cursor)
+        print(f"Embedding {len(ids_and_chunks)} chunks...")
+
+        # Embed an insert in batches
+        for i in tqdm(range(0, len(ids_and_chunks), batch_size), desc="Inserting embeddings", leave=False):
+            # Clear GPU memory every 50 batches
+            if i % 50 == 0:
+                self.__clear_gpu_memory()
+
+            # Prepare batch
+            batch = ids_and_chunks[i:i+batch_size]
+            ids, texts = list(zip(*batch))
+            start = time()
+            embeddings = embedder(texts)
+            print(
+                f"Embedding time: {time() - start:.2f} seconds for {len(texts)} chunks")
+            data_batch = [(embedding, id_num)
+                          for embedding, id_num in zip(embeddings, ids)]
+
+            # Insert
+            start_insert = time()
+            execute_values(
+                cursor, f"INSERT INTO {table_name} (embedding, chunk_id) VALUES %s;", data_batch)
+            print(f"Insert time: {time() - start_insert}")
+            self.conn.commit()
 
         cursor.close()
 
@@ -715,16 +787,48 @@ class DatabaseProcessor:
 
     def prewarm_table(self, table_name: str):
         cursor = self.conn.cursor()
-        cursor.execute(f"""
-            SELECT pg_prewarm(oid) 
-            FROM pg_class 
-            WHERE relname = '{table_name}' 
-            OR relname IN (
-                SELECT indexname 
-                FROM pg_indexes 
-                WHERE tablename = '{table_name}'
-            );
-        """)
+        print(f"Prewarming table {table_name} and its indexes...")
+
+        try:
+            # Execute query to get all relevant objects
+            cursor.execute(f"""
+                SELECT relname, pg_prewarm(oid) as blocks_loaded
+                FROM pg_class 
+                WHERE relname = '{table_name}' 
+                OR relname IN (
+                    SELECT indexname 
+                    FROM pg_indexes 
+                    WHERE tablename = '{table_name}'
+                );
+            """)
+
+            # Fetch and display results
+            results = cursor.fetchall()
+
+            print("\n" + "="*70)
+            print(f"{'Object Name':<30} {'Blocks Loaded':<15} {'Size (MB)':<15}")
+            print("-"*70)
+
+            total_blocks = 0
+            for obj_name, blocks in results:
+                if blocks is None:
+                    blocks = 0
+                total_blocks += blocks
+                # Convert blocks to MB (8KB per block / 1024 = MB)
+                size_mb = blocks * 8 / 1024
+                print(f"{obj_name:<30} {blocks:<15} {size_mb:.2f} MB")
+
+            total_size_mb = total_blocks * 8 / 1024
+            print("-"*70)
+            print(f"{'TOTAL':<30} {total_blocks:<15} {total_size_mb:.2f} MB")
+            print("="*70 + "\n")
+
+            return results
+        except Exception as e:
+            print(f"Error prewarming table {table_name}: {e}")
+            raise e
+        finally:
+            cursor.close()
 
     def explain_analyze(self,
                         query_vector: str,
@@ -836,10 +940,20 @@ def main():
         embedder = get_embedder(embedder, db.device, normalize)
         dim = embedder(['test']).shape[1]
 
-        db.create_vector_table_copy(
-            table_name=table_name, dim=dim, embedder=embedder, batch_size=batch_size)
-        # TODO: add calls to create indexes
+        if args.enricher:
+            enricher = get_enricher(args.enricher)
+            db.create_vector_table_enriched(
+                table_name=table_name, dim=dim, embedder=embedder, enricher=enricher, batch_size=batch_size)
+        else:
+            db.create_vector_table(
+                table_name=table_name, dim=dim, embedder=embedder, batch_size=batch_size)
+            # TODO: add calls to create indexes
         return
+        
+
+
+
+
 
     if args.create_index:
         if args.index_type == 'hnsw':

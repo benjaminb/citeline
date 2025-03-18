@@ -209,6 +209,9 @@ class Experiment:
         }
 
     def run(self):
+        # Load the vector table into memory (shared_buffer) on db host
+        self.db.prewarm_table(self.table)
+
         for i in tqdm(range(0, len(self.dataset), self.batch_size), desc="Batch number", leave=True):
             if i % 50 == 0:
                 print(f"Batch {i+1}")
@@ -342,6 +345,7 @@ def main():
         print(f"{'Top K':<15} {args.top_k:<40}")
         print("="*60 + "\n")
 
+        db.prewarm_table(args.table_name)
         db.explain_analyze(
             query_vector=embedding,
             table_name=args.table_name,
