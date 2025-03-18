@@ -15,7 +15,7 @@ from pgvector.psycopg2 import register_vector
 from semantic_text_splitter import TextSplitter
 from time import time
 from tqdm import tqdm
-from Enricher import get_enricher
+from Enrichers import get_enricher
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
 
@@ -467,13 +467,13 @@ class DatabaseProcessor:
         cursor.close()
 
     def create_vector_table_enriched(self,
-                            table_name: str,
-                            dim: int,
-                            embedder,
-                            enricher,
-                            work_mem='2048MB',
-                            maintenance_work_mem='2048MB',
-                            batch_size=32):
+                                     table_name: str,
+                                     dim: int,
+                                     embedder,
+                                     enricher,
+                                     work_mem='2048MB',
+                                     maintenance_work_mem='2048MB',
+                                     batch_size=32):
         """
         1. Creates a vector table
         2. Creates indexes for all distance metrics
@@ -949,11 +949,6 @@ def main():
                 table_name=table_name, dim=dim, embedder=embedder, batch_size=batch_size)
             # TODO: add calls to create indexes
         return
-        
-
-
-
-
 
     if args.create_index:
         if args.index_type == 'hnsw':
