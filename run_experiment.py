@@ -64,7 +64,7 @@ def argument_parser():
         parser.error("--build requires --num, --source, and --dest arguments")
 
     if args.query_plan and (not args.table_name or not args.embedder or not args.top_k):
-        parser.error("--query-plan requires --table_name argument")
+        parser.error("--query-plan requires --table-name argument")
 
     return args
 
