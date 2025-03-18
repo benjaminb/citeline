@@ -713,16 +713,13 @@ class DatabaseProcessor:
         assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
         operator = PGVECTOR_DISTANCE_METRICS[metric]
 
-        # conn = psycopg2.connect(**self.db_params)
-        # register_vector(conn)
-        cursor = self.conn.cursor()
-
         # Best practice is ef_search should be at least top_k
         if ef_search < top_k:
             print(
                 f"  WARNING: ef_search ({ef_search}) is less than top_k ({top_k}).")
 
         # Set the session resources
+        cursor = self.conn.cursor()
         cores = os.cpu_count()
         max_parallel_workers = max(1, cores - 2)
         max_parallel_workers_per_gather = max_parallel_workers - 1
@@ -779,7 +776,6 @@ class DatabaseProcessor:
 
         # Close up
         cursor.close()
-        conn.close()
 
         assert len(
             results) <= top_k, f"Query returned {len(results)} results, but top_k is set to {top_k}"
