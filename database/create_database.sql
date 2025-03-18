@@ -8,6 +8,8 @@ CREATE DATABASE citeline_db WITH OWNER bbasseri;
 -- GRANT CREATE ON SCHEMA public TO bbasseri;
 -- ALTER ROLE bbasseri SET search_path TO public;
 CREATE EXTENSION vector;
+-- Allows preloading data into shared buffers for faster queries
+CREATE EXTENSION pg_prewarm;
 CREATE TABLE chunks (
     id SERIAL PRIMARY KEY,
     doi VARCHAR(255) NOT NULL,

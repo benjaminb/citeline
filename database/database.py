@@ -713,13 +713,26 @@ class DatabaseProcessor:
             results) <= top_k, f"Query returned {len(results)} results, but top_k is set to {top_k}"
         return [SingleQueryResult(*result) for result in results]
 
+    def prewarm_table(self, table_name: str):
+        cursor = self.conn.cursor()
+        cursor.execute(f"""
+            SELECT pg_prewarm(oid) 
+            FROM pg_class 
+            WHERE relname = '{table_name}' 
+            OR relname IN (
+                SELECT indexname 
+                FROM pg_indexes 
+                WHERE tablename = '{table_name}'
+            );
+        """)
+
     def explain_analyze(self,
-        query_vector: str,
-        table_name: str,
-        metric: str = 'vector_cosine_ops',
-        top_k: int = 50,
-        outdir: str = 'tests/db/'
-    ):
+                        query_vector: str,
+                        table_name: str,
+                        metric: str = 'vector_cosine_ops',
+                        top_k: int = 50,
+                        outdir: str = 'tests/db/'
+                        ):
         # Set up db connection
         assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
         operator = PGVECTOR_DISTANCE_METRICS[metric]
@@ -735,7 +748,8 @@ class DatabaseProcessor:
             f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
         cursor.execute(f"SET work_mem='{work_mem}'")
         cursor.execute(f"SET enable_indexscan = on;")
-        cursor.execute(f"SET hnsw.ef_search = {top_k};") #NOTE: ef_search could be higher
+        # NOTE: ef_search could be higher
+        cursor.execute(f"SET hnsw.ef_search = {top_k};")
         cursor.execute("SET enable_seqscan = off;")
 
         # Execute query
