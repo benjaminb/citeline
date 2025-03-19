@@ -14,3 +14,9 @@
     * add a `loaded_from` property to track which data file the record came from
     * remove duplicate records (tracked by having the same doi)
     * drop any records that don't have all the required keys (as noted in `REQUIRED_KEYS` constant)
+
+## Database
+
+One main table, 'library'
+Rows contain id, doi, title, abstract, chunk (of body text)
+This is denormalized a bit, to save on joins during query time

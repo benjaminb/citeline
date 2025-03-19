@@ -6,6 +6,20 @@ import pandas as pd
 import pysbd
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
+"""
+Originally, data was provided in various JSON files representing papers from various fields or journals.
+These records contained the following keys (except for a few missing certain keys):
+  'bibcode', 'abstract', 'aff', 'author', 'bibstem', 'doctype', 'doi',
+  'id', 'keyword', 'pubdate', 'title', 'read_count', 'reference', 'data',
+  'citation_count', 'citation', 'body', 'dois', 'loaded_from'
+
+To make the data uniform, we drop any records missing any of the REQUIRED_KEYS. In addition, this code
+  - Extracts the first doi from each record and stores it in a new key 'doi' (the old 'doi' key is renamed to 'dois', and is a list).
+  - For research data (the reference dataset): drop any duplicates
+  - For review data (the query dataset): segment the body text into sentences and merge any short sentences (less than 60 characters).
+The final output is written to two separate JSONL files: 'research.jsonl' and 'reviews.jsonl'.
+"""
+
 SEG = pysbd.Segmenter(language="en", clean=False)
 
 # Records missing any of these keys are excluded from the dataset
@@ -101,7 +115,8 @@ def write_review_data(datasets):
 
     # Process records in parallel
     results = []
-    with ProcessPoolExecutor(max_workers=os.cpu_count()-1) as executor:
+    max_workers = max(1, os.cpu_count() - 1)
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
         # Submit all processing jobs
         futures = [executor.submit(process_record, record)
                    for record in records]

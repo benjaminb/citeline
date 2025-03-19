@@ -4,18 +4,25 @@ import json
 import numpy as np
 import os
 from datetime import datetime
-import psycopg2
-from psycopg2 import Binary
-from psycopg2.extras import execute_values
+import inspect
+import pandas as pd
+
+# TODO: replace references to psycopg2 with psycopg
+# import psycopg2
+# from psycopg2 import Binary
+# from psycopg2.extras import execute_values
+
+import psycopg
+# from psycopg import Binary
 import sys
 import torch
 from dataclasses import dataclass
 from dotenv import load_dotenv
-from pgvector.psycopg2 import register_vector
+from pgvector.psycopg import register_vector
 from semantic_text_splitter import TextSplitter
 from time import time
 from tqdm import tqdm
-from Enrichers import get_enricher
+
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
 
 
@@ -24,11 +31,10 @@ from time import time
 import cProfile
 import pstats
 
-# Add the parent directory to sys.path
+# Add the parent directory to sys.path so we can import Embedders, Enrichers, etc.
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # fmt: off
-# NOTE: moved into chunk_and_insert since it's not used elsewhere
-# from preprocessing import load_dataset
+
 
 # fmt: on
 
@@ -37,6 +43,14 @@ PGVECTOR_DISTANCE_METRICS = {
     'vector_ip_ops': '<#>',
     'vector_cosine_ops': '<=>',
 }
+"""
+USAGE:
+python database/database.py --test-connection
+python database/database.py --create-vector-table --table-name chunks --embedder BAAI/bge-small-en
+python database/database.py --create-index --table-name chunks --index-type hnsw --metric vector_cosine_ops --m 32 --ef-construction 512
+python database/database.py --add-chunks --path /path/to/dataset.jsonl --max-length 1500 --overlap 150
+
+"""
 
 
 def argument_parser():
@@ -63,13 +77,27 @@ def argument_parser():
         action='store_true',
         help='Add chunks to the database'
     )
+    operation_group.add_argument(
+        '--create-base-table', '-B',
+        action='store_true',
+        help='Create the base table for chunks and insert records into it'
+    )
 
-    # Create vector table arguments
+    # Create base table arguments (NOTE: --table-name is used by multiple operations)
+    parser.add_argument(
+        '--from-path', '-f',
+        type=str,
+        help='Path to the dataset (JSONL file) to create the base table from'
+    )
+
+    # Used by multiple operations
     parser.add_argument(
         '--table-name', '-T',
         type=str,
         help='Name of target table'
     )
+
+    # Create vector table arguments
     parser.add_argument(
         '--embedder', '-e',
         type=str,
@@ -162,6 +190,10 @@ def argument_parser():
     args = parser.parse_args()
 
     # Validate args
+    if args.create_base_table and not all([args.from_path, args.table_name]):
+        parser.error(
+            "--create-base-table requires --table-name and --from-path")
+
     if args.create_vector_table and not all([args.table_name, args.embedder]):
         parser.error(
             "--create-vector-table requires --table-name and --embedder")
@@ -183,6 +215,7 @@ def argument_parser():
     return args
 
 
+# TODO: factor these out
 """
 DATACLASSES
 """
@@ -248,17 +281,43 @@ def insert_batch(data_name_and_processor):
     conn.close()
 
 
+def record_to_chunked_records(record, max_length, overlap):
+    """
+    Standalone chunking function that doesn't need a database connection.
+    """
+    splitter = TextSplitter(capacity=max_length, overlap=overlap)
+    chunks = splitter.chunks(record['body'])
+
+    # Remove NUL chars which PostgreSQL doesn't like
+    return [{'title': record['title'].replace('\x00', ''),
+             'abstract': record['abstract'].replace('\x00', ''),
+             'doi': record['doi'].replace('\x00', ''),
+             'chunk': chunk.replace('\x00', '')} for chunk in chunks]
+
+
 class DatabaseProcessor:
     def __init__(self, db_params):
         self.db_params = db_params
         self.device = 'cuda' if torch.cuda.is_available(
         ) else 'mps' if torch.mps.is_available() else 'cpu'
-        self.conn = psycopg2.connect(**db_params)
+        # self.conn = psycopg2.connect(**db_params)
+        self.conn = psycopg.connect(**db_params)
         register_vector(self.conn)
+
+        # For text splitting; instantiated in __create_base_table
+        self.splitter = None
 
     def __del__(self):
         if self.conn:
             self.conn.close()
+
+    def __log_error(self, message: str):
+        """Log an error message to a file"""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Get the calling function's name
+        caller_name = inspect.currentframe().f_back.f_code.co_name
+        with open('database_errors.log', 'a') as f:
+            f.write(f"[{timestamp}]: {message}\n")
 
     def __clear_gpu_memory(self):
         if self.device == 'cuda':
@@ -270,13 +329,31 @@ class DatabaseProcessor:
         """Remove NUL characters from a string, which PostgreSQL does not like"""
         return s.replace('\x00', '')
 
-    def _chunk_record(self, record: dict, max_length: int, overlap: int):
-        splitter = TextSplitter(capacity=max_length, overlap=overlap)
-        full_text = record['title'] + '\n\nABSTRACT:\n' + \
-            record['abstract'] + '\n\n' + record['body']
-        chunks = splitter.chunks(full_text)
-        doi = record['doi'][0]
-        return [(chunk, doi) for chunk in chunks]
+    # def __record_to_chunked_records(self, record: dict, max_length: int, overlap: int) -> list[dict[str, str]]:
+    #     """
+    #     Chunks a record's body.
+    #     NOTE: expects self.splitter to have been set before calling this function, since typical use
+    #           would be to repeatedly call this on several records.
+
+    #     Args:
+    #         record (dict): A dictionary containing 'body', 'title', 'abstract', and 'doi'.
+    #         max_length (int): Maximum length of each chunk.
+    #         overlap (int): Overlap between chunks.
+    #     Returns:
+    #         list[dict[str, str]]: A list of dictionaries, each containing 'title', 'abstract', 'doi', and 'chunk'.
+    #     """
+
+    #     chunks = self.splitter.chunks(record['body'])
+    #     if not chunks:
+    #         # If no chunks were created, write out to error log
+    #         with open('database_error_log.txt', 'a') as f:
+    #             f.write(
+    #                 f"Error chunking record with DOI {record['doi']}. No chunks produced.\n")
+
+    #     return [{'title': self.__remove_nul_chars(record['title']),
+    #              'abstract': self.__remove_nul_chars(record['abstract']),
+    #              'doi': self.__remove_nul_chars(record['doi']),
+    #              'chunk': self.__remove_nul_chars(chunk)} for chunk in chunks]
 
     def _insert_chunk(data, table_name, db_params):
         conn = psycopg2.connect(**db_params)
@@ -296,6 +373,60 @@ class DatabaseProcessor:
         results = cursor.fetchall()
         return [Chunk(*result) for result in results]
 
+    def _create_base_table(self, table_name: str, from_path: str, max_length: int = 1500, overlap: int = 150):
+        """
+        Create the base table for chunks and insert records into it.
+
+        Args:
+            path (str): Path to the dataset (JSONL file).
+            max_length (int): Maximum length of each chunk.
+            overlap (int): Overlap between chunks.
+        """
+        # First, create table so we immediately error if it already exists
+        cursor = self.conn.cursor()
+        cursor.execute(
+            f"""CREATE TABLE {table_name} (
+                id SERIAL PRIMARY KEY,
+                doi TEXT NOT NULL,
+                title TEXT NOT NULL,
+                abstract TEXT NOT NULL,
+                chunk TEXT NOT NULL
+                );
+            """)
+        self.conn.commit()
+
+        # Read in data and instantiate TextSplitter
+        df = pd.read_json(from_path, lines=True)
+        self.splitter = TextSplitter(capacity=max_length, overlap=overlap)
+        records = df.to_dict('records')
+
+        # records = records[:1000]  # Limit to first 1000 for testing
+
+        # Use ProcessPoolExecutor to parallelize chunking
+        chunked_records = []
+        cores = max(1, os.cpu_count() - 1)
+        with ProcessPoolExecutor(max_workers=cores) as process_executor:
+            futures = [process_executor.submit(
+                record_to_chunked_records, record, max_length, overlap) for record in records]
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Chunking records"):
+                chunked_records.extend(future.result())  # Collect all chunks
+
+        try:
+            with cursor.copy(f"COPY {table_name} (doi, title, abstract, chunk) FROM STDIN WITH (FORMAT BINARY)") as copy:
+                copy.set_types(['text', 'text', 'text', 'text'])
+                for record in tqdm(chunked_records, desc="Copying chunks"):
+                    copy.write_row(
+                        [record['doi'], record['title'], record['abstract'], record['chunk']])
+
+            self.conn.commit()
+            print(f"Successfully inserted {len(chunked_records)} chunks")
+
+        except Exception as e:
+            self.conn.rollback()
+            print(f"Error during COPY: {e}")
+            self.__log_error(f"Error during COPY: {e}")
+            raise e
+
     def chunk_and_insert_records(self, path: str, max_length: int = 1500, overlap: int = 150):
         from preprocessing import load_dataset
         records = load_dataset(path)
@@ -305,7 +436,7 @@ class DatabaseProcessor:
         cores = min(1, os.cpu_count() - 2)
         with ProcessPoolExecutor(max_workers=cores) as process_executor:
             futures = [process_executor.submit(
-                self._chunk_record, record, max_length, overlap) for record in records]
+                self.__record_to_chunked_records, record, max_length, overlap) for record in records]
             for future in tqdm(as_completed(futures), total=len(futures), desc="Chunking records"):
                 all_chunks.extend(future.result())  # Collect all chunks
 
@@ -905,8 +1036,7 @@ class DatabaseProcessor:
         cursor.close()
 
     def test_connection(self):
-        conn = psycopg2.connect(**self.db_params)
-        cursor = conn.cursor()
+        cursor = self.conn.cursor()
 
         # Print a pretty table showing db name, user, host, and port from db_params
         print("="*33 + "CONFIG" + "="*33)
@@ -921,7 +1051,6 @@ class DatabaseProcessor:
         print(f"Database version: {db_version}")
 
         cursor.close()
-        conn.close()
 
 
 def profile_create_vector_table(db, table_name, embedder):
@@ -948,6 +1077,17 @@ def main():
     db.test_connection()
 
     args = argument_parser()
+
+    # Switch on command line args
+    if args.create_base_table:
+        # Extract parameters
+        table_name, path, max_length, overlap = args.table_name, args.from_path, args.max_length, args.overlap
+
+        # Create base table and insert records
+        print(f"Creating base table '{table_name}' from {path}...")
+        db._create_base_table(
+            table_name=table_name, from_path=path, max_length=max_length, overlap=overlap)
+        return
 
     if args.add_chunks:
 
