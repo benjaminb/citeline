@@ -73,6 +73,7 @@ def process_record(record):
     record['body_sentences'] = merge_short_sentences(sentences)
     return record
 
+
 def get_unique_records(datasets: list[str]) -> pd.DataFrame:
     """
     This function loads multiple datasets, concatenates them into a single DataFrame,
@@ -81,8 +82,14 @@ def get_unique_records(datasets: list[str]) -> pd.DataFrame:
     records = [record for dataset in datasets for record in load_dataset(
         'data/json/' + dataset)]
     df = pd.DataFrame(records)
+    full_length = len(df)
     df = df.drop_duplicates(subset=['doi'])
+    unique_length = len(df)
+
+    print(
+        f"Loaded {full_length} records, {unique_length} unique records based on 'doi'")
     return df
+
 
 def write_review_data(datasets):
     """
@@ -90,57 +97,46 @@ def write_review_data(datasets):
     Each record is processed to segment the body into sentences and merge short sentences.
     """
     df = get_unique_records(datasets)
+    records = df.to_dict('records')
 
-    # On the df, apply the process_record function to each row
-    df['body_sentences'] = df['body'].apply(lambda x: merge_short_sentences(SEG.segment(x)))
-    df.to_json('data/preprocessed/reviews.jsonl', orient='records', lines=True)
+    # Process records in parallel
+    results = []
+    with ProcessPoolExecutor(max_workers=os.cpu_count()-1) as executor:
+        # Submit all processing jobs
+        futures = [executor.submit(process_record, record)
+                   for record in records]
 
+        # Collect results with progress bar
+        for future in tqdm(as_completed(futures), total=len(futures),
+                           desc="Processing records"):
+            results.append(future.result())
 
+    # Convert results back to DataFrame and save
+    result_df = pd.DataFrame(results)
+    result_df.to_json('data/preprocessed/reviews.jsonl',
+                      orient='records', lines=True)
 
-    with open('data/preprocessed/reviews.json', 'w') as f:
-        f.write('[')  # Start the JSON array
-        for dataset in datasets:
-            records = load_dataset('data/json/' + dataset)
-            with ProcessPoolExecutor(max_workers=os.cpu_count()-1) as executor:
-                futures = [executor.submit(process_record, record)
-                           for record in records]
-                results = []
-                for future in tqdm(as_completed(futures), total=len(futures)):
-                    results.append(future.result())
-                for i, record in enumerate(results):
-                    f.write(json.dumps(record))
-                    if i < len(records) - 1:
-                        f.write(',')  # Add a comma between JSON objects
-        f.write(']')  # End the JSON array
 
 def write_research_data(datasets):
     records = [record for dataset in datasets for record in load_dataset(
         'data/json/' + dataset)]
     df = pd.DataFrame(records)
     df = df.drop_duplicates(subset=['doi'])
-    df.to_json('data/preprocessed/research.jsonl', orient='records', lines=True)
+    df.to_json('data/preprocessed/research.jsonl',
+               orient='records', lines=True)
+
 
 def main():
     args = argument_parser()
 
     if args.reviews:
-        for dataset in ['Astro_Reviews.json', 'Earth_Science_Reviews.json', 'Planetary_Reviews.json']:
-            print(f"Processing {dataset}...")
-            records = load_dataset('data/json/' + dataset)
-
-            with open('data/preprocessed/' + dataset, 'w') as f:
-                f.write('[')  # Start the JSON array
-                with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
-                    futures = [executor.submit(process_record, record)
-                               for record in records]
-                    results = []
-                    for future in tqdm(as_completed(futures), total=len(futures)):
-                        results.append(future.result())
-                    for i, record in enumerate(results):
-                        f.write(json.dumps(record))
-                        if i < len(records) - 1:
-                            f.write(',')  # Add a comma between JSON objects
-                f.write(']')  # End the JSON array
+        """
+        * Loads the json files for the review datasets, makes sure we only retain unique records (based on doi),
+        * Takes each record body text, segments it into sentences, and merges any short sentences (less than 60 characters)
+        * Places the sentence segments into a new field called 'body_sentences'.
+        * Writes the final output to a single jsonl file called 'reviews.jsonl'.
+        """
+        write_review_data(['Astro_Reviews.json', 'Earth_Science_Reviews.json', 'Planetary_Reviews.json'])
 
     if args.research:
         """
@@ -152,10 +148,6 @@ def main():
                     'Planetary_Research.json', 'doi_articles.json', 'salvaged_articles.json']
         write_research_data(datasets)
         return
-
-    if args.reviews:
-        datasets = ['Astro_Reviews.json',
-                    'Earth_Science_Reviews.json', 'Planetary_Reviews.json']
 
 
 if __name__ == "__main__":
