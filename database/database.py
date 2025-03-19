@@ -859,7 +859,12 @@ class DatabaseProcessor:
         cursor.execute(f"SET work_mem='{work_mem}'")
         cursor.execute(f"SET enable_indexscan = on;")
         # NOTE: ef_search could be higher
-        cursor.execute(f"SET hnsw.ef_search = {top_k};")
+        ef_search = top_k
+        if top_k > 1000:
+            print(
+                f"  WARNING: Setting ef_search ({top_k}) to 1000, highest supported by pgvector.")
+            ef_search = 1000
+        cursor.execute(f"SET hnsw.ef_search = {ef_search};")
         cursor.execute("SET enable_seqscan = off;")
 
         self.prewarm_table(table_name)
