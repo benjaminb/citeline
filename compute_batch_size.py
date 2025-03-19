@@ -5,10 +5,10 @@ import pstats
 from dotenv import load_dotenv
 from time import time
 from Embedders import get_embedder, EMBEDDING_CLASS
-from database.database import DatabaseProcessor
+from database.database import Database
 
 
-def stress_test(model_name: str, db: DatabaseProcessor):
+def stress_test(model_name: str, db: Database):
     print(f"Embedding model: {model_name}")
     embedder = get_embedder(model_name, 'cuda', normalize=False)
     batch_size = 1
@@ -48,7 +48,7 @@ def stress_test(model_name: str, db: DatabaseProcessor):
         print("=====================================")
 
 
-def profile(model_name: str, db: DatabaseProcessor):
+def profile(model_name: str, db: Database):
     with cProfile.Profile() as pr:
         stress_test(model_name=model_name, db=db)
     stats = pstats.Stats(pr)
@@ -66,7 +66,7 @@ def main():
         'port': os.getenv('DB_PORT'),
     }
     start = time()
-    db = DatabaseProcessor(db_params)
+    db = Database(db_params)
     print(f"Database loaded in {time() - start} seconds")
     print(db.db_params)
 

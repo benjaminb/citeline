@@ -1,5 +1,5 @@
 import os
-from database import DatabaseProcessor
+from database import Database
 from dotenv import load_dotenv
 
 PATHS_TO_DATA = [
@@ -14,13 +14,13 @@ PATHS_TO_DATA = [
 def main():
     load_dotenv('../.env')
     db_params = {
-        'dbname': os.getenv('DB_NAME') ,
+        'dbname': os.getenv('DB_NAME'),
         'user': os.getenv('DB_USER'),
         'password': os.getenv('DB_PASSWORD'),
         'host': os.getenv('DB_HOST'),
         'port': os.getenv('DB_PORT')
     }
-    db = DatabaseProcessor(db_params)
+    db = Database(db_params)
     db.test_connection()
     print(db.db_params)
     print("=====================================")

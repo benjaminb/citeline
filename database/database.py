@@ -276,7 +276,7 @@ def record_to_chunked_records(record, max_length, overlap):
              'chunk': chunk.replace('\x00', '')} for chunk in chunks]
 
 
-class DatabaseProcessor:
+class Database:
     @classmethod
     def get_db_params(cls, path_to_env: str = '.env') -> dict[str, str]:
         """Load database parameters from a .env file"""
@@ -290,7 +290,7 @@ class DatabaseProcessor:
         }
 
     def __init__(self, path_to_env: str = '../.env'):
-        self.db_params = DatabaseProcessor.get_db_params(
+        self.db_params = Database.get_db_params(
             path_to_env=path_to_env)
         self.conn = psycopg.connect(**self.db_params)
         register_vector(self.conn)
@@ -1042,7 +1042,7 @@ def main():
         'host': os.getenv('DB_HOST'),
         'port': os.getenv('DB_PORT')
     }
-    db = DatabaseProcessor()
+    db = Database()
     db.test_connection()
 
     args = argument_parser()

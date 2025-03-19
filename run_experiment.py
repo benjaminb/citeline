@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from dotenv import load_dotenv
 from tqdm import tqdm
-from database.database import DatabaseProcessor, get_db_params
+from database.database import Database, get_db_params
 from Enrichers import get_enricher
 from Embedders import get_embedder
 
@@ -21,19 +21,19 @@ DISTANCE_THRESHOLDS = np.arange(1.0, 0.0, -0.01)
 def argument_parser():
     """
     Example usage:
-    
+
     1. Run an experiment with specified configuration:
        python run_experiment.py --run --config experiments/configs/bert_cosine.yaml
-    
+
     2. Build a dataset by sampling from source:
        python run_experiment.py --build --num 1000 --source data/dataset/full/nontrivial.jsonl --dest data/dataset/sampled/sample_1000.jsonl --seed 42
-    
+
     3. Write out train/test split from a dataset:
        python run_experiment.py --write
-    
+
     4. Generate query plans and analyze database performance:
        python run_experiment.py --query-plan --table-name bert_hnsw --embedder bert-base-uncased --top-k 50
-    
+
     """
     # Set up argument parser
     parser = argparse.ArgumentParser(
@@ -136,7 +136,7 @@ class Experiment:
         self.enricher = get_enricher(enrichment)
 
         # Initialize database
-        self.db = DatabaseProcessor(get_db_params())
+        self.db = Database(get_db_params())
         self.db.test_connection()
         self.top_k = top_k
 
@@ -341,7 +341,7 @@ def main():
     if args.query_plan:
         # Set up resources
         embedder = get_embedder(args.embedder, device=device)
-        db = DatabaseProcessor(get_db_params())
+        db = Database(get_db_params())
         db.test_connection()
 
         # Generate query vector and query plan
