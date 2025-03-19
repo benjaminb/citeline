@@ -243,27 +243,8 @@ class ChunkAndVector:
 
 
 """
-DATABASE RELATED FUNCTIONS FOR EXPORT
-"""
-
-
-def get_db_params(env_file: str = '.env') -> dict[str, str]:
-    """
-    Load database parameters from a .env file
-    """
-    load_dotenv(env_file, override=True)
-    return {
-        'dbname': os.getenv('DB_NAME'),
-        'user': os.getenv('DB_USER'),
-        'password': os.getenv('DB_PASSWORD'),
-        'host': os.getenv('DB_HOST'),
-        'port': os.getenv('DB_PORT')
-    }
-
-
-"""
-Helper functions for vector table insertion. These must be outside the class definition to be pickled,
-which is necessary for multiprocessing.
+PICKLEABLE DB HELPER FUNCTIONS
+These must be outside the class definition to be pickled, which is necessary for multiprocessing.
 """
 
 
@@ -296,13 +277,27 @@ def record_to_chunked_records(record, max_length, overlap):
 
 
 class DatabaseProcessor:
-    def __init__(self, db_params):
-        self.db_params = db_params
+    @classmethod
+    def get_db_params(cls, path_to_env: str = '.env') -> dict[str, str]:
+        """Load database parameters from a .env file"""
+        load_dotenv(path_to_env, override=True)
+        return {
+            'dbname': os.getenv('DB_NAME'),
+            'user': os.getenv('DB_USER'),
+            'password': os.getenv('DB_PASSWORD'),
+            'host': os.getenv('DB_HOST'),
+            'port': os.getenv('DB_PORT')
+        }
+
+    def __init__(self, path_to_env: str = '../.env'):
+        self.db_params = DatabaseProcessor.get_db_params(
+            path_to_env=path_to_env)
+        self.conn = psycopg.connect(**self.db_params)
+        register_vector(self.conn)
+
+        # TODO: does the database need to do any vector embedding itself?
         self.device = 'cuda' if torch.cuda.is_available(
         ) else 'mps' if torch.mps.is_available() else 'cpu'
-        # self.conn = psycopg2.connect(**db_params)
-        self.conn = psycopg.connect(**db_params)
-        register_vector(self.conn)
 
         # For text splitting; instantiated in __create_base_table
         self.splitter = None
@@ -328,32 +323,6 @@ class DatabaseProcessor:
     def __remove_nul_chars(self, s: str) -> str:
         """Remove NUL characters from a string, which PostgreSQL does not like"""
         return s.replace('\x00', '')
-
-    # def __record_to_chunked_records(self, record: dict, max_length: int, overlap: int) -> list[dict[str, str]]:
-    #     """
-    #     Chunks a record's body.
-    #     NOTE: expects self.splitter to have been set before calling this function, since typical use
-    #           would be to repeatedly call this on several records.
-
-    #     Args:
-    #         record (dict): A dictionary containing 'body', 'title', 'abstract', and 'doi'.
-    #         max_length (int): Maximum length of each chunk.
-    #         overlap (int): Overlap between chunks.
-    #     Returns:
-    #         list[dict[str, str]]: A list of dictionaries, each containing 'title', 'abstract', 'doi', and 'chunk'.
-    #     """
-
-    #     chunks = self.splitter.chunks(record['body'])
-    #     if not chunks:
-    #         # If no chunks were created, write out to error log
-    #         with open('database_error_log.txt', 'a') as f:
-    #             f.write(
-    #                 f"Error chunking record with DOI {record['doi']}. No chunks produced.\n")
-
-    #     return [{'title': self.__remove_nul_chars(record['title']),
-    #              'abstract': self.__remove_nul_chars(record['abstract']),
-    #              'doi': self.__remove_nul_chars(record['doi']),
-    #              'chunk': self.__remove_nul_chars(chunk)} for chunk in chunks]
 
     def _insert_chunk(data, table_name, db_params):
         conn = psycopg2.connect(**db_params)
@@ -1073,7 +1042,7 @@ def main():
         'host': os.getenv('DB_HOST'),
         'port': os.getenv('DB_PORT')
     }
-    db = DatabaseProcessor(db_params)
+    db = DatabaseProcessor()
     db.test_connection()
 
     args = argument_parser()
