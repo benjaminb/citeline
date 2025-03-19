@@ -869,16 +869,20 @@ class DatabaseProcessor:
 
         self.prewarm_table(table_name)
 
-        # Execute query
-        query = f"""EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
-            SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} {query_vector} AS distance
+        # Prepare and execute query (format everything but the vector first, so it can be printed compactly)
+        query = """EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
+            SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} '{query_vector}' AS distance
             FROM {table_name}
             JOIN chunks ON {table_name}.chunk_id = chunks.id
             ORDER BY {table_name}.embedding {operator} {query_vector} ASC
             LIMIT {top_k};
-            """
+            """.format(
+            table_name=table_name,
+            operator=operator,
+            top_k=top_k)
         print(f"Executing query: {query}")
-        cursor.execute(query)
+
+        cursor.execute(query.format(query_vector=query_vector))
         # cursor.execute(
         #     f"""
         #     EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
