@@ -42,14 +42,6 @@ PGVECTOR_DISTANCE_METRICS = {
 def argument_parser():
     parser = argparse.ArgumentParser(description='Database operations')
 
-    # # Create subparsers for different operations
-    # subparsers = parser.add_subparsers(dest='operation', required=True,
-    #                                    help='Operation to perform')
-
-    # # Create vector table operation
-    # create_vector_parser = subparsers.add_parser('create-vector-table',
-    #                                              help='Create a new vector table')
-
     operation_group = parser.add_mutually_exclusive_group(required=True)
     operation_group.add_argument(
         '--test-connection', '-t',
@@ -197,11 +189,18 @@ DATACLASSES
 
 
 @dataclass
-class SingleQueryResult:
+class SingleVectorQueryResult:
     chunk_id: int
     doi: str
     text: str
     distance: float
+
+
+@dataclass
+class Chunk:
+    id: int
+    doi: str
+    text: str
 
 
 @dataclass
@@ -290,6 +289,12 @@ class DatabaseProcessor:
         conn.commit()
         cursor.close()
         conn.close()
+
+    def _get_all_chunks_2(self):
+        cursor = self.conn.cursor()
+        cursor.execute(f"SELECT id, doi, text FROM chunks;")
+        results = cursor.fetchall()
+        return [Chunk(*result) for result in results]
 
     def chunk_and_insert_records(self, path: str, max_length: int = 1500, overlap: int = 150):
         from preprocessing import load_dataset
@@ -513,8 +518,9 @@ class DatabaseProcessor:
         print(f"Created table {table_name}")
 
         # Get all chunks for embedding
+        enricher = get_enricher(enricher)
         ids_and_chunks = self._get_all_chunks(cursor)
-        print(f"Embedding {len(ids_and_chunks)} chunks...")
+        print(f"Embedding and enriching {len(ids_and_chunks)} chunks...")
 
         # Embed an insert in batches
         for i in tqdm(range(0, len(ids_and_chunks), batch_size), desc="Inserting embeddings", leave=False):
@@ -717,6 +723,11 @@ class DatabaseProcessor:
             print(
                 f"  WARNING: ef_search ({ef_search}) is less than top_k ({top_k}).")
 
+        if ef_search > 1000:
+            print(
+                f"  WARNING: Setting ef_search ({ef_search}) to 1000, highest supported by pgvector.")
+            ef_search = 1000
+
         # Set the session resources
         cursor = self.conn.cursor()
         cores = os.cpu_count()
@@ -778,7 +789,7 @@ class DatabaseProcessor:
 
         assert len(
             results) <= top_k, f"Query returned {len(results)} results, but top_k is set to {top_k}"
-        return [SingleQueryResult(*result) for result in results]
+        return [SingleVectorQueryResult(*result) for result in results]
 
     def prewarm_table(self, table_name: str):
         cursor = self.conn.cursor()
@@ -852,7 +863,7 @@ class DatabaseProcessor:
         cursor.execute("SET enable_seqscan = off;")
 
         self.prewarm_table(table_name)
-        
+
         # Execute query
         cursor.execute(
             f"""

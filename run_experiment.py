@@ -19,6 +19,22 @@ DISTANCE_THRESHOLDS = np.arange(1.0, 0.0, -0.01)
 
 
 def argument_parser():
+    """
+    Example usage:
+    
+    1. Run an experiment with specified configuration:
+       python run_experiment.py --run --config experiments/configs/bert_cosine.yaml
+    
+    2. Build a dataset by sampling from source:
+       python run_experiment.py --build --num 1000 --source data/dataset/full/nontrivial.jsonl --dest data/dataset/sampled/sample_1000.jsonl --seed 42
+    
+    3. Write out train/test split from a dataset:
+       python run_experiment.py --write
+    
+    4. Generate query plans and analyze database performance:
+       python run_experiment.py --query-plan --table-name bert_hnsw --embedder bert-base-uncased --top-k 50
+    
+    """
     # Set up argument parser
     parser = argparse.ArgumentParser(
         description='Run an experiment with specified configuration or build a dataset.')
@@ -64,7 +80,8 @@ def argument_parser():
         parser.error("--build requires --num, --source, and --dest arguments")
 
     if args.query_plan and (not args.table_name or not args.embedder or not args.top_k):
-        parser.error("--query-plan requires --table-name argument")
+        parser.error(
+            "--query-plan requires --table-name, --embeder, and --top-k arguments")
 
     return args
 

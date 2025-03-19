@@ -11,9 +11,35 @@ import pandas as pd
 
 
 class Enricher:
-    def __init__(self, enrichment_function, data: pd.DataFrame):
+    def __init__(self, enrichment_function, query_data: None=pd.DataFrame, reference_data: None=pd.DataFrame):
+        """
+        enrichment_function: function
+            Takes an example and a record, and returns the enriched text.
+        query_data: pd.DataFrame
+            DataFrame containing the records to query against. These are the Reviews datasets
+            and are used to enrich examples during evaluation or query time.
+        reference_data: pd.DataFrame
+            DataFrame containing the reference records. These are all the non-Reviews datasets
+            and are used to enrich 'chunks' when creating enriched tables on the database
+        """
         self.enrichment_function = enrichment_function
-        self.data = data
+        self.data = query_data
+        self.reference_data = reference_data
+
+    def enrich_chunk(self, chunk):
+        # get the chunk doi
+        doi = chunk.doi
+
+        # find the related row with that doi in reference_data
+        index = self.reference_data[self.reference_data['doi'][0] == doi].iloc[0]
+        # If no index found, raise an error
+        if index.empty:
+            raise ValueError(f"No matching record found for DOI: {doi}")        
+        reference_record = self.reference_data.iloc[index]
+
+
+        record = self.reference_data.iloc[index[0]]
+        # then call the enrichment function with the chunk and the record
 
     def enrich(self, example):
         record = self.__get_record_by_doi(example.source_doi)
@@ -89,16 +115,20 @@ ENRICHMENT_FN = {
 
 
 # def get_enricher(name: str, data):
-def get_enricher(name: str) -> Enricher:
+def get_enricher(name: str, for_query: bool=True) -> Enricher:
     try:
-        json_files = [
-            'data/preprocessed/Astro_Reviews.json',
-            'data/preprocessed/Earth_Science_Reviews.json',
-            'data/preprocessed/Planetary_Reviews.json'
-        ]
-        dfs = [pd.read_json(file) for file in json_files]
-        data = pd.concat(dfs, ignore_index=True)
-        return Enricher(ENRICHMENT_FN[name], data)
+        if for_query:
+            json_files = [
+                'data/preprocessed/Astro_Reviews.json',
+                'data/preprocessed/Earth_Science_Reviews.json',
+                'data/preprocessed/Planetary_Reviews.json'
+            ]
+            dfs = [pd.read_json(file) for file in json_files]
+            data = pd.concat(dfs, ignore_index=True)
+            return Enricher(ENRICHMENT_FN[name], query_data=data)
+        else:
+            data = pd.read_json('data/preprocessed/research.jsonl', lines=True)
+            return Enricher(ENRICHMENT_FN[name], reference_data=data)
     except KeyError:
         raise ValueError(
             f"Enrichment function {name} not supported. Available functions: {list(ENRICHMENT_FN.keys())}")
