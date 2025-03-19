@@ -870,17 +870,26 @@ class DatabaseProcessor:
         self.prewarm_table(table_name)
 
         # Execute query
-        cursor.execute(
-            f"""
-            EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
-            SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance
+        query = f"""EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
+            SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} {query_vector} AS distance
             FROM {table_name}
             JOIN chunks ON {table_name}.chunk_id = chunks.id
-            ORDER BY {table_name}.embedding {operator} %s ASC
-            LIMIT %s;
-            """,
-            (query_vector, query_vector, top_k)
-        )
+            ORDER BY {table_name}.embedding {operator} {query_vector} ASC
+            LIMIT {top_k};
+            """
+        print(f"Executing query: {query}")
+        cursor.execute(query)
+        # cursor.execute(
+        #     f"""
+        #     EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
+        #     SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance
+        #     FROM {table_name}
+        #     JOIN chunks ON {table_name}.chunk_id = chunks.id
+        #     ORDER BY {table_name}.embedding {operator} %s ASC
+        #     LIMIT %s;
+        #     """,
+        #     (query_vector, query_vector, top_k)
+        # )
 
         query_plan = cursor.fetchall()
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
