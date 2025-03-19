@@ -879,7 +879,8 @@ class DatabaseProcessor:
             """.format(
             table_name=table_name,
             operator=operator,
-            top_k=top_k)
+            top_k=top_k,
+            query_vector='{query_vector}')
         print(f"Executing query: {query}")
 
         cursor.execute(query.format(query_vector=query_vector))
