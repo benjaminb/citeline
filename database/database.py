@@ -874,7 +874,7 @@ class DatabaseProcessor:
             SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} '{query_vector}' AS distance
             FROM {table_name}
             JOIN chunks ON {table_name}.chunk_id = chunks.id
-            ORDER BY {table_name}.embedding {operator} {query_vector} ASC
+            ORDER BY {table_name}.embedding {operator} '{query_vector}' ASC
             LIMIT {top_k};
             """.format(
             table_name=table_name,
