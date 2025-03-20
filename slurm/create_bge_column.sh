@@ -11,6 +11,7 @@
 module load python
 mamba deactivate
 mamba activate citeline
+echo "which python: $(which python)"
 cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline/database
 git pull
 timestamp=$(date +"%Y%m%d_%H%M%S")
