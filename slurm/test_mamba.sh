@@ -5,8 +5,8 @@
 #SBATCH -c 2 # number of cores
 #SBATCH --mem 8000 # memory pool for all cores
 #SBATCH -t 0-0:05 # time (D-HH:MM)
-#SBATCH -o slurm.%x.%t.log # STDOUT
-#SBATCH -e slurm.%x.%t.log # STDERR
+#SBATCH -o slurm.%x.%j.log # STDOUT
+#SBATCH -e slurm.%x.%j.log # STDERR
 module load python
 # mamba activate citeline
 # echo "which python (after activate): $(which python)"

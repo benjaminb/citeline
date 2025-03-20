@@ -9,7 +9,9 @@
 #SBATCH -o slurm.%x.%t.log # STDOUT
 #SBATCH -e slurm.%x.%t.log # STDERR
 module load python
-mamba activate citeline
+mamba deactivate && mamba activate citeline
 cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline/database
 git pull
 python database.py --create-vector-column --table-name="library" --target-column-name chunk --embedder="bert-base-uncased" --batch-size=256
+timestamp=$(date +"%Y%m%d_%H%M%S")
+echo "ended at: $timestamp"
