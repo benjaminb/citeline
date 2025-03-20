@@ -6,16 +6,8 @@ import os
 from datetime import datetime
 import inspect
 import pandas as pd
-
-# TODO: replace references to psycopg2 with psycopg
-# import psycopg2
-# from psycopg2 import Binary
-# from psycopg2.extras import execute_values
-
 import psycopg
-
 import queue
-
 import sys
 import threading
 import torch
@@ -50,7 +42,7 @@ PGVECTOR_DISTANCE_METRICS = {
 USAGE:
 python database.py --test-connection
 python database.py --create-base-table --table-name library --from-path="../data/preprocessed/research.jsonl"
-python database.py --create-vector-column --table-name library --embedder-name "BAAI/bge-small-en" [--normalize] --target-column-name chunk --batch-size 16
+python database.py --create-vector-column --table-name library --target-column-name chunk --embedder-name "BAAI/bge-small-en" [--normalize] --batch-size 16
 
 old:
 python database.py --create-vector-table --table-name chunks --embedder BAAI/bge-small-en

@@ -75,7 +75,7 @@ def merge_short_sentences(sentences, threshold=60):
             merged_sentences.append(sentences[i])
 
     # Handle the last sentence
-    if len(sentences[-1]) < threshold or len(merged_sentences[-1]) < threshold:
+    if len(sentences[-1]) < threshold or len(merged_sentences) > 0:
         merged_sentences[-1] = merged_sentences[-1] + sentences[-1]
     else:
         merged_sentences.append(sentences[-1])
