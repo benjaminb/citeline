@@ -6,8 +6,8 @@
 #SBATCH --gres=gpu:2 # number of GPUs
 #SBATCH --mem 64000 # memory pool for all cores
 #SBATCH -t 0-6:00 # time (D-HH:MM)
-#SBATCH -o slurm.%x.%N.%j.log # STDOUT
-#SBATCH -e slurm.%x.%N.%j.log # STDERR
+#SBATCH -o slurm.%x.%t.log # STDOUT
+#SBATCH -e slurm.%x.%t.log # STDERR
 module load python
 mamba deactivate
 mamba activate citeline
