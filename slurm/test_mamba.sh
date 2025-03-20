@@ -8,8 +8,8 @@
 #SBATCH -o slurm.%x.%t.log # STDOUT
 #SBATCH -e slurm.%x.%t.log # STDERR
 module load python
-mamba activate citeline
-echo "which python (after activate): $(which python)"
+# mamba activate citeline
+# echo "which python (after activate): $(which python)"
 mamba deactivate
 mamba activate citeline
 echo "which python (after re-activate): $(which python)"
