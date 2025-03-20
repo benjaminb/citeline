@@ -959,7 +959,7 @@ def main():
     }
 
     for operation, fn in dispatch_table.items():
-        if getattr(args, operation, default=False):
+        if getattr(args, operation, False):
             print(f"Executing {operation}...")
             fn()
             return
