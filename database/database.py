@@ -13,8 +13,11 @@ import pandas as pd
 # from psycopg2.extras import execute_values
 
 import psycopg
-# from psycopg import Binary
+
+import queue
+
 import sys
+import threading
 import torch
 from dataclasses import dataclass
 from dotenv import load_dotenv
@@ -45,10 +48,14 @@ PGVECTOR_DISTANCE_METRICS = {
 }
 """
 USAGE:
-python database/database.py --test-connection
-python database/database.py --create-vector-table --table-name chunks --embedder BAAI/bge-small-en
-python database/database.py --create-index --table-name chunks --index-type hnsw --metric vector_cosine_ops --m 32 --ef-construction 512
-python database/database.py --add-chunks --path /path/to/dataset.jsonl --max-length 1500 --overlap 150
+python database.py --test-connection
+python database.py --create-base-table --table-name library --from-path="../data/preprocessed/research.jsonl"
+python database.py --create-vector-column --table-name library --embedder-name "BAAI/bge-small-en" [--normalize] --target-column-name chunk --batch-size 16
+
+old:
+python database.py --create-vector-table --table-name chunks --embedder BAAI/bge-small-en
+python database.py --create-index --table-name chunks --index-type hnsw --metric vector_cosine_ops --m 32 --ef-construction 512
+python database.py --add-chunks --path /path/to/dataset.jsonl --max-length 1500 --overlap 150
 
 """
 
@@ -82,6 +89,11 @@ def argument_parser():
         action='store_true',
         help='Create the base table for chunks and insert records into it'
     )
+    operation_group.add_argument(
+        '--create-vector-column', '-v',
+        action='store_true',
+        help='Create a new column in the specified table to store vector embeddings'
+    )
 
     # Create base table arguments (NOTE: --table-name is used by multiple operations)
     parser.add_argument(
@@ -97,15 +109,15 @@ def argument_parser():
         help='Name of target table'
     )
 
-    # Create vector table arguments
+    # Create vector column arguments
     parser.add_argument(
-        '--embedder', '-e',
+        '--embedder-name', '-e',
         type=str,
         default='BAAI/bge-small-en',
         help='Name of the embedding model to use (default: BAAI/bge-small-en)'
     )
     parser.add_argument(
-        '--enricher', '-E',
+        '--enricher-name', '-E',
         type=str,
         default=None,
         help="Name of the enricher to use (default: None). If provided, it will be used to enrich the chunks before embedding"
@@ -121,6 +133,12 @@ def argument_parser():
         type=int,
         default=32,
         help='Batch size for embedding and insertion operations'
+    )
+    parser.add_argument(
+        '--target-column-name', '-c',
+        type=str,
+        default='chunk',
+        help='Name of the column to embed into vectors (default: chunk)'
     )
 
     # Create index arguments
@@ -194,11 +212,15 @@ def argument_parser():
         parser.error(
             "--create-base-table requires --table-name and --from-path")
 
-    if args.create_vector_table and not all([args.table_name, args.embedder]):
+    elif args.create_vector_column and not all([args.table_name, args.embedder_name]):
+        parser.error(
+            "--create-vector-column requires --table-name and --embedder")
+
+    elif args.create_vector_table and not all([args.table_name, args.embedder_name]):
         parser.error(
             "--create-vector-table requires --table-name and --embedder")
 
-    if args.create_index:
+    elif args.create_index:
         if not args.index_type or not args.table_name:
             parser.error(
                 "--create-index requires --index-type and --table-name")
@@ -208,7 +230,7 @@ def argument_parser():
             parser.error(
                 "--create-index requires --m and --ef-construction for hnsw")
 
-    if args.add_chunks and not all([args.path, args.max_length, args.overlap]):
+    elif args.add_chunks and not all([args.path, args.max_length, args.overlap]):
         parser.error(
             "--add-chunks requires --path, --max-length, and --overlap")
 
@@ -277,6 +299,12 @@ def record_to_chunked_records(record, max_length, overlap):
 
 
 class Database:
+    EMBEDDER_SHORTNAMES = {
+        'BAAI/bge-small-en': 'bge',
+        'bert-base-uncased': 'bert',
+        'adsabs/astroBERT': 'astrobert',
+    }
+
     @classmethod
     def get_db_params(cls, path_to_env: str = '.env') -> dict[str, str]:
         """Load database parameters from a .env file"""
@@ -299,7 +327,7 @@ class Database:
         self.device = 'cuda' if torch.cuda.is_available(
         ) else 'mps' if torch.mps.is_available() else 'cpu'
 
-        # For text splitting; instantiated in __create_base_table
+        # For text splitting; instantiated in _create_base_table
         self.splitter = None
 
     def __del__(self):
@@ -320,27 +348,27 @@ class Database:
         elif self.device == 'mps':
             torch.mps.empty_cache()
 
-    def __remove_nul_chars(self, s: str) -> str:
-        """Remove NUL characters from a string, which PostgreSQL does not like"""
-        return s.replace('\x00', '')
+    # def __remove_nul_chars(self, s: str) -> str:
+    #     """Remove NUL characters from a string, which PostgreSQL does not like"""
+    #     return s.replace('\x00', '')
 
-    def _insert_chunk(data, table_name, db_params):
-        conn = psycopg2.connect(**db_params)
-        cursor = conn.cursor()
-        execute_values(
-            cursor,
-            f"INSERT INTO {table_name} (embedding, chunk_id) VALUES %s;",
-            data
-        )
-        conn.commit()
-        cursor.close()
-        conn.close()
+    # def _insert_chunk(data, table_name, db_params):
+    #     conn = psycopg2.connect(**db_params)
+    #     cursor = conn.cursor()
+    #     execute_values(
+    #         cursor,
+    #         f"INSERT INTO {table_name} (embedding, chunk_id) VALUES %s;",
+    #         data
+    #     )
+    #     conn.commit()
+    #     cursor.close()
+    #     conn.close()
 
-    def _get_all_chunks_2(self):
-        cursor = self.conn.cursor()
-        cursor.execute(f"SELECT id, doi, text FROM chunks;")
-        results = cursor.fetchall()
-        return [Chunk(*result) for result in results]
+    # def _get_all_chunks_2(self):
+    #     cursor = self.conn.cursor()
+    #     cursor.execute(f"SELECT id, doi, text FROM chunks;")
+    #     results = cursor.fetchall()
+    #     return [Chunk(*result) for result in results]
 
     def _create_base_table(self, table_name: str, from_path: str, max_length: int = 1500, overlap: int = 150):
         """
@@ -369,8 +397,6 @@ class Database:
         self.splitter = TextSplitter(capacity=max_length, overlap=overlap)
         records = df.to_dict('records')
 
-        # records = records[:1000]  # Limit to first 1000 for testing
-
         # Use ProcessPoolExecutor to parallelize chunking
         chunked_records = []
         cores = max(1, os.cpu_count() - 1)
@@ -396,37 +422,104 @@ class Database:
             self.__log_error(f"Error during COPY: {e}")
             raise e
 
-    def chunk_and_insert_records(self, path: str, max_length: int = 1500, overlap: int = 150):
-        from preprocessing import load_dataset
-        records = load_dataset(path)
-        all_chunks = []
+    def create_vector_column(self,
+                             table_name: str,
+                             embedder_name: str,
+                             enricher_name: str = None,
+                             target_column_name: str = "chunk",
+                             batch_size: int = 32):
+        """
+        Create a new column in the specified table to store vector embeddings.
 
-        # Use ProcessPoolExecutor to parallelize chunking
-        cores = min(1, os.cpu_count() - 2)
-        with ProcessPoolExecutor(max_workers=cores) as process_executor:
-            futures = [process_executor.submit(
-                self.__record_to_chunked_records, record, max_length, overlap) for record in records]
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Chunking records"):
-                all_chunks.extend(future.result())  # Collect all chunks
+        Args:
+            table_name (str): Name of the target table.
+            target_column_name (str): Name of the column to embed into vectors.
+            embedder_name (str): Name of the embedding model to use.
+            dim (int): Dimension of the vector embeddings.
+            enricher_name (str, optional): Name of the enricher to use. Defaults to None.
+        """
+        # Instantiate embedder and construct the new column's name
+        from Embedders import get_embedder
+        embedder = get_embedder(embedder_name, self.device)
 
-        conn = psycopg2.connect(**self.db_params)
-        cursor = conn.cursor()
+        # Construct column name; use the embedder's short name if written into class, otherwise derive it from model name
+        vector_column_name = Database.EMBEDDER_SHORTNAMES.get(
+            embedder_name, embedder_name.replace("/", "_").replace("-", "_"))
 
-        try:
-            batch_size = 1000  # Adjust this based on your needs
-            for i in tqdm(range(0, len(all_chunks), batch_size), desc="Inserting chunks"):
-                batch = all_chunks[i:i + batch_size]
-                data = [(self.__remove_nul_chars(chunk), doi)
-                        for chunk, doi in batch]
-                execute_values(
-                    cursor,
-                    "INSERT INTO chunks (text, doi) VALUES %s;",
-                    data
-                )
-                conn.commit()
-        finally:
-            cursor.close()
-            conn.close()
+        # TODO: implement enrichment
+        if enricher_name:
+            vector_column_name += f"_{enricher_name}"
+        if embedder.normalize:
+            vector_column_name += "_norm"
+
+        print(
+            f"Attempting to create column {vector_column_name} in table {table_name}...")
+
+        cursor = self.conn.cursor()
+        cursor.execute(
+            f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({embedder.dim});")
+        self.conn.commit()
+        print("  Successfully created column")
+
+        cursor.execute(f"SELECT id, {target_column_name} FROM {table_name};")
+        rows = cursor.fetchall()
+        cursor.close()
+
+        # Setting up a producer/consumer queue so writing to db doesn't block embedding the next batch of chunks
+        all_ids, all_chunks = zip(*rows)
+        results_queue = queue.Queue()
+
+        def producer():
+            # Puts batches of (ids, embeddings) into the queue
+            for i in tqdm(range(0, len(all_chunks), batch_size), desc="Embedding batches", leave=True):
+                texts, ids = all_chunks[i:i +
+                                        batch_size], all_ids[i:i + batch_size]
+                embeddings = embedder(texts)
+                results_queue.put((ids, embeddings))
+            results_queue.put(None)  # Signal completion
+
+        def consumer():
+            cursor = self.conn.cursor()
+
+            # Create temp table once at start
+            cursor.execute(
+                f"CREATE TEMP TABLE temp_embeddings (id int, embedding vector({embedder.dim}))")
+
+            try:
+                while True:
+                    item = results_queue.get(timeout=45)
+                    if item is None:  # Producer finished
+                        break
+
+                    # Unpack batch
+                    batch_ids, batch_embeddings = item
+
+                    # Load batch into temp table, then update target table
+                    with cursor.copy("COPY temp_embeddings (id, embedding) FROM STDIN WITH (FORMAT BINARY)") as copy:
+                        copy.set_types(['int4', 'vector'])
+                        for row_id, embedding in zip(batch_ids, batch_embeddings):
+                            copy.write_row([row_id, embedding])
+                    cursor.execute(f"UPDATE {table_name} SET {vector_column_name} = temp.embedding " +
+                                   f"FROM temp_embeddings temp WHERE {table_name}.id = temp.id")
+
+                    # Clear for next batch
+                    cursor.execute("TRUNCATE temp_embeddings")
+
+            except queue.Empty:
+                print("  WARNING: Queue timeout")
+                self.__log_error("Queue timeout")
+            finally:
+                self.conn.commit()
+                cursor.close()
+
+        producer_thread = threading.Thread(target=producer, daemon=True)
+        consumer_thread = threading.Thread(target=consumer, daemon=True)
+        producer_thread.start()
+        consumer_thread.start()
+
+        # Wait for both threads to finish
+        producer_thread.join()
+        consumer_thread.join()
 
     def create_vector_table_mp(self, name, dim, embedder):
         """
@@ -1030,77 +1123,37 @@ def profile_create_vector_table(db, table_name, embedder):
     stats.strip_dirs().sort_stats("cumulative").print_stats(40)
 
 
-def main():
-    # NOTE: assumes .env is in the parent directory
-    load_dotenv('../.env', override=True)
+def get_kwargs(args, values):
+    return {k: v for k, v in vars(args).items() if k in values}
 
-    # Database setup
-    db_params = {
-        'dbname': os.getenv('DB_NAME'),
-        'user': os.getenv('DB_USER'),
-        'password': os.getenv('DB_PASSWORD'),
-        'host': os.getenv('DB_HOST'),
-        'port': os.getenv('DB_PORT')
-    }
+
+def main():
+    args = argument_parser()
     db = Database()
     db.test_connection()
 
-    args = argument_parser()
-
     # Switch on command line args
     if args.create_base_table:
-        # Extract parameters
-        table_name, path, max_length, overlap = args.table_name, args.from_path, args.max_length, args.overlap
-
-        # Create base table and insert records
-        print(f"Creating base table '{table_name}' from {path}...")
         db._create_base_table(
-            table_name=table_name, from_path=path, max_length=max_length, overlap=overlap)
+            **get_kwargs(args, ['table_name', 'from_path', 'max_length', 'overlap']))
         return
 
-    if args.add_chunks:
-
-        db.chunk_and_insert_records(
-            path=args.path, max_length=args.max_length, overlap=args.overlap)
-        return
-
-    if args.create_vector_table:
-
-        # Extract parameters
-        table_name, embedder, normalize, batch_size = args.table_name, args.embedder, args.normalize, args.batch_size
-
-        # Create embedding function and get its dimension
-        from Embedders import get_embedder
-        print(
-            f"Creating vector table '{table_name}' with embedder {embedder} on device {db.device}...")
-        embedder = get_embedder(embedder, db.device, normalize)
-        dim = embedder(['test']).shape[1]
-
-        if args.enricher:
-            enricher = get_enricher(args.enricher)
-            db.create_vector_table_enriched(
-                table_name=table_name, dim=dim, embedder=embedder, enricher=enricher, batch_size=batch_size)
-        else:
-            db.create_vector_table(
-                table_name=table_name, dim=dim, embedder=embedder, batch_size=batch_size)
-            # TODO: add calls to create indexes
+    if args.create_vector_column:
+        db.create_vector_column(
+            **get_kwargs(args, ['table_name', 'embedder_name', 'enricher_name', 'target_column_name', 'batch_size']))
         return
 
     if args.create_index:
         if args.index_type == 'hnsw':
-            # m, ef_construction = args.m, args.ef_construction
-            values = ['table_name', 'index_type',
-                      'metric', 'm', 'ef_construction']
-            kwargs = {k: v for k, v in vars(args).items() if k in values}
             print(
                 f"Creating index on {args.table_name} with type {args.index_type} and metric {args.metric}")
-            db.create_index(**kwargs)
+            db.create_index(
+                **get_kwargs(args, ['table_name', 'index_type', 'metric', 'm', 'ef_construction']))
         elif args.index_type == 'ivfflat':
-            values = ['table_name', 'index_type', 'metric', 'num_lists']
-            kwargs = {k: v for k, v in vars(args).items() if k in values}
             print(
                 f"Creating index on {args.table_name} with type {args.index_type} and metric {args.metric}")
-            db.create_index(**kwargs)
+            db.create_index(
+                **get_kwargs(args, ['table_name', 'index_type', 'metric', 'num_lists']))
         else:
             print(f"Invalid index type: {index_type}")
         return

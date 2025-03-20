@@ -12,6 +12,7 @@ class Embedder:
         self.model_name = model_name
         self.device = device
         self.normalize = normalize
+        self.dim = None
 
     def __str__(self):
         return f"{self.model_name}, device={self.device}, normalize={self.normalize}"
@@ -40,6 +41,7 @@ class SentenceTransformerEmbedder(Embedder):
             convert_to_numpy=True,
             normalize_embeddings=self.normalize,
             show_progress_bar=False)
+        self.dim = self.model.get_sentence_embedding_dimension()
 
     def __call__(self, docs):
         return self.encode(docs)
@@ -64,6 +66,9 @@ class EncoderEmbedder(Embedder):
 
         self.model.eval()
         self.max_length = MODEL_DATA[model_name]['max_length'] if model_name in MODEL_DATA and 'max_length' in MODEL_DATA[model_name] else None
+        
+        # NOTE: this works for BERT models but may need adjustment for other architectures
+        self.dim = self.model.config.hidden_size
 
     def __call__(self, docs: list[str]):
         params = {'return_tensors': 'pt', 'padding': True, 'truncation': True}

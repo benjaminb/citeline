@@ -2,7 +2,7 @@ accelerate==1.1.1
 dotenv
 matplotlib==3.10.0
 pandas==2.2.3
-psycopg2==2.9.10
+psycopg[binary]==3.2.6
 pgvector
 torch==2.5.1
 sentence-transformers==3.3.1
