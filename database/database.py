@@ -42,13 +42,8 @@ PGVECTOR_DISTANCE_METRICS = {
 USAGE:
 python database.py --test-connection
 python database.py --create-base-table --table-name library --from-path="../data/preprocessed/research.jsonl"
-python database.py --create-vector-column --table-name library --target-column-name chunk --embedder-name "BAAI/bge-small-en" [--normalize] --batch-size 16
-
-old:
-python database.py --create-vector-table --table-name chunks --embedder BAAI/bge-small-en
-python database.py --create-index --table-name chunks --index-type hnsw --metric vector_cosine_ops --m 32 --ef-construction 512
-python database.py --add-chunks --path /path/to/dataset.jsonl --max-length 1500 --overlap 150
-
+python database.py --create-vector-column --table-name library --target-column chunk --embedder-name "BAAI/bge-small-en" [--normalize] --batch-size 16
+python database.py --create-index --table-name library --target-column bge_norm --index-type hnsw --m 64 --ef-construction 512
 """
 
 
@@ -127,7 +122,7 @@ def argument_parser():
         help='Batch size for embedding and insertion operations'
     )
     parser.add_argument(
-        '--target-column-name', '-c',
+        '--target-column', '-c',
         type=str,
         default='chunk',
         help='Name of the column to embed into vectors (default: chunk)'
@@ -135,6 +130,7 @@ def argument_parser():
 
     # Create index arguments
     # --table-name already defined
+    # --target-column already defined
     parser.add_argument(
         '--index-type', '-i',
         default='hnsw',
@@ -213,14 +209,14 @@ def argument_parser():
             "--create-vector-table requires --table-name and --embedder")
 
     elif args.create_index:
-        if not args.index_type or not args.table_name:
+        if not all([args.table_name, args.target_column, args.index_type]):
             parser.error(
                 "--create-index requires --index-type and --table-name")
         if args.index_type == 'ivfflat' and notall([args.num_lists]):
-            parser.error("--create-index requires --num-lists for ivfflat")
+            parser.error("ivfflat index requires --num-lists")
         if args.index_type == 'hnsw' and not all([args.m, args.ef_construction]):
             parser.error(
-                "--create-index requires --m and --ef-construction for hnsw")
+                "hnsw index requires --m and --ef-construction")
 
     elif args.add_chunks and not all([args.path, args.max_length, args.overlap]):
         parser.error(
@@ -340,28 +336,6 @@ class Database:
         elif self.device == 'mps':
             torch.mps.empty_cache()
 
-    # def __remove_nul_chars(self, s: str) -> str:
-    #     """Remove NUL characters from a string, which PostgreSQL does not like"""
-    #     return s.replace('\x00', '')
-
-    # def _insert_chunk(data, table_name, db_params):
-    #     conn = psycopg2.connect(**db_params)
-    #     cursor = conn.cursor()
-    #     execute_values(
-    #         cursor,
-    #         f"INSERT INTO {table_name} (embedding, chunk_id) VALUES %s;",
-    #         data
-    #     )
-    #     conn.commit()
-    #     cursor.close()
-    #     conn.close()
-
-    # def _get_all_chunks_2(self):
-    #     cursor = self.conn.cursor()
-    #     cursor.execute(f"SELECT id, doi, text FROM chunks;")
-    #     results = cursor.fetchall()
-    #     return [Chunk(*result) for result in results]
-
     def _create_base_table(self, table_name: str, from_path: str, max_length: int = 1500, overlap: int = 150):
         """
         Create the base table for chunks and insert records into it.
@@ -418,14 +392,14 @@ class Database:
                              table_name: str,
                              embedder_name: str,
                              enricher_name: str = None,
-                             target_column_name: str = "chunk",
+                             target_column: str = "chunk",
                              batch_size: int = 32):
         """
         Create a new column in the specified table to store vector embeddings.
 
         Args:
             table_name (str): Name of the target table.
-            target_column_name (str): Name of the column to embed into vectors.
+            target_column (str): Name of the column to embed into vectors.
             embedder_name (str): Name of the embedding model to use.
             dim (int): Dimension of the vector embeddings.
             enricher_name (str, optional): Name of the enricher to use. Defaults to None.
@@ -453,7 +427,7 @@ class Database:
         self.conn.commit()
         print("  Successfully created column")
 
-        cursor.execute(f"SELECT id, {target_column_name} FROM {table_name};")
+        cursor.execute(f"SELECT id, {target_column} FROM {table_name};")
         rows = cursor.fetchall()
         cursor.close()
 
@@ -513,148 +487,79 @@ class Database:
         producer_thread.join()
         consumer_thread.join()
 
-    def create_vector_table_mp(self, name, dim, embedder):
-        """
-        1. Creates a vector table
-        2. Creates indexes for all distance metrics
-        3. Batch embeds all records in the `chunks` table using the given embedder
-        """
-        """
-        1. Creates a vector table
-        2. Creates indexes for all distance metrics
-        3. Batch embeds all records in the `chunks` table using the given embedder
+    # def create_vector_table(self,
+    #                         table_name: str,
+    #                         dim: int,
+    #                         embedder,  # Embedder
+    #                         work_mem='2048MB',
+    #                         maintenance_work_mem='2048MB',
+    #                         batch_size=32):
+    #     """
+    #     1. Creates a vector table
+    #     2. Creates indexes for all distance metrics
+    #     3. Batch embeds all records in the `chunks` table using the given embedder
 
-        available distance metrics:
-        vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
-        """
-        # conn = psycopg2.connect(**self.db_params)
-        # register_vector(conn)
-        cursor = conn.cursor()
-        cursor.execute(
-            f"""CREATE TABLE {name} (
-                id SERIAL PRIMARY KEY,
-                embedding VECTOR({dim}),
-                chunk_id INTEGER REFERENCES chunks(id)
-                );
-            """)
-        conn.commit()
-        print(f"Created table {name}")
+    #     available distance metrics:
+    #     vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
+    #     """
 
-        # Get all chunks for embedding
-        ids_and_chunks = self._get_all_chunks(cursor)
-        print(f"Embedding {len(ids_and_chunks)} chunks...")
+    #     # Set session resources
+    #     cursor = self.conn.cursor()
+    #     cores = os.cpu_count()
+    #     cursor.execute("SHOW max_worker_processes;")
+    #     max_worker_processes = int(cursor.fetchone()[0])
+    #     max_parallel_workers = max(1, cores - 2)
+    #     max_parallel_maintenance_workers = int(0.2 * max_worker_processes)
+    #     print("="*33 + "CONFIG" + "="*33)
+    #     print("max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | work_mem | maintenance_work_mem")
+    #     print(
+    #         f"{max_worker_processes:^21} {max_parallel_workers:^22} {max_parallel_maintenance_workers:^34} {work_mem:^10} {maintenance_work_mem:^21}")
+    #     print("="*72)
+    #     cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
+    #     cursor.execute(
+    #         f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
+    #     cursor.execute(f"SET work_mem='{work_mem}';")
+    #     cursor.execute(f"SET maintenance_work_mem='{maintenance_work_mem}';", )
 
-        # Process in larger batches for GPU efficiency
-        batch_size = 512
-        num_batches = len(ids_and_chunks) // batch_size + 1
+    #     # Create table
+    #     cursor.execute(
+    #         f"""CREATE TABLE {table_name} (
+    #             id SERIAL PRIMARY KEY,
+    #             embedding VECTOR({dim}),
+    #             chunk_id INTEGER REFERENCES chunks(id)
+    #             );
+    #         """)
+    #     self.conn.commit()
+    #     print(f"Created table {table_name}")
 
-        for i in tqdm(range(num_batches), desc="Processing batches"):
-            # Prepare batch
-            start_idx = i * batch_size
-            end_idx = min((i + 1) * batch_size, len(ids_and_chunks))
-            batch = ids_and_chunks[start_idx:end_idx]
+    #     # Get all chunks for embedding
+    #     ids_and_chunks = self._get_all_chunks(cursor)
+    #     print(f"Embedding {len(ids_and_chunks)} chunks...")
 
-            if not batch:
-                continue
+    #     # Embed an insert in batches
+    #     for i in tqdm(range(0, len(ids_and_chunks), batch_size), desc="Inserting embeddings", leave=False):
+    #         # Clear GPU memory every 50 batches
+    #         if i % 50 == 0:
+    #             self.__clear_gpu_memory()
 
-            ids, texts = list(zip(*batch))
-            # Embeddings are automatically moved to CPU
-            embeddings = embedder(texts)
+    #         # Prepare batch
+    #         batch = ids_and_chunks[i:i+batch_size]
+    #         ids, texts = list(zip(*batch))
+    #         start = time()
+    #         embeddings = embedder(texts)
+    #         print(
+    #             f"Embedding time: {time() - start:.2f} seconds for {len(texts)} chunks")
+    #         data_batch = [(embedding, id_num)
+    #                       for embedding, id_num in zip(embeddings, ids)]
 
-            # Insert using ThreadPoolExecutor for parallel DB operations
-            data = [(emb, id_) for emb, id_ in zip(embeddings, ids)]
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                # Split data for parallel insertion
-                chunk_size = len(data) // 4
-                data_chunks = [data[j:j + chunk_size]
-                               for j in range(0, len(data), chunk_size)]
+    #         # Insert
+    #         start_insert = time()
+    #         execute_values(
+    #             cursor, f"INSERT INTO {table_name} (embedding, chunk_id) VALUES %s;", data_batch)
+    #         print(f"Insert time: {time() - start_insert}")
+    #         self.conn.commit()
 
-                futures = [
-                    executor.submit(insert_batch, (chunk, name, self))
-                    for chunk in data_chunks if chunk
-                ]
-                list(tqdm(
-                    as_completed(futures),
-                    total=len(futures),
-                    desc="Inserting batch",
-                    leave=False
-                ))
-        cursor.close()
-        conn.close()
-
-    def create_vector_table(self,
-                            table_name: str,
-                            dim: int,
-                            embedder,  # Embedder
-                            work_mem='2048MB',
-                            maintenance_work_mem='2048MB',
-                            batch_size=32):
-        """
-        1. Creates a vector table
-        2. Creates indexes for all distance metrics
-        3. Batch embeds all records in the `chunks` table using the given embedder
-
-        available distance metrics:
-        vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
-        """
-
-        # Set session resources
-        cursor = self.conn.cursor()
-        cores = os.cpu_count()
-        cursor.execute("SHOW max_worker_processes;")
-        max_worker_processes = int(cursor.fetchone()[0])
-        max_parallel_workers = max(1, cores - 2)
-        max_parallel_maintenance_workers = int(0.2 * max_worker_processes)
-        print("="*33 + "CONFIG" + "="*33)
-        print("max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | work_mem | maintenance_work_mem")
-        print(
-            f"{max_worker_processes:^21} {max_parallel_workers:^22} {max_parallel_maintenance_workers:^34} {work_mem:^10} {maintenance_work_mem:^21}")
-        print("="*72)
-        cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-        cursor.execute(
-            f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
-        cursor.execute(f"SET work_mem='{work_mem}';")
-        cursor.execute(f"SET maintenance_work_mem='{maintenance_work_mem}';", )
-
-        # Create table
-        cursor.execute(
-            f"""CREATE TABLE {table_name} (
-                id SERIAL PRIMARY KEY,
-                embedding VECTOR({dim}),
-                chunk_id INTEGER REFERENCES chunks(id)
-                );
-            """)
-        self.conn.commit()
-        print(f"Created table {table_name}")
-
-        # Get all chunks for embedding
-        ids_and_chunks = self._get_all_chunks(cursor)
-        print(f"Embedding {len(ids_and_chunks)} chunks...")
-
-        # Embed an insert in batches
-        for i in tqdm(range(0, len(ids_and_chunks), batch_size), desc="Inserting embeddings", leave=False):
-            # Clear GPU memory every 50 batches
-            if i % 50 == 0:
-                self.__clear_gpu_memory()
-
-            # Prepare batch
-            batch = ids_and_chunks[i:i+batch_size]
-            ids, texts = list(zip(*batch))
-            start = time()
-            embeddings = embedder(texts)
-            print(
-                f"Embedding time: {time() - start:.2f} seconds for {len(texts)} chunks")
-            data_batch = [(embedding, id_num)
-                          for embedding, id_num in zip(embeddings, ids)]
-
-            # Insert
-            start_insert = time()
-            execute_values(
-                cursor, f"INSERT INTO {table_name} (embedding, chunk_id) VALUES %s;", data_batch)
-            print(f"Insert time: {time() - start_insert}")
-            self.conn.commit()
-
-        cursor.close()
+    #     cursor.close()
 
     def create_vector_table_enriched(self,
                                      table_name: str,
@@ -732,95 +637,18 @@ class Database:
 
         cursor.close()
 
-    def create_vector_table_copy(self,
-                                 table_name: str,
-                                 dim: int,
-                                 embedder,  # Embedder
-                                 work_mem='2048MB',
-                                 maintenance_work_mem='2048MB',
-                                 batch_size=32):
-        """
-        1. Creates a vector table
-        2. Creates indexes for all distance metrics
-        3. Batch embeds all records in the `chunks` table using the given embedder
-
-        available distance metrics:
-        vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
-        """
-
-        # Create connection and allocate session memory
-        conn = psycopg2.connect(**self.db_params)
-        register_vector(conn)
-        cursor = conn.cursor()
-
-        # Set session resources
-        cores = os.cpu_count()
-        cursor.execute("SHOW max_worker_processes;")
-        max_worker_processes = int(cursor.fetchone()[0])
-        max_parallel_workers = max(1, cores - 2)
-        max_parallel_maintenance_workers = int(0.2 * max_worker_processes)
-        print("="*33 + "CONFIG" + "="*33)
-        print("max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | work_mem | maintenance_work_mem")
-        print(
-            f"{max_worker_processes:^21} {max_parallel_workers:^22} {max_parallel_maintenance_workers:^34} {work_mem:^10} {maintenance_work_mem:^21}")
-        print("="*72)
-        cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-        cursor.execute(
-            f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
-        cursor.execute(f"SET work_mem='{work_mem}';")
-        cursor.execute(f"SET maintenance_work_mem='{maintenance_work_mem}';", )
-
-        # Create table
-        cursor.execute(
-            f"""CREATE TABLE {table_name} (
-                id SERIAL PRIMARY KEY,
-                embedding VECTOR({dim}),
-                chunk_id INTEGER REFERENCES chunks(id)
-                );
-            """)
-        conn.commit()
-        print(f"Created table {table_name}")
-
-        # Get all chunks for embedding
-        ids_and_chunks = self._get_all_chunks(cursor)
-        # print("ids and chunks: ")
-        # for i in range(2):
-        #     print(f"{i}: {ids_and_chunks[i]}")
-
-        ids, texts = list(zip(*ids_and_chunks))
-        print(f"Embedding {len(texts)} chunks...")
-
-        # Get all the embeddings in batches
-        embeddings = np.zeros((len(texts), dim))
-        for i in tqdm(range(0, len(texts), batch_size), desc="Embedding chunks", leave=False):
-            if i % 50 == 0:
-                self.__clear_gpu_memory()
-            batch_texts = texts[i:i + batch_size]
-            # Note: last batch might be smaller than batch_size
-            embeddings[i:i + len(batch_texts)] = embedder(batch_texts)
-
-        start = time()
-        with cursor.copy(f'COPY {table_name} (embedding, chunk_id) FROM STDIN WITH (FORMAT BINARY);') as copy:
-            copy.set_types(['vector', 'int4'])
-            for embedding, chunk_id in tqdm(zip(embeddings, ids), desc="Inserting embeddings", leave=False):
-                copy.write_row([embedding, chunk_id])
-
-        print(
-            f"Total time: {time() - start:.2f} seconds to insert {len(ids_and_chunks)} chunks and embeddings")
-        cursor.close()
-        conn.commit()
-
     def create_index(self,
                      table_name: str,
+                     target_column: str,
                      index_type: str,  # 'ivfflat' or 'hnsw'
-                     metric: str,
+                     #  metric: str,
                      num_lists: int = 1580,  # sqrt(num chunks, which is ~2.5M)
-                     m: int = 32,
+                     m: int = 64,
                      ef_construction: int = 512):
         # Check input
         assert index_type in [
             'ivfflat', 'hnsw'], f"Invalid index type: {index_type}. Must be 'ivfflat' or 'hnsw'"
-        assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
+        # assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
 
         # Set session resources
         cursor = self.conn.cursor()
@@ -839,7 +667,8 @@ class Database:
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
 
         # Resolve index name and parameters
-        index_name = f"{table_name}_{index_type}_{metric}_m{m}_ef{ef_construction}"
+        # index_name = f"{target_column}_{index_type}_{metric}V_m{m}_ef{ef_construction}"
+        index_name = f"{target_column}_{index_type}_m{m}_ef{ef_construction}"
         print(f"Creating index {index_name}")
         parameters = ''
         start = time()
@@ -852,20 +681,19 @@ class Database:
             return
 
         # Create index
-        query = f"CREATE INDEX {index_name} ON {table_name} USING {index_type} (embedding {metric}) WITH {parameters}"
+        query = f"CREATE INDEX {index_name} ON {table_name} USING {index_type} ({target_column} vector_cosine_ops) WITH {parameters}"
         cursor.execute(query)
         conn.commit()
 
         # Cleanup
         end = time()
         print(
-            f"Created {index_type} index on {table_name} with {metric} metric in {end - start:.2f} seconds")
+            f"Created {index_type} index on {table_name}.{table_name} in {end - start:.2f} seconds")
         cursor.close()
-        conn.close()
 
-    def _get_all_chunks(self, cursor, columns: list[str] = ['id', 'text']) -> list[dict]:
-        cursor.execute(f"SELECT id, text FROM chunks;")
-        return cursor.fetchall()
+    # def _get_all_chunks(self, cursor, columns: list[str] = ['id', 'text']) -> list[dict]:
+    #     cursor.execute(f"SELECT id, text FROM chunks;")
+    #     return cursor.fetchall()
 
     def get_vectors_by_doi(self, doi: str, vector_table: str) -> list[str]:
         # conn = psycopg2.connect(**self.db_params)
@@ -965,10 +793,6 @@ class Database:
         print(f"  Query execution time: {time() - start:.2f} seconds")
 
         results = cursor.fetchall()
-
-        # with open('query_plan.json', 'w') as f:
-        #     json.dump(results, f, indent=4)
-
         # Close up
         cursor.close()
 
@@ -1124,35 +948,23 @@ def main():
     db = Database()
     db.test_connection()
 
-    # Switch on command line args
-    if args.create_base_table:
-        db._create_base_table(
-            **get_kwargs(args, ['table_name', 'from_path', 'max_length', 'overlap']))
-        return
+    dispatch_table = {
+        'create_base_table': lambda: db._create_base_table(
+            **get_kwargs(args, ['table_name', 'from_path', 'max_length', 'overlap'])),
+        'create_vector_column': lambda: db.create_vector_column(
+            **get_kwargs(args, ['table_name', 'embedder_name', 'enricher_name', 'target_column', 'batch_size'])),
+        'create_index': lambda: db.create_index(
+            **get_kwargs(args, ['table_name', 'target_column', 'index_type', 'm', 'ef_construction', 'num_lists'])),
+        'test_connection': lambda: None
+    }
 
-    if args.create_vector_column:
-        db.create_vector_column(
-            **get_kwargs(args, ['table_name', 'embedder_name', 'enricher_name', 'target_column_name', 'batch_size']))
-        return
+    for operation, fn in dispatch_table.items():
+        if getattr(args, operation, default=False):
+            print(f"Executing {operation}...")
+            fn()
+            return
 
-    if args.create_index:
-        if args.index_type == 'hnsw':
-            print(
-                f"Creating index on {args.table_name} with type {args.index_type} and metric {args.metric}")
-            db.create_index(
-                **get_kwargs(args, ['table_name', 'index_type', 'metric', 'm', 'ef_construction']))
-        elif args.index_type == 'ivfflat':
-            print(
-                f"Creating index on {args.table_name} with type {args.index_type} and metric {args.metric}")
-            db.create_index(
-                **get_kwargs(args, ['table_name', 'index_type', 'metric', 'num_lists']))
-        else:
-            print(f"Invalid index type: {index_type}")
-        return
-
-    if args.test_connection:
-        # Connection test invoked before switching on command line args
-        return
+    print("No valid operation specified")
 
 
 if __name__ == '__main__':
