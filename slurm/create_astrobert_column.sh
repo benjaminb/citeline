@@ -10,6 +10,7 @@
 #SBATCH -e slurm.%x.%t.log # STDERR
 module load python
 mamba activate citeline
+echo "which python: $(which python)"
 cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline/database
 git pull
 python database.py --create-vector-column --table-name="library" --target-column-name chunk --embedder="adsabs/astroBERT" --batch-size=256
