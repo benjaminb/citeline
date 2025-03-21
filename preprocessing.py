@@ -93,8 +93,8 @@ def get_unique_records(datasets: list[str]) -> pd.DataFrame:
     This function loads multiple datasets, concatenates them into a single DataFrame,
     and drops duplicates based on the 'doi' field.
     """
-    records = [record for dataset in datasets for record in load_dataset(
-        'data/json/' + dataset)]
+    records = [
+        record for dataset in datasets for record in load_dataset(dataset)]
     df = pd.DataFrame(records)
     full_length = len(df)
     df = df.drop_duplicates(subset=['doi'])
@@ -141,6 +141,32 @@ def write_research_data(datasets):
                orient='records', lines=True)
 
 
+def preprocess_data(datasets: list[str], output_file: str):
+    """
+    This function processes review datasets and writes the output to a single JSON file.
+    Each record is processed to segment the body into sentences and merge short sentences.
+    """
+    df = get_unique_records(datasets)
+    records = df.to_dict('records')
+
+    # Process records in parallel
+    results = []
+    max_workers = max(1, os.cpu_count() - 1)
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all processing jobs
+        futures = [executor.submit(process_record, record)
+                   for record in records]
+
+        # Collect results with progress bar
+        for future in tqdm(as_completed(futures), total=len(futures),
+                           desc="Processing records"):
+            results.append(future.result())
+
+    # Convert results back to DataFrame and save
+    result_df = pd.DataFrame(results)
+    result_df.to_json(output_file, orient='records', lines=True)
+
+
 def main():
     args = argument_parser()
 
@@ -151,7 +177,8 @@ def main():
         * Places the sentence segments into a new field called 'body_sentences'.
         * Writes the final output to a single jsonl file called 'reviews.jsonl'.
         """
-        write_review_data(['Astro_Reviews.json', 'Earth_Science_Reviews.json', 'Planetary_Reviews.json'])
+        write_review_data(
+            ['Astro_Reviews.json', 'Earth_Science_Reviews.json', 'Planetary_Reviews.json'])
 
     if args.research:
         """
@@ -159,9 +186,10 @@ def main():
         this branch also drops any duplicate records based on the 'doi' field and writes the final
         output to a single jsonl file called 'research.json'.
         """
-        datasets = ['Astro_Research.json', 'Earth_Science_Research.json',
-                    'Planetary_Research.json', 'doi_articles.json', 'salvaged_articles.json']
-        write_research_data(datasets)
+        datasets = ['data/json/Astro_Research.json', 'data/json/Earth_Science_Research.json',
+                    'data/json/Planetary_Research.json', 'data/json/doi_articles.json', 'data/json/salvaged_articles.json']
+        preprocess_data(
+            datasets, output_file='data/preprocessed/research.jsonl')
         return
 
 

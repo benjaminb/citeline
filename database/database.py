@@ -17,27 +17,16 @@ from pgvector.psycopg import register_vector
 from semantic_text_splitter import TextSplitter
 from time import time
 from tqdm import tqdm
-
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
-
-
 from time import time
-
 import cProfile
 import pstats
 
 # Add the parent directory to sys.path so we can import Embedders, Enrichers, etc.
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # fmt: off
-
-
 # fmt: on
 
-PGVECTOR_DISTANCE_METRICS = {
-    'vector_l2_ops': '<->',
-    'vector_ip_ops': '<#>',
-    'vector_cosine_ops': '<=>',
-}
 """
 USAGE:
 python database.py --test-connection
@@ -93,6 +82,7 @@ def argument_parser():
     parser.add_argument(
         '--table-name', '-T',
         type=str,
+        default='library',
         help='Name of target table'
     )
 
@@ -235,7 +225,9 @@ DATACLASSES
 class SingleVectorQueryResult:
     chunk_id: int
     doi: str
-    text: str
+    title: str
+    abstract: str
+    chunk: str
     distance: float
 
 
@@ -260,7 +252,8 @@ These must be outside the class definition to be pickled, which is necessary for
 
 def insert_batch(data_name_and_processor):
     data, name, processor = data_name_and_processor
-    conn = psycopg2.connect(**processor.db_params)
+    # conn = psycopg2.connect(**processor.db_params)
+    conn = processor.conn
     cursor = conn.cursor()
     execute_values(
         cursor,
@@ -269,7 +262,7 @@ def insert_batch(data_name_and_processor):
     )
     conn.commit()
     cursor.close()
-    conn.close()
+    # conn.close()
 
 
 def record_to_chunked_records(record, max_length, overlap):
@@ -291,6 +284,12 @@ class Database:
         'BAAI/bge-small-en': 'bge',
         'bert-base-uncased': 'bert',
         'adsabs/astroBERT': 'astrobert',
+    }
+
+    PGVECTOR_DISTANCE_OPS = {
+        'vector_l2_ops': '<->',
+        'vector_ip_ops': '<#>',
+        'vector_cosine_ops': '<=>',
     }
 
     @classmethod
@@ -389,18 +388,19 @@ class Database:
             raise e
 
     def create_vector_column(self,
-                             table_name: str,
                              embedder_name: str,
                              enricher_name: str = None,
+                             table_name: str = "library",
                              target_column: str = "chunk",
                              batch_size: int = 32):
         """
         Create a new column in the specified table to store vector embeddings.
 
         Args:
+            embedder_name (str): Name of the embedding model to use.
+            enricher_name (str, optional): Name of the enricher to use. Defaults to None.
             table_name (str): Name of the target table.
             target_column (str): Name of the column to embed into vectors.
-            embedder_name (str): Name of the embedding model to use.
             dim (int): Dimension of the vector embeddings.
             enricher_name (str, optional): Name of the enricher to use. Defaults to None.
         """
@@ -408,15 +408,17 @@ class Database:
         from Embedders import get_embedder
         embedder = get_embedder(embedder_name, self.device)
 
+        if enricher_name:
+            from TextEnrichers import get_enricher
+            enricher = get_enricher(enricher_name, for_query=False)
+
         # Construct column name; use the embedder's short name if written into class, otherwise derive it from model name
         vector_column_name = Database.EMBEDDER_SHORTNAMES.get(
             embedder_name, embedder_name.replace("/", "_").replace("-", "_"))
-
-        # TODO: implement enrichment
-        if enricher_name:
-            vector_column_name += f"_{enricher_name}"
         if embedder.normalize:
             vector_column_name += "_norm"
+        if enricher_name:
+            vector_column_name += f"_{enricher_name}"
 
         print(
             f"Attempting to create column {vector_column_name} in table {table_name}...")
@@ -427,12 +429,24 @@ class Database:
         self.conn.commit()
         print("  Successfully created column")
 
-        cursor.execute(f"SELECT id, {target_column} FROM {table_name};")
+        # cursor.execute(f"SELECT id, {target_column} FROM {table_name};")
+        # TODO: extend this select / join only what the enricher actually needs
+        cursor.execute(f"SELECT id, doi, {target_column} FROM {table_name};")
         rows = cursor.fetchall()
+        records = [{'id': row[0], 'doi': row[1], 'chunk': row[2]}
+                   for row in rows]
+        del rows
         cursor.close()
 
         # Setting up a producer/consumer queue so writing to db doesn't block embedding the next batch of chunks
-        all_ids, all_chunks = zip(*rows)
+        all_ids, all_dois, all_chunks = zip(*rows)
+
+        if enricher_name:  # this assumes enricher was resolved above
+            texts_with_dois = [(record['chunk'], record['doi'])
+                               for record in records]
+            all_chunks = [enricher.enrich(
+                texts_with_dois=texts_with_dois) for chunk in all_chunks]
+
         results_queue = queue.Queue()
 
         def producer():
@@ -486,80 +500,6 @@ class Database:
         # Wait for both threads to finish
         producer_thread.join()
         consumer_thread.join()
-
-    # def create_vector_table(self,
-    #                         table_name: str,
-    #                         dim: int,
-    #                         embedder,  # Embedder
-    #                         work_mem='2048MB',
-    #                         maintenance_work_mem='2048MB',
-    #                         batch_size=32):
-    #     """
-    #     1. Creates a vector table
-    #     2. Creates indexes for all distance metrics
-    #     3. Batch embeds all records in the `chunks` table using the given embedder
-
-    #     available distance metrics:
-    #     vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
-    #     """
-
-    #     # Set session resources
-    #     cursor = self.conn.cursor()
-    #     cores = os.cpu_count()
-    #     cursor.execute("SHOW max_worker_processes;")
-    #     max_worker_processes = int(cursor.fetchone()[0])
-    #     max_parallel_workers = max(1, cores - 2)
-    #     max_parallel_maintenance_workers = int(0.2 * max_worker_processes)
-    #     print("="*33 + "CONFIG" + "="*33)
-    #     print("max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | work_mem | maintenance_work_mem")
-    #     print(
-    #         f"{max_worker_processes:^21} {max_parallel_workers:^22} {max_parallel_maintenance_workers:^34} {work_mem:^10} {maintenance_work_mem:^21}")
-    #     print("="*72)
-    #     cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-    #     cursor.execute(
-    #         f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
-    #     cursor.execute(f"SET work_mem='{work_mem}';")
-    #     cursor.execute(f"SET maintenance_work_mem='{maintenance_work_mem}';", )
-
-    #     # Create table
-    #     cursor.execute(
-    #         f"""CREATE TABLE {table_name} (
-    #             id SERIAL PRIMARY KEY,
-    #             embedding VECTOR({dim}),
-    #             chunk_id INTEGER REFERENCES chunks(id)
-    #             );
-    #         """)
-    #     self.conn.commit()
-    #     print(f"Created table {table_name}")
-
-    #     # Get all chunks for embedding
-    #     ids_and_chunks = self._get_all_chunks(cursor)
-    #     print(f"Embedding {len(ids_and_chunks)} chunks...")
-
-    #     # Embed an insert in batches
-    #     for i in tqdm(range(0, len(ids_and_chunks), batch_size), desc="Inserting embeddings", leave=False):
-    #         # Clear GPU memory every 50 batches
-    #         if i % 50 == 0:
-    #             self.__clear_gpu_memory()
-
-    #         # Prepare batch
-    #         batch = ids_and_chunks[i:i+batch_size]
-    #         ids, texts = list(zip(*batch))
-    #         start = time()
-    #         embeddings = embedder(texts)
-    #         print(
-    #             f"Embedding time: {time() - start:.2f} seconds for {len(texts)} chunks")
-    #         data_batch = [(embedding, id_num)
-    #                       for embedding, id_num in zip(embeddings, ids)]
-
-    #         # Insert
-    #         start_insert = time()
-    #         execute_values(
-    #             cursor, f"INSERT INTO {table_name} (embedding, chunk_id) VALUES %s;", data_batch)
-    #         print(f"Insert time: {time() - start_insert}")
-    #         self.conn.commit()
-
-    #     cursor.close()
 
     def create_vector_table_enriched(self,
                                      table_name: str,
@@ -718,13 +658,15 @@ class Database:
         return [ChunkAndVector(text, np.array(lst)) for text, lst in results]
 
     def query_vector_table(self,
-                           table_name,
                            query_vector,
-                           metric,
+                           target_column: str,
+                           table_name: str = 'library',
+                           metric: str = 'vector_cosine_ops',
                            top_k=5,
-                           probes=40,
+                           use_index=True,
                            ef_search=20,
-                           use_index=True):
+                           probes=40,
+                           ):
         """
         table_name: name of the vector table
         query_vector: the vector to query
@@ -733,8 +675,7 @@ class Database:
 
         """
         # Resolve the distance operator
-        assert metric in PGVECTOR_DISTANCE_METRICS, f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
-        operator = PGVECTOR_DISTANCE_METRICS[metric]
+        _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
 
         # Best practice is ef_search should be at least top_k
         if ef_search < top_k:
@@ -748,9 +689,13 @@ class Database:
 
         # Set the session resources
         cursor = self.conn.cursor()
+        """
         cores = os.cpu_count()
         max_parallel_workers = max(1, cores - 2)
         max_parallel_workers_per_gather = max_parallel_workers - 1
+        """
+        max_parallel_workers = 62
+        max_parallel_workers_per_gather = 62
         work_mem = '1GB'
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
         cursor.execute(
@@ -781,19 +726,16 @@ class Database:
             cursor.execute(f"SET enable_indexscan = on;")
             cursor.execute(f"SET hnsw.ef_search = {ef_search};")
             cursor.execute("SET enable_seqscan = off;")
-            # cursor.execute(f"SET ivfflat.probes={probes};")
+            cursor.execute(f"SET ivfflat.probes={probes};")
 
         start = time()
         cursor.execute(
             f"""
-            -- EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
-            SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance
+            SELECT id, doi, title, abstract, chunk, {target_column} {_operator_} %s AS distance
             FROM {table_name}
-            JOIN chunks ON {table_name}.chunk_id = chunks.id
-            ORDER BY {table_name}.embedding {operator} %s ASC
-            LIMIT %s;
+            LIMIT {top_k};
             """,
-            (query_vector, query_vector, top_k)
+            (query_vector,)
         )
         print(f"  Query execution time: {time() - start:.2f} seconds")
 
@@ -896,20 +838,9 @@ class Database:
             top_k=top_k,
             query_vector='{query_vector}')
         print(f"Executing query: {query}")
-
         cursor.execute(query.format(query_vector=query_vector))
-        # cursor.execute(
-        #     f"""
-        #     EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
-        #     SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} %s AS distance
-        #     FROM {table_name}
-        #     JOIN chunks ON {table_name}.chunk_id = chunks.id
-        #     ORDER BY {table_name}.embedding {operator} %s ASC
-        #     LIMIT %s;
-        #     """,
-        #     (query_vector, query_vector, top_k)
-        # )
 
+        # Report
         query_plan = cursor.fetchall()
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = f"explain_analyze_{table_name}_topk{top_k}_{current_time}.json"
