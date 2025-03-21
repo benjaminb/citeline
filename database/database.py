@@ -683,7 +683,7 @@ class Database:
         # Create index
         query = f"CREATE INDEX {index_name} ON {table_name} USING {index_type} ({target_column} vector_cosine_ops) WITH {parameters}"
         cursor.execute(query)
-        conn.commit()
+        self.conn.commit()
 
         # Cleanup
         end = time()
