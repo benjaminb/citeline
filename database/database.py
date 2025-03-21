@@ -652,22 +652,27 @@ class Database:
 
         # Set session resources
         cursor = self.conn.cursor()
+        """
         cores = os.cpu_count()
         max_worker_processes = max_parallel_workers = max(1, cores - 2)
         max_parallel_maintenance_workers = int(0.8 * max_worker_processes)
         maintenance_work_mem = '4GB'
-        print("="*33 + "CONFIG" + "="*33)
+        """
+        max_worker_processes = 62
+        max_parallel_workers = 60
+        max_parallel_maintenance_workers = 60
+        maintenance_work_mem = '1GB'
+        print("="*48 + "CONFIG" + "="*48)
         print("max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | maintenance_work_mem")
         print(
             f"{max_worker_processes:^21} {max_parallel_workers:^21} {max_parallel_maintenance_workers:^33} {maintenance_work_mem:^21}")
-        print("="*72)
+        print("="*102)
         cursor.execute(f"SET maintenance_work_mem='{maintenance_work_mem}';", )
         cursor.execute(
             f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
 
         # Resolve index name and parameters
-        # index_name = f"{target_column}_{index_type}_{metric}V_m{m}_ef{ef_construction}"
         index_name = f"{target_column}_{index_type}_m{m}_ef{ef_construction}"
         print(f"Creating index {index_name}")
         parameters = ''
