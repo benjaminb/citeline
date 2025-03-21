@@ -601,7 +601,7 @@ class Database:
         max_worker_processes = 62
         max_parallel_workers = 60
         max_parallel_maintenance_workers = 60
-        maintenance_work_mem = '1GB'
+        maintenance_work_mem = '16GB'
         print("="*48 + "CONFIG" + "="*48)
         print("max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | maintenance_work_mem")
         print(
@@ -635,10 +635,6 @@ class Database:
         print(
             f"Created {index_type} index on {table_name}.{table_name} in {end - start:.2f} seconds")
         cursor.close()
-
-    # def _get_all_chunks(self, cursor, columns: list[str] = ['id', 'text']) -> list[dict]:
-    #     cursor.execute(f"SELECT id, text FROM chunks;")
-    #     return cursor.fetchall()
 
     def get_vectors_by_doi(self, doi: str, vector_table: str) -> list[str]:
         # conn = psycopg2.connect(**self.db_params)
