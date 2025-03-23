@@ -112,7 +112,17 @@ class Experiment:
         'vector_ip_ops': 'ip'
     }
 
-    def __init__(self, device: str, dataset_path: str, table: str, metric: str, embedding_model_name: str, normalize: bool, enrichment: str, batch_size: int = 16, top_k: int = 100):
+    def __init__(self,
+                 device: str,
+                 dataset_path: str,
+                 table: str,
+                 target_column: str,
+                 metric: str,
+                 embedding_model_name: str,
+                 normalize: bool,
+                 enrichment: str,
+                 batch_size: int = 16,
+                 top_k: int = 100):
         # Set up configs
         self.device = device
 
@@ -124,6 +134,7 @@ class Experiment:
         self.dataset_path = dataset_path
 
         self.table = table
+        self.target_column = target_column
         self.metric = metric
         self.batch_size = batch_size
         self.embedder = get_embedder(
@@ -218,11 +229,13 @@ class Experiment:
         return {
             'dataset': self.dataset_path,
             'table': self.table,
+            'target_column': self.target_column,
             'metric': self.metric,
             'embedder': self.embedder.model_name,
             'normalize': self.normalize,
             'enrichment': self.enrichment,
-            'batch_size': self.batch_size
+            'batch_size': self.batch_size,
+            'top_k': self.top_k
         }
 
     def run(self):
@@ -251,8 +264,9 @@ class Experiment:
                 this_embedding = embeddings[j]
                 start = time()
                 results = self.db.query_vector_table(
-                    table_name=self.table,
                     query_vector=this_embedding,
+                    target_column=self.target_column,
+                    table_name=self.table,
                     metric=self.metric,
                     use_index=True,
                     top_k=self.top_k,  # 2453320 total chunks
@@ -283,6 +297,7 @@ class Experiment:
             f"{'Dataset Path':<20}: {self.dataset_path}\n"
             f"{'Dataset Size':<20}: {len(self.dataset)}\n"
             f"{'Table':<20}: {self.table}\n"
+            f"{'Target Column':<20}: {self.target_column}\n"
             f"{'Metric':<20}: {self.metric_to_str.get(self.metric, self.metric)}\n"
             f"{'Embedder':<20}: {self.embedder.model_name}\n"
             f"{'Normalize':<20}: {self.normalize}\n"
@@ -321,6 +336,7 @@ def main():
             device=device,
             dataset_path=config['dataset'],
             table=config['table'],
+            target_column=config['target_column'],
             metric=config['metric'],
             embedding_model_name=config['embedder'],
             normalize=config['normalize'],

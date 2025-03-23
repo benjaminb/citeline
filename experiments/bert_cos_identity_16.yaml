@@ -1,5 +1,6 @@
 dataset: 'data/dataset/small/nontrivial.jsonl'
-table: 'bert'
+table: 'library'
+target_column: 'bert'
 metric: 'vector_cosine_ops'
 embedder: 'bert-base-uncased'
 normalize: False
