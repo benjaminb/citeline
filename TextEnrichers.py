@@ -25,8 +25,8 @@ def enricher_factory(keys_and_headers: list[tuple[str, str]], prev_n: int = 0):
         if prev_n > 0:
             # Find index of the text in the body_sentences
             for i, body_sentence in enumerate(record['body_sentences']):
-                shorter, longer = text, body_sentence if len(
-                    text) < len(body_sentence) else body_sentence, text
+                shorter, longer = (text, body_sentence) if len(
+                    text) < len(body_sentence) else (body_sentence, text)
                 if shorter in longer:
                     break
             else:
@@ -53,7 +53,7 @@ class TextEnricher:
         'add_abstract': enricher_factory([('abstract', 'Abstract:')]),
         'add_title': enricher_factory([('title', 'Title:')]),
         'add_title_and_abstract': enricher_factory([('title', 'Title:'), ('abstract', 'Abstract:')]),
-        # 'add_previous_3_sentences': add_previous_3_sentences,
+        'add_previous_3_sentences': enricher_factory([], prev_n=3),
         # 'add_previous_7_sentences': add_previous_7_sentences,
         # 'add_headers_and_previous_3_sentences': add_headers_and_previous_3_sentences,
         # 'add_headers_and_previous_7_sentences': add_headers_previous_7_sentences
@@ -80,6 +80,9 @@ class TextEnricher:
         self.enricher = self.ENRICHMENT_FN[enrichment_function]
         self.doi_to_record = reference_data.set_index(
             'doi').to_dict(orient='index')
+
+    def __str__(self):
+        return f"TextEnricher(name={self.name}, data_length={len(self.doi_to_record)})"
 
     def enrich_batch(self, texts_with_dois: list[tuple[str, str]]) -> list[str]:
         """

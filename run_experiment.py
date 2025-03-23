@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from datetime import datetime
 from dotenv import load_dotenv
 from tqdm import tqdm
-from database.database import Database, get_db_params
+from database.database import Database
 from Enrichers import get_enricher
 from Embedders import get_embedder
 
@@ -341,7 +341,7 @@ def main():
     if args.query_plan:
         # Set up resources
         embedder = get_embedder(args.embedder, device=device)
-        db = Database(get_db_params())
+        db = Database()
         db.test_connection()
 
         # Generate query vector and query plan
