@@ -5,5 +5,5 @@ metric: 'vector_cosine_ops'
 embedder: 'bert-base-uncased'
 normalize: False
 enrichment: 'identity'
-batch_size: 32
+batch_size: 16
 top_k: 50
