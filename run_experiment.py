@@ -136,7 +136,7 @@ class Experiment:
         self.enricher = get_enricher(enrichment)
 
         # Initialize database
-        self.db = Database(get_db_params())
+        self.db = Database()
         self.db.test_connection()
         self.top_k = top_k
 
