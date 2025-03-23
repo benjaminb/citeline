@@ -1,4 +1,4 @@
-dataset: 'data/dataset/small/nontrivial.jsonl'
+dataset: 'data/dataset/256/nontrivial.jsonl'
 table: 'library'
 target_column: 'bert'
 metric: 'vector_cosine_ops'
