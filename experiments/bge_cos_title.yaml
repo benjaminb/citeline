@@ -6,4 +6,4 @@ metric: 'vector_cosine_ops'
 normalize: True
 enrichment: 'add_title'
 batch_size: 32
-top_k: 5000
+top_k: 50000
