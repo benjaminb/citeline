@@ -263,7 +263,7 @@ class Experiment:
                 example = batch.iloc[j]
                 this_embedding = embeddings[j]
                 start = time()
-                results = self.db.query_vector_table(
+                results = self.db.query_vector_column(
                     query_vector=this_embedding,
                     target_column=self.target_column,
                     table_name=self.table,

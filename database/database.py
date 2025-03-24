@@ -647,95 +647,73 @@ class Database:
         conn.close()
         return [ChunkAndVector(text, np.array(lst)) for text, lst in results]
 
-    # def query_vector_table(self,
-    #                        query_vector,
-    #                        target_column: str,
-    #                        table_name: str = 'library',
-    #                        metric: str = 'vector_cosine_ops',
-    #                        top_k=5,
-    #                        use_index=True,
-    #                        ef_search=20,
-    #                        probes=40,
-    #                        ):
-    #     """
-    #     table_name: name of the vector table
-    #     query_vector: the vector to query
-    #     metric: a key in PGVECTOR_DISTANCE_METRICS to resolve the distance operator
-    #     top_k: number of results to return
+    def query_vector_column(self,
+                           query_vector,
+                           target_column: str,
+                           table_name: str = 'library',
+                           metric: str = 'vector_cosine_ops',
+                           top_k=5,
+                           use_index=True,
+                           ef_search=20,
+                           probes=40,
+                           ):
+        """
+        table_name: name of the vector table
+        query_vector: the vector to query
+        metric: a key in PGVECTOR_DISTANCE_METRICS to resolve the distance operator
+        top_k: number of results to return
 
-    #     """
-    #     # Resolve the distance operator
-    #     _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
+        """
+        # Resolve the distance operator
+        _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
 
-    #     # Best practice is ef_search should be at least top_k
-    #     if ef_search < top_k:
-    #         print(
-    #             f"  WARNING: ef_search ({ef_search}) is less than top_k ({top_k}).")
+        # Best practice is ef_search should be at least top_k
+        if ef_search < top_k:
+            print(
+                f"  WARNING: ef_search ({ef_search}) is less than top_k ({top_k}).")
 
-    #     if ef_search > 1000:
-    #         print(
-    #             f"  WARNING: Setting ef_search ({ef_search}) to 1000, highest supported by pgvector.")
-    #         ef_search = 1000
+        if ef_search > 1000:
+            print(
+                f"  WARNING: Setting ef_search ({ef_search}) to 1000, highest supported by pgvector.")
+            ef_search = 1000
 
-    #     # Set the session resources
-    #     cursor = self.conn.cursor()
-    #     """
-    #     cores = os.cpu_count()
-    #     max_parallel_workers = max(1, cores - 2)
-    #     max_parallel_workers_per_gather = max_parallel_workers - 1
-    #     """
-    #     max_parallel_workers = 62
-    #     max_parallel_workers_per_gather = 62
-    #     work_mem = '1GB'
-    #     cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-    #     cursor.execute(
-    #         f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
-    #     cursor.execute(f"SET work_mem='{work_mem}'")
+        # Set the session resources
+        max_parallel_workers = 62
+        max_parallel_workers_per_gather = 62
+        work_mem = '1GB'
+        cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
+        cursor.execute(
+            f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
+        cursor.execute(f"SET work_mem='{work_mem}'")
 
-    #     # Confirm settings
-    #     '''
-    #     cursor.execute("SHOW max_worker_processes;")
-    #     max_worker_processes = int(cursor.fetchone()[0])
-    #     cursor.execute("SHOW max_parallel_workers;")
-    #     max_parallel_workers = int(cursor.fetchone()[0])
-    #     cursor.execute("SHOW max_parallel_workers_per_gather;")
-    #     max_parallel_workers_per_gather = int(
-    #         cursor.fetchone()[0])
 
-    #     print("="*40 + "CONFIG" + "="*40)
-    #     print("max_worker_processes | max_parallel_workers | max_parallel_workers_per_gather | work_mem")
-    #     print(
-    #         f"{max_worker_processes:^20} | {max_parallel_workers:^20} | {max_parallel_workers_per_gather:^31} | {work_mem:^10}")
-    #     print("="*88)
-    #     '''
+        # Set index search parameters
+        if not use_index:
+            cursor.execute(f"SET enable_indexscan = off;")
+        else:
+            cursor.execute(f"SET enable_indexscan = on;")
+            cursor.execute(f"SET hnsw.ef_search = {ef_search};")
+            cursor.execute("SET enable_seqscan = off;")
+            cursor.execute(f"SET ivfflat.probes={probes};")
 
-    #     # Set index search parameters
-    #     if not use_index:
-    #         cursor.execute(f"SET enable_indexscan = off;")
-    #     else:
-    #         cursor.execute(f"SET enable_indexscan = on;")
-    #         cursor.execute(f"SET hnsw.ef_search = {ef_search};")
-    #         cursor.execute("SET enable_seqscan = off;")
-    #         cursor.execute(f"SET ivfflat.probes={probes};")
+        start = time()
+        cursor.execute(
+            f"""
+            SELECT id, doi, title, abstract, chunk, {target_column} {_operator_} %s AS distance
+            FROM {table_name}
+            LIMIT {top_k};
+            """,
+            (query_vector,)
+        )
+        print(f"  Query execution time: {time() - start:.2f} seconds")
 
-    #     start = time()
-    #     cursor.execute(
-    #         f"""
-    #         SELECT id, doi, title, abstract, chunk, {target_column} {_operator_} %s AS distance
-    #         FROM {table_name}
-    #         LIMIT {top_k};
-    #         """,
-    #         (query_vector,)
-    #     )
-    #     print(f"  Query execution time: {time() - start:.2f} seconds")
+        results = cursor.fetchall()
+        # Close up
+        cursor.close()
 
-    #     results = cursor.fetchall()
-    #     # Close up
-    #     cursor.close()
-
-    #     assert len(
-    #         results) <= top_k, f"Query returned {len(results)} results, but top_k is set to {top_k}"
-    #     return [SingleVectorQueryResult(*result) for result in results]
+        assert len(
+            results) <= top_k, f"Query returned {len(results)} results, but top_k is set to {top_k}"
+        return [SingleVectorQueryResult(*result) for result in results]
 
     def prewarm_table(self, table_name: str):
         cursor = self.conn.cursor()
