@@ -411,7 +411,8 @@ class Database:
 
         if enricher_name:
             from TextEnrichers import get_enricher
-            enricher = get_enricher(name=enricher_name, path_to_data="../data/preprocessed/research.jsonl")
+            enricher = get_enricher(
+                name=enricher_name, path_to_data="../data/preprocessed/research.jsonl")
             print(f"Using enricher: {enricher_name}")
 
         # Construct column name; use the embedder's short name if written into class, otherwise derive it from model name
@@ -648,15 +649,15 @@ class Database:
         return [ChunkAndVector(text, np.array(lst)) for text, lst in results]
 
     def query_vector_column(self,
-                           query_vector,
-                           target_column: str,
-                           table_name: str = 'library',
-                           metric: str = 'vector_cosine_ops',
-                           top_k=5,
-                           use_index=True,
-                           ef_search=20,
-                           probes=40,
-                           ):
+                            query_vector,
+                            target_column: str,
+                            table_name: str = 'library',
+                            metric: str = 'vector_cosine_ops',
+                            top_k=5,
+                            use_index=True,
+                            ef_search=20,
+                            probes=40,
+                            ):
         """
         table_name: name of the vector table
         query_vector: the vector to query
@@ -678,6 +679,7 @@ class Database:
             ef_search = 1000
 
         # Set the session resources
+        cursor = self.conn.cursor()
         max_parallel_workers = 62
         max_parallel_workers_per_gather = 62
         work_mem = '1GB'
@@ -685,7 +687,6 @@ class Database:
         cursor.execute(
             f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
         cursor.execute(f"SET work_mem='{work_mem}'")
-
 
         # Set index search parameters
         if not use_index:
