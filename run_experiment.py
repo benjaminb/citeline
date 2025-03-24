@@ -335,9 +335,9 @@ def main():
         experiment = Experiment(
             device=device,
             dataset_path=config['dataset'],
-            table=config['table'],
-            target_column=config['target_column'],
-            metric=config['metric'],
+            table=config.get('table', 'library'),
+            target_column=config.get('target_column', 'chunk'),
+            metric=config.get('metric', 'vector_cosine_ops'),
             embedding_model_name=config['embedder'],
             normalize=config['normalize'],
             enrichment=config['enrichment'],
