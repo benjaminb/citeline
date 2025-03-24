@@ -102,10 +102,9 @@ class TextEnricher:
         return results
 
 
-def get_enricher(name: str, for_query: bool = True) -> TextEnricher:
-    data_source = 'data/preprocessed/reviews.jsonl' if for_query else 'data/preprocessed/research.jsonl'
+def get_enricher(name: str, path_to_data: str) -> TextEnricher:
     try:
-        data = pd.read_json(data_source, lines=True)
+        data = pd.read_json(path_to_data, lines=True)
     except Exception as e:
         print(f"Error loading data source: {e}")
     return TextEnricher(enrichment_function=name, reference_data=data)

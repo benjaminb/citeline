@@ -284,6 +284,7 @@ class Database:
         'BAAI/bge-small-en': 'bge',
         'bert-base-uncased': 'bert',
         'adsabs/astroBERT': 'astrobert',
+        'nasa-impact/nasa-ibm-st.38m': 'nasa',
     }
 
     PGVECTOR_DISTANCE_OPS = {
@@ -410,7 +411,8 @@ class Database:
 
         if enricher_name:
             from TextEnrichers import get_enricher
-            enricher = get_enricher(enricher_name, for_query=False)
+            enricher = get_enricher(name=enricher_name, path_to_data="../data/preprocessed/research.jsonl")
+            print(f"Using enricher: {enricher_name}")
 
         # Construct column name; use the embedder's short name if written into class, otherwise derive it from model name
         vector_column_name = Database.EMBEDDER_SHORTNAMES.get(
@@ -421,31 +423,27 @@ class Database:
             vector_column_name += f"_{enricher_name}"
 
         print(
-            f"Attempting to create column {vector_column_name} in table {table_name}...")
+            f"Attempting to create column '{vector_column_name}' in table '{table_name}'...")
 
         cursor = self.conn.cursor()
+        query = f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({embedder.dim});"
+        print(f"Executing query: {query}")
         cursor.execute(
             f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({embedder.dim});")
         self.conn.commit()
         print("  Successfully created column")
 
-        # cursor.execute(f"SELECT id, {target_column} FROM {table_name};")
-        # TODO: extend this select / join only what the enricher actually needs
+        # Get all text chunks to embed)
         cursor.execute(f"SELECT id, doi, {target_column} FROM {table_name};")
         rows = cursor.fetchall()
-        records = [{'id': row[0], 'doi': row[1], 'chunk': row[2]}
-                   for row in rows]
+        all_ids, all_dois, all_chunks = zip(*rows)
         del rows
         cursor.close()
 
         # Setting up a producer/consumer queue so writing to db doesn't block embedding the next batch of chunks
-        all_ids, all_dois, all_chunks = zip(*rows)
-
         if enricher_name:  # this assumes enricher was resolved above
-            texts_with_dois = [(record['chunk'], record['doi'])
-                               for record in records]
-            all_chunks = [enricher.enrich(
-                texts_with_dois=texts_with_dois) for chunk in all_chunks]
+            texts_with_dois = zip(all_chunks, all_dois)
+            all_chunks = enricher.enrich_batch(texts_with_dois=texts_with_dois)
 
         results_queue = queue.Queue()
 
@@ -649,95 +647,95 @@ class Database:
         conn.close()
         return [ChunkAndVector(text, np.array(lst)) for text, lst in results]
 
-    def query_vector_table(self,
-                           query_vector,
-                           target_column: str,
-                           table_name: str = 'library',
-                           metric: str = 'vector_cosine_ops',
-                           top_k=5,
-                           use_index=True,
-                           ef_search=20,
-                           probes=40,
-                           ):
-        """
-        table_name: name of the vector table
-        query_vector: the vector to query
-        metric: a key in PGVECTOR_DISTANCE_METRICS to resolve the distance operator
-        top_k: number of results to return
+    # def query_vector_table(self,
+    #                        query_vector,
+    #                        target_column: str,
+    #                        table_name: str = 'library',
+    #                        metric: str = 'vector_cosine_ops',
+    #                        top_k=5,
+    #                        use_index=True,
+    #                        ef_search=20,
+    #                        probes=40,
+    #                        ):
+    #     """
+    #     table_name: name of the vector table
+    #     query_vector: the vector to query
+    #     metric: a key in PGVECTOR_DISTANCE_METRICS to resolve the distance operator
+    #     top_k: number of results to return
 
-        """
-        # Resolve the distance operator
-        _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
+    #     """
+    #     # Resolve the distance operator
+    #     _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
 
-        # Best practice is ef_search should be at least top_k
-        if ef_search < top_k:
-            print(
-                f"  WARNING: ef_search ({ef_search}) is less than top_k ({top_k}).")
+    #     # Best practice is ef_search should be at least top_k
+    #     if ef_search < top_k:
+    #         print(
+    #             f"  WARNING: ef_search ({ef_search}) is less than top_k ({top_k}).")
 
-        if ef_search > 1000:
-            print(
-                f"  WARNING: Setting ef_search ({ef_search}) to 1000, highest supported by pgvector.")
-            ef_search = 1000
+    #     if ef_search > 1000:
+    #         print(
+    #             f"  WARNING: Setting ef_search ({ef_search}) to 1000, highest supported by pgvector.")
+    #         ef_search = 1000
 
-        # Set the session resources
-        cursor = self.conn.cursor()
-        """
-        cores = os.cpu_count()
-        max_parallel_workers = max(1, cores - 2)
-        max_parallel_workers_per_gather = max_parallel_workers - 1
-        """
-        max_parallel_workers = 62
-        max_parallel_workers_per_gather = 62
-        work_mem = '1GB'
-        cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-        cursor.execute(
-            f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
-        cursor.execute(f"SET work_mem='{work_mem}'")
+    #     # Set the session resources
+    #     cursor = self.conn.cursor()
+    #     """
+    #     cores = os.cpu_count()
+    #     max_parallel_workers = max(1, cores - 2)
+    #     max_parallel_workers_per_gather = max_parallel_workers - 1
+    #     """
+    #     max_parallel_workers = 62
+    #     max_parallel_workers_per_gather = 62
+    #     work_mem = '1GB'
+    #     cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
+    #     cursor.execute(
+    #         f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
+    #     cursor.execute(f"SET work_mem='{work_mem}'")
 
-        # Confirm settings
-        '''
-        cursor.execute("SHOW max_worker_processes;")
-        max_worker_processes = int(cursor.fetchone()[0])
-        cursor.execute("SHOW max_parallel_workers;")
-        max_parallel_workers = int(cursor.fetchone()[0])
-        cursor.execute("SHOW max_parallel_workers_per_gather;")
-        max_parallel_workers_per_gather = int(
-            cursor.fetchone()[0])
+    #     # Confirm settings
+    #     '''
+    #     cursor.execute("SHOW max_worker_processes;")
+    #     max_worker_processes = int(cursor.fetchone()[0])
+    #     cursor.execute("SHOW max_parallel_workers;")
+    #     max_parallel_workers = int(cursor.fetchone()[0])
+    #     cursor.execute("SHOW max_parallel_workers_per_gather;")
+    #     max_parallel_workers_per_gather = int(
+    #         cursor.fetchone()[0])
 
-        print("="*40 + "CONFIG" + "="*40)
-        print("max_worker_processes | max_parallel_workers | max_parallel_workers_per_gather | work_mem")
-        print(
-            f"{max_worker_processes:^20} | {max_parallel_workers:^20} | {max_parallel_workers_per_gather:^31} | {work_mem:^10}")
-        print("="*88)
-        '''
+    #     print("="*40 + "CONFIG" + "="*40)
+    #     print("max_worker_processes | max_parallel_workers | max_parallel_workers_per_gather | work_mem")
+    #     print(
+    #         f"{max_worker_processes:^20} | {max_parallel_workers:^20} | {max_parallel_workers_per_gather:^31} | {work_mem:^10}")
+    #     print("="*88)
+    #     '''
 
-        # Set index search parameters
-        if not use_index:
-            cursor.execute(f"SET enable_indexscan = off;")
-        else:
-            cursor.execute(f"SET enable_indexscan = on;")
-            cursor.execute(f"SET hnsw.ef_search = {ef_search};")
-            cursor.execute("SET enable_seqscan = off;")
-            cursor.execute(f"SET ivfflat.probes={probes};")
+    #     # Set index search parameters
+    #     if not use_index:
+    #         cursor.execute(f"SET enable_indexscan = off;")
+    #     else:
+    #         cursor.execute(f"SET enable_indexscan = on;")
+    #         cursor.execute(f"SET hnsw.ef_search = {ef_search};")
+    #         cursor.execute("SET enable_seqscan = off;")
+    #         cursor.execute(f"SET ivfflat.probes={probes};")
 
-        start = time()
-        cursor.execute(
-            f"""
-            SELECT id, doi, title, abstract, chunk, {target_column} {_operator_} %s AS distance
-            FROM {table_name}
-            LIMIT {top_k};
-            """,
-            (query_vector,)
-        )
-        print(f"  Query execution time: {time() - start:.2f} seconds")
+    #     start = time()
+    #     cursor.execute(
+    #         f"""
+    #         SELECT id, doi, title, abstract, chunk, {target_column} {_operator_} %s AS distance
+    #         FROM {table_name}
+    #         LIMIT {top_k};
+    #         """,
+    #         (query_vector,)
+    #     )
+    #     print(f"  Query execution time: {time() - start:.2f} seconds")
 
-        results = cursor.fetchall()
-        # Close up
-        cursor.close()
+    #     results = cursor.fetchall()
+    #     # Close up
+    #     cursor.close()
 
-        assert len(
-            results) <= top_k, f"Query returned {len(results)} results, but top_k is set to {top_k}"
-        return [SingleVectorQueryResult(*result) for result in results]
+    #     assert len(
+    #         results) <= top_k, f"Query returned {len(results)} results, but top_k is set to {top_k}"
+    #     return [SingleVectorQueryResult(*result) for result in results]
 
     def prewarm_table(self, table_name: str):
         cursor = self.conn.cursor()

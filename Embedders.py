@@ -8,6 +8,7 @@ DEVICE = 'cuda' if torch.cuda.is_available(
 
 
 class Embedder:
+    
     def __init__(self, model_name: str, device, normalize: bool):
         self.model_name = model_name
         self.device = device
@@ -90,9 +91,10 @@ class EncoderEmbedder(Embedder):
 
 
 EMBEDDING_CLASS = {
-    "BAAI/bge-small-en": SentenceTransformerEmbedder,
     "adsabs/astroBERT": EncoderEmbedder,
+    "BAAI/bge-small-en": SentenceTransformerEmbedder,
     "bert-base-uncased": EncoderEmbedder,
+    "nasa-impact/nasa-ibm-st.38m": SentenceTransformerEmbedder
     # "nvidia/NV-Embed-v2": SentenceTransformerEmbedder
 }
 
