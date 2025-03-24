@@ -270,7 +270,8 @@ class Experiment:
                     metric=self.metric,
                     use_index=True,
                     top_k=self.top_k,  # 2453320 total chunks
-                    ef_search=self.top_k  # TODO: should this be a separate parameter?
+                    # ef_search=self.top_k  # TODO: should this be a separate parameter?
+                    ef_search=512
                 )
 
                 # Statistics

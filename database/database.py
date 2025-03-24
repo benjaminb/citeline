@@ -729,6 +729,12 @@ class Database:
         msg = f"Prewarming table {table_name}" + ".{target_column}" if target_column else ""
         print(msg)
 
+        
+
+        """
+        this query fetches indexes on a given target_column:
+        select i.relname as index_name from pg_index ix join pg_class i on i.oid = ix.indexrelid join pg_attribute a on a.attrelid = ix.indrelid where a.attname = '{target_column}' and a.attnum = ANY(ix.indkey);
+        """
         try:
             # Execute query to get all relevant objects
             cursor.execute(f"""
