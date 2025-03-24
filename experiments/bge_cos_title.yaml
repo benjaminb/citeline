@@ -1,4 +1,4 @@
-dataset: 'data/dataset/256/nontrivial.jsonl'
+dataset: 'data/dataset/10000/nontrivial.jsonl'
 table: 'library'
 target_column: 'bge'
 embedder: 'BAAI/bge-small-en'

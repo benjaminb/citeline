@@ -716,9 +716,18 @@ class Database:
             results) <= top_k, f"Query returned {len(results)} results, but top_k is set to {top_k}"
         return [SingleVectorQueryResult(*result) for result in results]
 
-    def prewarm_table(self, table_name: str):
+    def prewarm_table(self, table_name: str, target_column: str = None):
+        """
+        Prewarms a table and optionally, specific indexes associated with a target column.
+
+        Args:
+            table_name (str): The name of the table to prewarm.
+            target_column (str, optional): The name of the column whose indexes should be prewarmed.
+                                           If None, all indexes on the table are prewarmed. Defaults to None.
+        """
         cursor = self.conn.cursor()
-        print(f"Prewarming table {table_name} and its indexes...")
+        msg = f"Prewarming table {table_name}" + ".{target_column}" if target_column else ""
+        print(msg)
 
         try:
             # Execute query to get all relevant objects
