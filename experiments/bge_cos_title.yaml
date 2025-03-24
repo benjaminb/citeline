@@ -1,7 +1,8 @@
 dataset: 'data/dataset/256/nontrivial.jsonl'
-table: 'bge'
-metric: 'vector_cosine_ops'
+table: 'library'
+target_column: 'bge'
 embedder: 'BAAI/bge-small-en'
+metric: 'vector_cosine_ops'
 normalize: True
 enrichment: 'add_title'
 batch_size: 32
