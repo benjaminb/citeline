@@ -106,7 +106,7 @@ def process_record(record):
 #     df.to_json(output_file, orient='records', lines=True)
 
 
-def preprocess_data(datasets: pd.DataFrame) -> pd.DataFrame:
+def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     This function processes review datasets and writes the output to a single JSON file.
     Each record is processed to segment the body into sentences and merge short sentences.
@@ -130,7 +130,7 @@ def preprocess_data(datasets: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(results)
 
 
-def write_data(datasets, output_file: str, dedupicate_from=None):
+def write_data(datasets, output_file: str, deduplicate_from=None):
     # Get all records
     records = [record for dataset in datasets for record in load_dataset(
         'data/json/' + dataset)]
@@ -140,7 +140,7 @@ def write_data(datasets, output_file: str, dedupicate_from=None):
     df = df.drop_duplicates(subset=['doi'])
 
     # Drop any records that are also in the review dataset
-    if dedupicate_from:
+    if deduplicate_from:
         reviews = pd.read_json('data/preprocessed/reviews.jsonl', lines=True)
         review_dois = set(reviews['doi'])
         df = df[~df['doi'].isin(review_dois)]
@@ -178,7 +178,10 @@ def main():
         """
         datasets = ['data/json/Astro_Research.json', 'data/json/Earth_Science_Research.json',
                     'data/json/Planetary_Research.json', 'data/json/doi_articles.json', 'data/json/salvaged_articles.json']
-        write_data(datasets, 'data/preprocessed/research.jsonl', dedupicate_from='data/preprocessed/reviews.jsonl')
+        write_data(
+            datasets=datasets,
+            output_file='data/preprocessed/research.jsonl',
+            deduplicate_from='data/preprocessed/reviews.jsonl')
         return
 
 
