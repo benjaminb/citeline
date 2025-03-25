@@ -89,23 +89,6 @@ def process_record(record):
     return record
 
 
-# def write_review_data(datasets, output_file: str):
-#     """
-#     This function processes review datasets and writes the output to a single JSONL file.
-#     Each record is processed to segment the body into sentences and merge short sentences.
-#     """
-#     records = [record for dataset in datasets for record in load_dataset(
-#         'data/json/' + dataset)]
-
-#     # Drop duplicates based on 'doi'
-#     df = pd.DataFrame(records)
-#     df = df.drop_duplicates(subset=['doi'])
-
-#     # Preprocess records and write output
-#     df = preprocess_data(df)
-#     df.to_json(output_file, orient='records', lines=True)
-
-
 def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     This function processes review datasets and writes the output to a single JSON file.
@@ -176,8 +159,8 @@ def main():
 
         NOTE: review data should be written out first to ensure the research data doesn't have review paper records in it
         """
-        datasets = ['data/json/Astro_Research.json', 'data/json/Earth_Science_Research.json',
-                    'data/json/Planetary_Research.json', 'data/json/doi_articles.json', 'data/json/salvaged_articles.json']
+        datasets = ['Astro_Research.json', 'Earth_Science_Research.json',
+                    'Planetary_Research.json', 'doi_articles.json', 'salvaged_articles.json']
         write_data(
             datasets=datasets,
             output_file='data/preprocessed/research.jsonl',

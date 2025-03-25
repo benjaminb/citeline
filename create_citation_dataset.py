@@ -1,6 +1,7 @@
 import csv
 import json
 import os
+import pandas as pd
 import pysbd
 import re
 from tqdm import tqdm
@@ -88,12 +89,14 @@ def sentence_to_example(record, sentence, all_records):
 
 def create_examples_from_record(record, all_records):
     # TODO: come up with a better filter for sentences than just length?
-    sentences = [s for s in tqdm(SEG.segment(record['body']), desc=f'Segmenting {record["title"]}...', leave=False)
-                 if len(s) > 40]
+    # sentences = [s for s in tqdm(SEG.segment(record['body']), desc=f'Segmenting {record["title"]}...', leave=False)
+    #              if len(s) > 40]
+    sentences = record['body_sentences']
     return [
         example for sentence in tqdm(sentences, desc='Creating examples from sentences...', leave=False)
         if (example := sentence_to_example(record, sentence, all_records))
     ]
+
 
 
 def main():
@@ -108,7 +111,7 @@ def main():
     print(f"Size of corpus: {len(all_records)}")
 
     # Write out to jsonl
-    with open('data/test_set.jsonl', 'a') as file:
+    with open('data/examples.jsonl', 'a') as file:
         for filename in FILE_PATHS:
             data = load_dataset(filename)
             for record in tqdm(data, desc=f"Processing {filename}", leave=False):
@@ -116,7 +119,18 @@ def main():
                 for example in examples:
                     json.dump(example, file)
                     file.write('\n')
+                    
+    df = pd.read_json('data/examples.jsonl', lines=True)
 
+    # Get the rows where citation_dois is not empty
+    nontrivial = df[df['citation_dois'].map(len) > 0]
+    nontrivial.to_json('data/nontrivial.jsonl', orient='records', lines=True)
+    print(f"Created {len(nontrivial)} nontrivial examples")
+
+    # Get the trivial examples
+    trivial = df[df['citation_dois'].map(len) == 0]
+    trivial.to_json('data/trivial.jsonl', orient='records', lines=True)
+    print(f"Created {len(trivial)} trivial examples")
 
 if __name__ == "__main__":
     main()
