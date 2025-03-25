@@ -24,7 +24,9 @@ SEG = pysbd.Segmenter(language="en", clean=False)
 
 # Records missing any of these keys are excluded from the dataset
 REQUIRED_KEYS = {'title', 'body', 'abstract',
-                 'doi', 'reference', 'bibcode', 'keyword'}
+                 'doi', 'reference', 'bibcode',
+                 # 'keyword'
+                }
 
 
 def argument_parser():
