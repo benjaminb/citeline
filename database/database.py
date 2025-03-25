@@ -631,23 +631,6 @@ class Database:
             f"Created {index_type} index on {table_name}.{table_name} in {end - start:.2f} seconds")
         cursor.close()
 
-    def get_vectors_by_doi(self, doi: str, vector_table: str) -> list[str]:
-        # conn = psycopg2.connect(**self.db_params)
-        cursor = self.conn.cursor()
-        cursor.execute(
-            f"""
-            SELECT
-                text,
-                {vector_table}.embedding AS embedding
-            FROM chunks
-            JOIN {vector_table} ON chunks.id = {vector_table}.chunk_id
-            WHERE doi = '{doi}';
-            """)
-        results = cursor.fetchall()
-        cursor.close()
-        conn.close()
-        return [ChunkAndVector(text, np.array(lst)) for text, lst in results]
-
     def query_vector_column(self,
                             query_vector,
                             target_column: str,
@@ -729,11 +712,18 @@ class Database:
         msg = f"Prewarming table {table_name}" + ".{target_column}" if target_column else ""
         print(msg)
 
-        
+
 
         """
         this query fetches indexes on a given target_column:
-        select i.relname as index_name from pg_index ix join pg_class i on i.oid = ix.indexrelid join pg_attribute a on a.attrelid = ix.indrelid where a.attname = '{target_column}' and a.attnum = ANY(ix.indkey);
+        SELECT i.relname AS index_name
+        FROM pg_index ix
+        JOIN pg_class i ON i.oid = ix.indexrelid
+        JOIN pg_class t ON t.oid = ix.indrelid
+        JOIN pg_attribute a ON a.attrelid = ix.indrelid
+        WHERE t.relname = 'library'
+        AND a.attname = 'bge_norm'
+        AND a.attnum = ANY(ix.indkey);
         """
         try:
             # Execute query to get all relevant objects

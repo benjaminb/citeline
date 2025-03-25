@@ -96,7 +96,7 @@ class TextEnricher:
         for text, doi in texts_with_dois:
             record = self.doi_to_record.get(doi)
             if record is None:
-                raise ValueError(f"Record with DOI {doi} not found")
+                raise ValueError(f"While enriching example with source doi '{doi}', full record not found")
             results.append(self.enricher(text, record))
 
         return results

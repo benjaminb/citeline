@@ -23,7 +23,8 @@ The final output is written to two separate JSONL files: 'research.jsonl' and 'r
 SEG = pysbd.Segmenter(language="en", clean=False)
 
 # Records missing any of these keys are excluded from the dataset
-REQUIRED_KEYS = {'title', 'body', 'abstract', 'doi', 'reference', 'bibcode'}
+REQUIRED_KEYS = {'title', 'body', 'abstract',
+                 'doi', 'reference', 'bibcode', 'keyword'}
 
 
 def argument_parser():
@@ -88,29 +89,29 @@ def process_record(record):
     return record
 
 
-def get_unique_records(datasets: list[str]) -> pd.DataFrame:
-    """
-    This function loads multiple datasets, concatenates them into a single DataFrame,
-    and drops duplicates based on the 'doi' field.
-    """
-    records = [
-        record for dataset in datasets for record in load_dataset(dataset)]
-    df = pd.DataFrame(records)
-    full_length = len(df)
-    df = df.drop_duplicates(subset=['doi'])
-    unique_length = len(df)
+# def write_review_data(datasets, output_file: str):
+#     """
+#     This function processes review datasets and writes the output to a single JSONL file.
+#     Each record is processed to segment the body into sentences and merge short sentences.
+#     """
+#     records = [record for dataset in datasets for record in load_dataset(
+#         'data/json/' + dataset)]
 
-    print(
-        f"Loaded {full_length} records, {unique_length} unique records based on 'doi'")
-    return df
+#     # Drop duplicates based on 'doi'
+#     df = pd.DataFrame(records)
+#     df = df.drop_duplicates(subset=['doi'])
+
+#     # Preprocess records and write output
+#     df = preprocess_data(df)
+#     df.to_json(output_file, orient='records', lines=True)
 
 
-def write_review_data(datasets):
+def preprocess_data(datasets: pd.DataFrame) -> pd.DataFrame:
     """
     This function processes review datasets and writes the output to a single JSON file.
     Each record is processed to segment the body into sentences and merge short sentences.
     """
-    df = get_unique_records(datasets)
+    # df = get_unique_records(datasets)
     records = df.to_dict('records')
 
     # Process records in parallel
@@ -126,45 +127,27 @@ def write_review_data(datasets):
                            desc="Processing records"):
             results.append(future.result())
 
-    # Convert results back to DataFrame and save
-    result_df = pd.DataFrame(results)
-    result_df.to_json('data/preprocessed/reviews.jsonl',
-                      orient='records', lines=True)
+    return pd.DataFrame(results)
 
 
-def write_research_data(datasets):
+def write_data(datasets, output_file: str, dedupicate_from=None):
+    # Get all records
     records = [record for dataset in datasets for record in load_dataset(
         'data/json/' + dataset)]
+
+    # Drop duplicates based on 'doi'
     df = pd.DataFrame(records)
     df = df.drop_duplicates(subset=['doi'])
-    df.to_json('data/preprocessed/research.jsonl',
-               orient='records', lines=True)
 
+    # Drop any records that are also in the review dataset
+    if dedupicate_from:
+        reviews = pd.read_json('data/preprocessed/reviews.jsonl', lines=True)
+        review_dois = set(reviews['doi'])
+        df = df[~df['doi'].isin(review_dois)]
 
-def preprocess_data(datasets: list[str], output_file: str):
-    """
-    This function processes review datasets and writes the output to a single JSON file.
-    Each record is processed to segment the body into sentences and merge short sentences.
-    """
-    df = get_unique_records(datasets)
-    records = df.to_dict('records')
-
-    # Process records in parallel
-    results = []
-    max_workers = max(1, os.cpu_count() - 1)
-    with ProcessPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all processing jobs
-        futures = [executor.submit(process_record, record)
-                   for record in records]
-
-        # Collect results with progress bar
-        for future in tqdm(as_completed(futures), total=len(futures),
-                           desc="Processing records"):
-            results.append(future.result())
-
-    # Convert results back to DataFrame and save
-    result_df = pd.DataFrame(results)
-    result_df.to_json(output_file, orient='records', lines=True)
+    # Preprocess records and write output
+    df = preprocess_data(df)
+    df.to_json(output_file, orient='records', lines=True)
 
 
 def main():
@@ -177,19 +160,25 @@ def main():
         * Places the sentence segments into a new field called 'body_sentences'.
         * Writes the final output to a single jsonl file called 'reviews.jsonl'.
         """
-        write_review_data(
-            ['Astro_Reviews.json', 'Earth_Science_Reviews.json', 'Planetary_Reviews.json'])
+        write_data(
+            datasets=['Astro_Reviews.json',
+                      'Earth_Science_Reviews.json', 'Planetary_Reviews.json'],
+            output_file='data/preprocessed/reviews.jsonl',
+            deduplicate_from=None
+        )
+        return
 
     if args.research:
         """
         In addition to loading each research dataset and preprocessing the individual records,
         this branch also drops any duplicate records based on the 'doi' field and writes the final
         output to a single jsonl file called 'research.json'.
+
+        NOTE: review data should be written out first to ensure the research data doesn't have review paper records in it
         """
         datasets = ['data/json/Astro_Research.json', 'data/json/Earth_Science_Research.json',
                     'data/json/Planetary_Research.json', 'data/json/doi_articles.json', 'data/json/salvaged_articles.json']
-        preprocess_data(
-            datasets, output_file='data/preprocessed/research.jsonl')
+        write_data(datasets, 'data/preprocessed/research.jsonl', dedupicate_from='data/preprocessed/reviews.jsonl')
         return
 
 
