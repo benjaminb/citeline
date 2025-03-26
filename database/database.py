@@ -230,6 +230,14 @@ class SingleVectorQueryResult:
     chunk: str
     distance: float
 
+@dataclass
+class SingleVectorDoiResult:
+    chunk_id: int
+    doi: str
+    title: str
+    abstract: str
+    chunk: str
+    vector: np.array
 
 @dataclass
 class Chunk:
@@ -387,6 +395,15 @@ class Database:
             print(f"Error during COPY: {e}")
             self.__log_error(f"Error during COPY: {e}")
             raise e
+
+    def get_chunks_by_doi(self, doi: str, table_name: str = 'library', vector_column: str = 'bge_norm'):
+        cursor = self.conn.cursor()
+        cursor.execute(f"""
+            SELECT id, doi, title, abstract, chunk, {vector_column} FROM {table_name}
+            WHERE doi = '{doi}';
+            """)
+        rows = cursor.fetchall()
+        return [SingleVectorDoiResult(*row) for row in rows]
 
     def create_vector_column(self,
                              embedder_name: str,
@@ -685,7 +702,8 @@ class Database:
             f"""
             SELECT id, doi, title, abstract, chunk, {target_column} {_operator_} %s AS distance
             FROM {table_name}
-            LIMIT {top_k};
+            ORDER BY distance ASC
+            -- LIMIT {top_k};
             """,
             (query_vector,)
         )

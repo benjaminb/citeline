@@ -101,6 +101,16 @@ class TextEnricher:
 
         return results
 
+    def __call__(self, examples: pd.DataFrame, key: str = 'sent_no_cit') -> list[str]:
+        results = []
+        for _, example in examples.iterrows():
+            print(f"Example: {example}")
+            record = self.doi_to_record.get(example.source_doi)
+            if record is None:
+                raise ValueError(f"While enriching example with source doi '{example.source_doi}', full record not found")
+            results.append(self.enricher(example[key], record))
+        return results
+
 
 def get_enricher(name: str, path_to_data: str) -> TextEnricher:
     try:

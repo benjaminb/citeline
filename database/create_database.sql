@@ -10,8 +10,10 @@ CREATE DATABASE citeline_db WITH OWNER bbasseri;
 CREATE EXTENSION vector;
 -- Allows preloading data into shared buffers for faster queries
 CREATE EXTENSION pg_prewarm;
-CREATE TABLE chunks (
+CREATE TABLE library (
     id SERIAL PRIMARY KEY,
+    title TEXT NOT NULL,
+    abstract TEXT NOT NULL,
     doi VARCHAR(255) NOT NULL,
     text TEXT NOT NULL
 );
