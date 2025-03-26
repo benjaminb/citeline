@@ -3,8 +3,8 @@
 #SBATCH --job-name=make_research_jsonl
 #SBATCH -p shared # partition (queue)
 #SBATCH -c 48 # number of cores
-#SBATCH --mem 48000 # memory pool for all cores
-#SBATCH -t 0-01:00 # time (D-HH:MM)
+#SBATCH --mem 96000 # memory pool for all cores
+#SBATCH -t 0-02:00 # time (D-HH:MM)
 #SBATCH -o slurm.%x.%j.log # STDOUT
 #SBATCH -e slurm.%x.%j.log # STDERR
 module load python
