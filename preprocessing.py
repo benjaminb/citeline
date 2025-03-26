@@ -26,7 +26,7 @@ SEG = pysbd.Segmenter(language="en", clean=False)
 REQUIRED_KEYS = {'title', 'body', 'abstract',
                  'doi', 'reference', 'bibcode',
                  # 'keyword'
-                }
+                 }
 
 
 def argument_parser():
@@ -101,7 +101,8 @@ def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
 
     # Process records in parallel
     results = []
-    max_workers = max(1, os.cpu_count() - 1)
+    max_workers = max(1, os.cpu_count() - 4)
+    print(f"Processing records with {max_workers} workers")
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         # Submit all processing jobs
         futures = [executor.submit(process_record, record)
