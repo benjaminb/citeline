@@ -37,6 +37,7 @@ def argument_parser():
         '--research', action='store_true', help="Process research datasets")
     operation_group.add_argument(
         '--reviews', action='store_true', help="Process review datasets")
+    # Add a list argument 'datasets'
 
     args = parser.parse_args()
     return args
@@ -59,46 +60,47 @@ def load_dataset(path):
             record['doi'], list), f"DOI expected to be a list, but it was {type(record['doi'])}, value: {record['doi']}"
         record['dois'] = record['doi']
         record['doi'] = record['doi'][0]
+
+        # Additional keys
         record['loaded_from'] = path
+        record['body_sentences'] = []
     return data
 
 
 def merge_short_sentences(sentences, threshold=60):
     """
     Returns a list of sentences where sentences below the threshold length
-    are re-concatenated with the following sentence. If the result is still 
-    below the threshold length, the process is repeated until the threshold
-    is reached.
+    are concatenated with the following sentence until they exceed the threshold.
     """
-
-    # Edge case: if there is only one sentence, return it
-    if len(sentences) == 1:
-        return sentences
-
     merged_sentences = []
-    for i in range(len(sentences) - 1):
-        if len(sentences[i]) < threshold:
-            sentences[i + 1] = sentences[i] + sentences[i + 1]
-        else:
-            merged_sentences.append(sentences[i])
+    buffer = ""
 
-    # Handle the last sentence
-    if len(sentences[-1]) < threshold or len(merged_sentences) > 0:
-        merged_sentences[-1] = merged_sentences[-1] + sentences[-1]
-    else:
-        merged_sentences.append(sentences[-1])
+    for sentence in sentences:
+        if len(buffer) + len(sentence) < threshold:
+            buffer += sentence + " "  # Keep accumulating
+        else:
+            if buffer:
+                merged_sentences.append(buffer.strip())  # Commit the buffer
+            buffer = sentence  # Reset buffer to current sentence
+
+    if buffer:  # Add any remaining buffer at the end
+        merged_sentences.append(buffer.strip())
+
     return merged_sentences
 
 
 def process_record(record):
+    """
+    This function processes a single record by segmenting the body text into sentences, then merges
+    short sentences using the merge_short_sentences function. The final output is a record with a new
+    key 'body_sentences' containing the segmented and merged sentences.
+    """
     sentences = SEG.segment(record['body'])
-
     # If there are no sentences in the body, log the error and return the record with blank 'body_sentences' key
     if not sentences:
         print(f"Empty sentences for record: {record['doi']}")
         with open('empty_sentences.csv', 'a') as file:
             file.write(f"{record['doi']},{record['title']}\n")
-        record['body_sentences'] = []
         return record
 
     # Typical case: we have sentences so merge the short ones
@@ -111,7 +113,8 @@ def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     This function processes review datasets and writes the output to a single JSON file.
     Each record is processed to segment the body into sentences and merge short sentences.
     """
-    # df = get_unique_records(datasets)
+    # Replace invalid days and months (12-00-00 to 12-01-01)
+    df['pubdate'] = df['pubdate'].str.replace(r'-00', '-01', regex=True)
     records = df.to_dict('records')
 
     # Process records in parallel
@@ -140,11 +143,14 @@ def write_data(datasets, output_file: str, deduplicate_from=None):
     df = pd.DataFrame(records)
     df = df.drop_duplicates(subset=['doi'])
 
+    # Drop any records with 'body' less than 5000 characters
+    df = df[df['body'].str.len() >= 5000]
+
     # Drop any records that are also in the review dataset
     if deduplicate_from:
-        reviews = pd.read_json('data/preprocessed/reviews.jsonl', lines=True)
-        review_dois = set(reviews['doi'])
-        df = df[~df['doi'].isin(review_dois)]
+        other_dataset = pd.read_json(deduplicate_from, lines=True)
+        other_dois = set(other_dataset['doi'])
+        df = df[~df['doi'].isin(other_dois)]
 
     # Preprocess records and write output
     df = preprocess_data(df)
@@ -162,9 +168,10 @@ def main():
         * Writes the final output to a single jsonl file called 'reviews.jsonl'.
         """
         write_data(
+            # datasets=['Astro_Reviews.json'],
             datasets=['Astro_Reviews.json',
                       'Earth_Science_Reviews.json', 'Planetary_Reviews.json'],
-            output_file='data/preprocessed/reviews.jsonl',
+            output_file='data/testdate.jsonl',
             deduplicate_from=None
         )
         return

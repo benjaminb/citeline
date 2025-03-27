@@ -361,6 +361,8 @@ class Database:
                 doi TEXT NOT NULL,
                 title TEXT NOT NULL,
                 abstract TEXT NOT NULL,
+                pubdate DATE,
+                keywords TEXT[],
                 chunk TEXT NOT NULL
                 );
             """)

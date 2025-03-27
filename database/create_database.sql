@@ -15,5 +15,6 @@ CREATE TABLE library (
     title TEXT NOT NULL,
     abstract TEXT NOT NULL,
     doi VARCHAR(255) NOT NULL,
+    year INT,
     text TEXT NOT NULL
 );
