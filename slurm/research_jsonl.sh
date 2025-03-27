@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 #SBATCH --job-name=make_research_jsonl
-#SBATCH -p shared # partition (queue)
+#SBATCH -p sapphire # partition (queue)
 #SBATCH -c 48 # number of cores
 #SBATCH --mem 96000 # memory pool for all cores
 #SBATCH -t 0-02:00 # time (D-HH:MM)

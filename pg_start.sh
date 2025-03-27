@@ -1,4 +1,3 @@
-
 singularity run \
   --cleanenv \
   --env PGDATA="/n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citelinedb" \
