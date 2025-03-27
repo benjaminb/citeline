@@ -70,6 +70,11 @@ def merge_short_sentences(sentences, threshold=60):
     below the threshold length, the process is repeated until the threshold
     is reached.
     """
+
+    # Edge case: if there is only one sentence, return it
+    if len(sentences) == 1:
+        return sentences
+
     merged_sentences = []
     for i in range(len(sentences) - 1):
         if len(sentences[i]) < threshold:
@@ -87,6 +92,16 @@ def merge_short_sentences(sentences, threshold=60):
 
 def process_record(record):
     sentences = SEG.segment(record['body'])
+
+    # If there are no sentences in the body, log the error and return the record with blank 'body_sentences' key
+    if not sentences:
+        print(f"Empty sentences for record: {record['doi']}")
+        with open('empty_sentences.csv', 'a') as file:
+            file.write(f"{record['doi']},{record['title']}\n")
+        record['body_sentences'] = []
+        return record
+
+    # Typical case: we have sentences so merge the short ones
     record['body_sentences'] = merge_short_sentences(sentences)
     return record
 
@@ -101,7 +116,7 @@ def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
 
     # Process records in parallel
     results = []
-    max_workers = max(1, os.cpu_count() - 4)
+    max_workers = max(1, os.cpu_count() - 2)
     print(f"Processing records with {max_workers} workers")
     with ProcessPoolExecutor(max_workers=max_workers) as executor:
         # Submit all processing jobs
