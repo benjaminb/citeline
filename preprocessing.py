@@ -191,6 +191,7 @@ def write_data(datasets, output_file: str, deduplicate_from=None):
     # Drop any records that are also in the review dataset
     if deduplicate_from:
         other_dataset = pd.read_json(deduplicate_from, lines=True)
+        print(f"Columsn present in deduplicate_from: {other_dataset.columns.tolist()}")
         other_dois = set(other_dataset["doi"])
         df = df[~df["doi"].isin(other_dois)]
 
@@ -205,53 +206,6 @@ def main():
         output_file=args.outfile,
         deduplicate_from=args.deduplicate_from,
     )
-
-    # if args.reviews:
-    #     """
-    #     * Loads the json files for the review datasets, makes sure we only retain unique records (based on doi),
-    #     * Takes each record body text, segments it into sentences, and merges any short sentences (less than 60 characters)
-    #     * Places the sentence segments into a new field called 'body_sentences'.
-    #     * Writes the final output to a single jsonl file called 'reviews.jsonl'.
-    #     """
-    #     write_data(
-    #         datasets=[
-    #             "data/json/Astro_Reviews.json",
-    #             "data/json/Earth_Science_Reviews.json",
-    #             "data/json/Planetary_Reviews.json",
-    #         ],
-    #         output_file="data/preprocessed/reviews.jsonl",
-    #         deduplicate_from=None,
-    #     )
-    #     return
-
-    # if args.research:
-    #     """
-    #     In addition to loading each research dataset and preprocessing the individual records,
-    #     this branch also drops any duplicate records based on the 'doi' field and writes the final
-    #     output to a single jsonl file called 'research.json'.
-
-    #     NOTE: review data should be written out first to ensure the research data doesn't have review paper records in it
-    #     """
-    #     # datasets = [
-    #     #     "data/json/Astro_Research.json",
-    #     #     "data/json/Earth_Science_Research.json",
-    #     #     "data/json/Planetary_Research.json",
-    #     #     "data/json/doi_articles.json",
-    #     #     "data/json/salvaged_articles.json",
-    #     # ]
-
-    #     print(args.infiles)
-    #     exit()
-    #     if args.infile:
-    #         input_dataset = [args.infile]
-    #     else:  # assuming we have args.infiles
-    #         input_dataset = args.infiles
-    #     write_data(
-    #         datasets=input_dataset,
-    #         output_file=args.outfile,
-    #         deduplicate_from="data/preprocessed/reviews.jsonl",
-    #     )
-    #     return
 
 
 if __name__ == "__main__":
