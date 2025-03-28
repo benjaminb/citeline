@@ -185,7 +185,6 @@ def write_data(datasets, output_file: str, deduplicate_from=None):
     # Drop any records that already have doi in the outfile, if it exists
     if os.path.exists(output_file):
         existing_df = pd.read_json(output_file, lines=True)
-        print(f"Columns in existing dataset: {existing_df.columns.tolist()}")
         existing_dois = set(existing_df["doi"])
         df = df[~df["doi"].isin(existing_dois)]
 
