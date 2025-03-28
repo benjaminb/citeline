@@ -171,18 +171,6 @@ def argument_parser():
         help='Overlap between chunks'
     )
 
-    # TODO: update this or fix it
-    # Profile operation
-    """
-    profile_parser = subparsers.add_parser(
-        'profile', help='Profile a function')
-    profile_parser.add_argument(
-        '--function', '-f',
-        required=True,
-        type=str,
-        help='Name of the function to profile'
-    )
-    """
     args = parser.parse_args()
 
     # Validate args
@@ -368,8 +356,14 @@ class Database:
             """)
         self.conn.commit()
 
-        # Read in data and instantiate TextSplitter
+        # Read in data and validate columns
         df = pd.read_json(from_path, lines=True)
+        required_columns = ['doi', 'title', 'abstract', 'pubdate', 'keywords', 'body']
+        if not all(col in df.columns for col in required_columns):
+            raise ValueError(f"Input JSONL file must contain the following columns: {required_columns}")
+    
+        # Split body into chunks
+        
         records = df.to_dict('records')
         self.splitter = TextSplitter(capacity=max_length, overlap=overlap)
 

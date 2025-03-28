@@ -175,30 +175,24 @@ def write_data(datasets, output_file: str, deduplicate_from=None):
     # Get all records
     records = [record for dataset in datasets for record in load_dataset(dataset)]
 
-    # Drop duplicates based on 'doi'
+    # Drop duplicates within the current records list based on 'doi'
     df = pd.DataFrame(records)
     df = df.drop_duplicates(subset=["doi"])
-    print(f"Total records after loading and deduplication: {len(df)}")
 
     # Drop any records with 'body' less than 5000 characters
     df = df[df["body"].str.len() >= 5000]
-    print(
-        f"Total records after filtering out short bodies (less than 5000 characters): {len(df)}"
-    )
 
     # Drop any records that already have doi in the outfile, if it exists
     if os.path.exists(output_file):
         existing_df = pd.read_json(output_file, lines=True)
         existing_dois = set(existing_df["doi"])
         df = df[~df["doi"].isin(existing_dois)]
-    print(f"Total records after checking against existing output file: {len(df)}")
 
     # Drop any records that are also in the review dataset
     if deduplicate_from:
         other_dataset = pd.read_json(deduplicate_from, lines=True)
         other_dois = set(other_dataset["doi"])
         df = df[~df["doi"].isin(other_dois)]
-    print(f"Total records after checking against deduplication file: {len(df)}")
 
     df = preprocess_data(df)
     df.to_json(output_file, orient="records", lines=True, mode="a")
