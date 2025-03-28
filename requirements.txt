@@ -1,5 +1,6 @@
 accelerate==1.1.1
 dotenv
+jupyter=1.1.1
 matplotlib==3.10.0
 pandas==2.2.3
 psycopg[binary]==3.2.6
