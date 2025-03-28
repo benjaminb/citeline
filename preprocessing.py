@@ -182,23 +182,19 @@ def write_data(datasets, output_file: str, deduplicate_from=None):
     # Drop any records with 'body' less than 5000 characters
     df = df[df["body"].str.len() >= 5000]
 
+    # Drop any records that already have doi in the outfile, if it exists
+    if os.path.exists(output_file):
+        existing_df = pd.read_json(output_file, lines=True)
+        existing_dois = set(existing_df["doi"])
+        df = df[~df["doi"].isin(existing_dois)]
+
     # Drop any records that are also in the review dataset
     if deduplicate_from:
         other_dataset = pd.read_json(deduplicate_from, lines=True)
         other_dois = set(other_dataset["doi"])
         df = df[~df["doi"].isin(other_dois)]
 
-    # Preprocess records and write output
     df = preprocess_data(df)
-    # If the outfile exists, load it and depulicate with current df
-    if os.path.exists(output_file):
-        # Load existing data
-        existing_df = pd.read_json(output_file, lines=True)
-        # Drop duplicates based on 'doi' from both dataframes
-        combined_df = pd.concat([existing_df, df]).drop_duplicates(subset=["doi"])
-        df = combined_df.reset_index(drop=True)
-        print(f"Combined existing data with new data, total records: {len(df)}")
-
     df.to_json(output_file, orient="records", lines=True, mode="a")
 
 
