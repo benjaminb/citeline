@@ -78,7 +78,7 @@ def argument_parser():
 
     # Used by multiple operations
     parser.add_argument(
-        "--table-name", "-T", type=str, default="library", help="Name of target table"
+        "--table-name", "-T", type=str, default="lib", help="Name of target table"
     )
 
     # Create vector column arguments
