@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-#SBATCH --job-name=bert_vector_column
+#SBATCH --job-name=bert_bge_vector_columns
 #SBATCH -p gpu # partition (queue)
 #SBATCH -c 4 # number of cores
 #SBATCH --gres=gpu:2 # number of GPUs
@@ -14,4 +14,5 @@ cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline/database
 git pull
 python database.py --create-vector-column --table-name="lib" --target-column chunk --embedder="bert-base-uncased" --batch-size=64
 timestamp=$(date +"%Y%m%d_%H%M%S")
+python database.py --create-vector-column --table-name="lib" --target-column chunk --embedder="BAAI/bge-small-en" --batch-size=128
 echo "ended at: $timestamp"
