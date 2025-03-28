@@ -60,7 +60,7 @@ def argument_parser():
         help="Output file path for the processed dataset. This will be a JSONL file.",
     )
     parser.add_argument(
-        "--deduplicate_from",
+        "--deduplicate-from",
         type=str,
         default=None,
         help="Path to another JSONL file to deduplicate against. This is useful for removing records that are already present in another dataset.",
