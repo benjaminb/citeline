@@ -370,8 +370,8 @@ class Database:
 
         # Read in data and instantiate TextSplitter
         df = pd.read_json(from_path, lines=True)
-        self.splitter = TextSplitter(capacity=max_length, overlap=overlap)
         records = df.to_dict('records')
+        self.splitter = TextSplitter(capacity=max_length, overlap=overlap)
 
         # Use ProcessPoolExecutor to parallelize chunking
         chunked_records = []
@@ -383,11 +383,17 @@ class Database:
                 chunked_records.extend(future.result())  # Collect all chunks
 
         try:
-            with cursor.copy(f"COPY {table_name} (doi, title, abstract, chunk) FROM STDIN WITH (FORMAT BINARY)") as copy:
-                copy.set_types(['text', 'text', 'text', 'text'])
+            with cursor.copy(f"COPY {table_name} (doi, title, abstract, pubdate, keywords, chunk) FROM STDIN WITH (FORMAT BINARY)") as copy:
+                copy.set_types(['text', 'text', 'text', 'date', 'text[]', 'text'])
                 for record in tqdm(chunked_records, desc="Copying chunks"):
-                    copy.write_row(
-                        [record['doi'], record['title'], record['abstract'], record['chunk']])
+                    copy.write_row([
+                        record['doi'], 
+                        record['title'], 
+                        record['abstract'],
+                        record['pubdate'],
+                        record['keywords'],
+                        record['chunk']
+                        ])
 
             self.conn.commit()
             print(f"Successfully inserted {len(chunked_records)} chunks")
