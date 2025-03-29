@@ -1,8 +1,8 @@
 #!/bin/bash
 #
-#SBATCH --job-name=bert_bge_vector_columns
+#SBATCH --job-name=astrobert_vector_column
 #SBATCH -p gpu # partition (queue)
-#SBATCH -c 4 # number of cores
+#SBATCH -c 12 # number of cores
 #SBATCH --gres=gpu:2 # number of GPUs
 #SBATCH --mem=64GB # memory pool for all cores
 #SBATCH -t 0-03:30 # time (D-HH:MM)
