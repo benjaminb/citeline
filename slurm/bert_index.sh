@@ -13,6 +13,6 @@ echo "which python: $(which python)"
 cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline
 git pull
 ./pg_start.sh
-python database.py --create-index --table-name="library" --target-column bert --index-type hnsw --m 32 --ef-construction 512
+python database.py --create-index --table-name="lib" --target-column bert --index-type hnsw --m 32 --ef-construction 512
 timestamp=$(date +"%Y%m%d_%H%M%S")
 echo "ended at: $timestamp"

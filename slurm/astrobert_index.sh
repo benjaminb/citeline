@@ -10,8 +10,10 @@
 module load python
 mamba deactivate && mamba activate citeline
 echo "which python: $(which python)"
-cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline/database
+cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline
 git pull
-python database.py --create-index --table-name="library" --target-column astrobert --index-type hnsw --m 64 --ef-construction 512
+./pg_start.sh
+cd database
+python database.py --create-index --table-name="lib" --target-column astrobert --index-type hnsw --m 64 --ef-construction 1024
 timestamp=$(date +"%Y%m%d_%H%M%S")
 echo "ended at: $timestamp"
