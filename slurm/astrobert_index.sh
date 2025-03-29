@@ -14,6 +14,6 @@ cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline
 git pull
 ./pg_start.sh
 cd database
-python database.py --create-index --table-name="lib" --target-column astrobert --index-type hnsw --m 64 --ef-construction 1024
+python database.py --create-index --table-name="lib" --target-column astrobert --index-type hnsw --m 32 --ef-construction 512
 timestamp=$(date +"%Y%m%d_%H%M%S")
 echo "ended at: $timestamp"
