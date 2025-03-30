@@ -503,7 +503,9 @@ class Database:
             processed_batches = 0
             try:
                 while True:
+                    print("Consumer: waiting for items in queue")
                     item = results_queue.get(timeout=45)
+                    print("Consumer: got item from queue")
                     if item is None:  # Producer finished
                         break
 
