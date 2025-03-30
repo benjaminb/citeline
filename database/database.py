@@ -451,7 +451,10 @@ class Database:
 
         cursor = self.conn.cursor()
         cursor.execute("SET synchronous_commit = off;")  # Makes writes faster
+        cursor.execute("SET max_parallel_workers = 12;")
+        cursor.execute("SET max_parallel_workers_per_gather = 6;")  # Adjust based on CPU cores
         cursor.execute("SET work_mem = '2GB';")
+        cursor.execute("SET maintenance_work_mem = '2GB';")
         query = f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({embedder.dim});"
         print(f"Executing query: {query}")
         cursor.execute(
