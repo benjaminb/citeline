@@ -670,10 +670,10 @@ class Database:
         cursor = self.conn.cursor()
 
         # NOTE: these settings based on how I tend to run the db host on FASRC
-        max_worker_processes = 62
-        max_parallel_workers = 60
-        max_parallel_maintenance_workers = 30
-        maintenance_work_mem = "4GB"
+        max_worker_processes = 110
+        max_parallel_workers = 110
+        max_parallel_maintenance_workers = 110
+        maintenance_work_mem = "32GB"
         print("=" * 48 + "CONFIG" + "=" * 48)
         print(
             "max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | maintenance_work_mem"
