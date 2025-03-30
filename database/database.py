@@ -413,6 +413,7 @@ class Database:
         table_name: str = "library",
         target_column: str = "chunk",
         batch_size: int = 32,
+        num_consumers: int = 4,  # Number of consumer threads to create
     ):
         """
         Create a new column in the specified table to store vector embeddings.
@@ -422,8 +423,8 @@ class Database:
             enricher_name (str, optional): Name of the enricher to use. Defaults to None.
             table_name (str): Name of the target table.
             target_column (str): Name of the column to embed into vectors.
-            dim (int): Dimension of the vector embeddings.
-            enricher_name (str, optional): Name of the enricher to use. Defaults to None.
+            batch_size (int): Batch size for embedding operations.
+            num_consumers (int): Number of consumer threads for parallel database operations.
         """
         # Instantiate embedder and construct the new column's name
         from Embedders import get_embedder
@@ -458,13 +459,10 @@ class Database:
         query = f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({embedder.dim});"
         print(f"Executing query: {query}")
         cursor.execute(query)
-        # cursor.execute(
-        #     f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({embedder.dim});"
-        # )
         self.conn.commit()
         print("  Successfully created column")
 
-        # Get all text chunks to embed)
+        # Get all text chunks to embed
         cursor.execute(f"SELECT id, doi, {target_column} FROM {table_name};")
         rows = cursor.fetchall()
         all_ids, all_dois, all_chunks = zip(*rows)
@@ -476,117 +474,159 @@ class Database:
             texts_with_dois = zip(all_chunks, all_dois)
             all_chunks = enricher.enrich_batch(texts_with_dois=texts_with_dois)
 
-        results_queue = queue.Queue()
-        total_batches = (
-            len(all_chunks) + batch_size - 1
-        ) // batch_size  # Calculate total number of batches
+        # Use a queue with a reasonable size limit to prevent memory issues
+        results_queue = queue.Queue(maxsize=num_consumers * 3)
+        total_batches = (len(all_chunks) + batch_size - 1) // batch_size
+
+        # Set up thread-safe counters for progress tracking
+        import threading
+
+        progress_lock = threading.Lock()
+        processed_batches = 0
+        total_rows_updated = 0
+
+        # Create a shared progress bar
+        progress_bar = tqdm(total=total_batches, desc="Database Updates", leave=True)
 
         def producer():
             # Puts batches of (ids, embeddings) into the queue
             for i in tqdm(
                 range(0, len(all_chunks), batch_size),
-                desc="Embedding batches",
+                desc="Embedding batches (GPU)",
                 leave=True,
             ):
                 texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
                 embeddings = embedder(texts)
                 results_queue.put((ids, embeddings))
-            results_queue.put(None)  # Signal completion
 
-        def consumer():
-            cursor = self.conn.cursor()
-            print("Consumer: started processing")
+            # Signal completion - add one None per consumer
+            for _ in range(num_consumers):
+                results_queue.put(None)
 
-            # Create temp table once at start
+        def consumer(consumer_id):
+            nonlocal processed_batches, total_rows_updated
+
+            # Each consumer gets its own database connection
+            conn = psycopg.connect(**self.db_params)
+            register_vector(conn)
+            cursor = conn.cursor()
+            print(f"Consumer {consumer_id}: started processing")
+
+            # Create temp table for this consumer
+            temp_table = f"temp_embeddings_{consumer_id}"
             cursor.execute(
-                f"CREATE TEMP TABLE temp_embeddings (id int, embedding vector({embedder.dim}))"
+                f"CREATE TEMP TABLE {temp_table} (id int, embedding vector({embedder.dim}))"
             )
             # Add index to temp table for better join performance
-            cursor.execute("CREATE INDEX ON temp_embeddings (id)")
-            print("Consumer: created temp table with index")
+            cursor.execute(f"CREATE INDEX ON {temp_table} (id)")
+            print(f"Consumer {consumer_id}: created temp table with index")
 
             # Set database parameters for better performance
             cursor.execute("SET work_mem = '1GB'")  # Increase work memory for complex operations
             cursor.execute("SET maintenance_work_mem = '2GB'")
+            cursor.execute("SET synchronous_commit = off")  # Faster commits
+            cursor.execute("SET random_page_cost = 1.1")  # Assume good I/O performance
 
-            progress_bar = tqdm(total=total_batches, desc="Writing to database", leave=True)
-            processed_batches = 0
-            total_rows_updated = 0
             last_log_time = time()
 
             try:
                 while True:
-                    item = results_queue.get(timeout=60)  # Increase timeout
-                    if item is None:  # Producer finished
+                    try:
+                        item = results_queue.get(timeout=60)
+                        if item is None:  # Producer finished
+                            break
+
+                        # Unpack batch
+                        batch_ids, batch_embeddings = item
+
+                        # Track batch size for logging
+                        current_batch_size = len(batch_ids)
+
+                        # Load batch into temp table, then update target table
+                        with cursor.copy(
+                            f"COPY {temp_table} (id, embedding) FROM STDIN WITH (FORMAT BINARY)"
+                        ) as copy:
+                            copy.set_types(["int4", "vector"])
+                            for row_id, embedding in zip(batch_ids, batch_embeddings):
+                                copy.write_row([row_id, embedding])
+
+                        # Execute update with better feedback
+                        start_update = time()
+                        cursor.execute(
+                            f"UPDATE {table_name} SET {vector_column_name} = temp.embedding "
+                            + f"FROM {temp_table} temp WHERE {table_name}.id = temp.id"
+                        )
+                        rows_updated = cursor.rowcount
+                        update_time = time() - start_update
+
+                        # Commit after each batch to prevent transaction bloat
+                        conn.commit()
+
+                        # Clear temp table for next batch
+                        cursor.execute(f"TRUNCATE {temp_table}")
+
+                        # Update progress and logging (thread-safe)
+                        with progress_lock:
+                            total_rows_updated += rows_updated
+                            processed_batches += 1
+                            progress_bar.update(1)
+                            progress_bar.set_postfix(
+                                {
+                                    "processed": processed_batches,
+                                    "total": total_batches,
+                                    "last_batch_time": f"{update_time:.2f}s",
+                                    "rows_updated": total_rows_updated,
+                                }
+                            )
+
+                            # Detailed logging every minute
+                            current_time = time()
+                            if current_time - last_log_time > 60:
+                                print(
+                                    f"Consumer {consumer_id}: {processed_batches}/{total_batches} batches | "
+                                    f"Last batch: {current_batch_size} rows in {update_time:.2f}s | "
+                                    f"Total updated: {total_rows_updated} rows"
+                                )
+                                last_log_time = current_time
+
+                    except queue.Empty:
+                        print(f"  WARNING: Consumer {consumer_id} queue timeout")
+                        self.__log_error(f"Consumer {consumer_id} queue timeout")
                         break
 
-                    # Unpack batch
-                    batch_ids, batch_embeddings = item
-
-                    # Track batch size for logging
-                    current_batch_size = len(batch_ids)
-
-                    # Load batch into temp table, then update target table
-                    with cursor.copy(
-                        "COPY temp_embeddings (id, embedding) FROM STDIN WITH (FORMAT BINARY)"
-                    ) as copy:
-                        copy.set_types(["int4", "vector"])
-                        for row_id, embedding in zip(batch_ids, batch_embeddings):
-                            copy.write_row([row_id, embedding])
-
-                    # Execute update with better feedback
-                    start_update = time()
-                    cursor.execute(
-                        f"UPDATE {table_name} SET {vector_column_name} = temp.embedding "
-                        + f"FROM temp_embeddings temp WHERE {table_name}.id = temp.id"
-                    )
-                    rows_updated = cursor.rowcount
-                    update_time = time() - start_update
-
-                    # Commit after each batch to prevent transaction bloat
-                    self.conn.commit()
-
-                    # Clear temp table for next batch
-                    cursor.execute("TRUNCATE temp_embeddings")
-
-                    # Update progress and logging
-                    total_rows_updated += rows_updated
-                    processed_batches += 1
-                    progress_bar.update(1)
-                    progress_bar.set_postfix(
-                        {
-                            "processed": processed_batches,
-                            "total": total_batches,
-                            "last_batch_time": f"{update_time:.2f}s",
-                            "rows_updated": total_rows_updated,
-                        }
-                    )
-
-                    # Detailed logging every minute
-                    current_time = time()
-                    if current_time - last_log_time > 60:
-                        print(
-                            f"Progress update: {processed_batches}/{total_batches} batches | "
-                            f"Last batch: {current_batch_size} rows in {update_time:.2f}s | "
-                            f"Total updated: {total_rows_updated} rows"
-                        )
-                        last_log_time = current_time
-
-            except queue.Empty:
-                print("  WARNING: Queue timeout")
-                self.__log_error("Queue timeout")
             finally:
-                self.conn.commit()
+                conn.commit()
                 cursor.close()
+                conn.close()
+                print(f"Consumer {consumer_id}: finished")
 
+        # Determine number of consumer threads based on CPU cores if not specified
+        if num_consumers <= 0:
+            num_consumers = max(1, min(8, os.cpu_count() - 2))  # Leave some cores for system
+
+        print(f"Starting producer thread and {num_consumers} consumer threads...")
+
+        # Start producer thread
         producer_thread = threading.Thread(target=producer, daemon=True)
-        consumer_thread = threading.Thread(target=consumer, daemon=True)
         producer_thread.start()
-        consumer_thread.start()
 
-        # Wait for both threads to finish
+        # Start consumer threads
+        consumer_threads = []
+        for i in range(num_consumers):
+            t = threading.Thread(target=consumer, args=(i,), daemon=True)
+            consumer_threads.append(t)
+            t.start()
+
+        # Wait for producer to finish
         producer_thread.join()
-        consumer_thread.join()
+        print("Producer thread finished")
+
+        # Wait for all consumers to finish
+        for i, t in enumerate(consumer_threads):
+            t.join()
+            print(f"Consumer thread {i} finished")
+
+        print(f"\nCompleted vector column creation. Updated {total_rows_updated} rows.")
 
     # def create_vector_table_enriched(
     #     self,
@@ -892,10 +932,10 @@ class Database:
         outdir: str = "tests/db/",
     ):
         # Set up db connection
-        assert (
-            metric in PGVECTOR_DISTANCE_METRICS
-        ), f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
-        operator = PGVECTOR_DISTANCE_METRICS[metric]
+        # assert (
+        #     metric in PGVECTOR_DISTANCE_METRICS
+        # ), f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
+        # operator = PGVECTOR_DISTANCE_METRICS[metric]
 
         # Set session resources
         cursor = self.conn.cursor()
