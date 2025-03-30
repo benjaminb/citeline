@@ -168,7 +168,7 @@ def argument_parser():
     elif args.create_index:
         if not all([args.table_name, args.target_column, args.index_type]):
             parser.error("--create-index requires --index-type and --table-name")
-        if args.index_type == "ivfflat" and notall([args.num_lists]):
+        if args.index_type == "ivfflat" and not all([args.num_lists]):
             parser.error("ivfflat index requires --num-lists")
         if args.index_type == "hnsw" and not all([args.m, args.ef_construction]):
             parser.error("hnsw index requires --m and --ef-construction")
@@ -457,9 +457,10 @@ class Database:
         cursor.execute("SET maintenance_work_mem = '2GB';")
         query = f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({embedder.dim});"
         print(f"Executing query: {query}")
-        cursor.execute(
-            f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({embedder.dim});"
-        )
+        cursor.execute(query)
+        # cursor.execute(
+        #     f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({embedder.dim});"
+        # )
         self.conn.commit()
         print("  Successfully created column")
 
@@ -500,20 +501,30 @@ class Database:
             cursor.execute(
                 f"CREATE TEMP TABLE temp_embeddings (id int, embedding vector({embedder.dim}))"
             )
-            print("Consumer: created temp table")
+            # Add index to temp table for better join performance
+            cursor.execute("CREATE INDEX ON temp_embeddings (id)")
+            print("Consumer: created temp table with index")
+
+            # Set database parameters for better performance
+            cursor.execute("SET work_mem = '1GB'")  # Increase work memory for complex operations
+            cursor.execute("SET maintenance_work_mem = '2GB'")
 
             progress_bar = tqdm(total=total_batches, desc="Writing to database", leave=True)
             processed_batches = 0
+            total_rows_updated = 0
+            last_log_time = time()
+
             try:
                 while True:
-                    print("Consumer: waiting for items in queue")
-                    item = results_queue.get(timeout=45)
-                    print("Consumer: got item from queue")
+                    item = results_queue.get(timeout=60)  # Increase timeout
                     if item is None:  # Producer finished
                         break
 
                     # Unpack batch
                     batch_ids, batch_embeddings = item
+
+                    # Track batch size for logging
+                    current_batch_size = len(batch_ids)
 
                     # Load batch into temp table, then update target table
                     with cursor.copy(
@@ -522,20 +533,44 @@ class Database:
                         copy.set_types(["int4", "vector"])
                         for row_id, embedding in zip(batch_ids, batch_embeddings):
                             copy.write_row([row_id, embedding])
+
+                    # Execute update with better feedback
+                    start_update = time()
                     cursor.execute(
                         f"UPDATE {table_name} SET {vector_column_name} = temp.embedding "
                         + f"FROM temp_embeddings temp WHERE {table_name}.id = temp.id"
                     )
+                    rows_updated = cursor.rowcount
+                    update_time = time() - start_update
 
-                    # Update progress bar
+                    # Commit after each batch to prevent transaction bloat
+                    self.conn.commit()
+
+                    # Clear temp table for next batch
+                    cursor.execute("TRUNCATE temp_embeddings")
+
+                    # Update progress and logging
+                    total_rows_updated += rows_updated
                     processed_batches += 1
                     progress_bar.update(1)
                     progress_bar.set_postfix(
-                        {"processed": processed_batches, "total": total_batches}
+                        {
+                            "processed": processed_batches,
+                            "total": total_batches,
+                            "last_batch_time": f"{update_time:.2f}s",
+                            "rows_updated": total_rows_updated,
+                        }
                     )
 
-                    # Clear for next batch
-                    cursor.execute("TRUNCATE temp_embeddings")
+                    # Detailed logging every minute
+                    current_time = time()
+                    if current_time - last_log_time > 60:
+                        print(
+                            f"Progress update: {processed_batches}/{total_batches} batches | "
+                            f"Last batch: {current_batch_size} rows in {update_time:.2f}s | "
+                            f"Total updated: {total_rows_updated} rows"
+                        )
+                        last_log_time = current_time
 
             except queue.Empty:
                 print("  WARNING: Queue timeout")
