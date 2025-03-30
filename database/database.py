@@ -71,9 +71,7 @@ def argument_parser():
     )
 
     # Used by multiple operations
-    parser.add_argument(
-        "--table-name", "-T", type=str, default="lib", help="Name of target table"
-    )
+    parser.add_argument("--table-name", "-T", type=str, default="lib", help="Name of target table")
 
     # Create vector column arguments
     parser.add_argument(
@@ -148,9 +146,7 @@ def argument_parser():
     )
 
     # Add chunks arguments
-    parser.add_argument(
-        "--path", "-p", type=str, help="Path to the dataset to add to the database"
-    )
+    parser.add_argument("--path", "-p", type=str, help="Path to the dataset to add to the database")
     parser.add_argument(
         "--max-length",
         "-L",
@@ -158,9 +154,7 @@ def argument_parser():
         default=1500,
         help="Maximum length of each chunk",
     )
-    parser.add_argument(
-        "--overlap", "-o", type=int, default=150, help="Overlap between chunks"
-    )
+    parser.add_argument("--overlap", "-o", type=int, default=150, help="Overlap between chunks")
 
     args = parser.parse_args()
 
@@ -170,9 +164,6 @@ def argument_parser():
 
     elif args.create_vector_column and not all([args.table_name, args.embedder_name]):
         parser.error("--create-vector-column requires --table-name and --embedder")
-
-    elif args.create_vector_table and not all([args.table_name, args.embedder_name]):
-        parser.error("--create-vector-table requires --table-name and --embedder")
 
     elif args.create_index:
         if not all([args.table_name, args.target_column, args.index_type]):
@@ -298,9 +289,7 @@ class Database:
 
         # TODO: does the database need to do any vector embedding itself?
         self.device = (
-            "cuda"
-            if torch.cuda.is_available()
-            else "mps" if torch.mps.is_available() else "cpu"
+            "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
         )
 
         # For text splitting; instantiated in _create_base_table
@@ -372,14 +361,10 @@ class Database:
         cores = max(1, os.cpu_count() - 1)
         with ProcessPoolExecutor(max_workers=cores) as executor:
             futures = [
-                executor.submit(
-                    record_to_chunked_records, record, max_length, overlap
-                )
+                executor.submit(record_to_chunked_records, record, max_length, overlap)
                 for record in records
             ]
-            for future in tqdm(
-                as_completed(futures), total=len(futures), desc="Chunking records"
-            ):
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Chunking records"):
                 chunked_records.extend(future.result())  # Collect all chunks
 
         try:
@@ -462,9 +447,7 @@ class Database:
         if enricher_name:
             vector_column_name += f"_{enricher_name}"
 
-        print(
-            f"Attempting to create column '{vector_column_name}' in table '{table_name}'..."
-        )
+        print(f"Attempting to create column '{vector_column_name}' in table '{table_name}'...")
 
         cursor = self.conn.cursor()
         cursor.execute("SET synchronous_commit = off;")  # Makes writes faster
@@ -490,7 +473,9 @@ class Database:
             all_chunks = enricher.enrich_batch(texts_with_dois=texts_with_dois)
 
         results_queue = queue.Queue()
-        total_batches = (len(all_chunks) + batch_size - 1) // batch_size  # Calculate total number of batches
+        total_batches = (
+            len(all_chunks) + batch_size - 1
+        ) // batch_size  # Calculate total number of batches
 
         def producer():
             # Puts batches of (ids, embeddings) into the queue
@@ -693,9 +678,7 @@ class Database:
         cursor.execute(
             f"SET maintenance_work_mem='{maintenance_work_mem}';",
         )
-        cursor.execute(
-            f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};"
-        )
+        cursor.execute(f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
 
         # Resolve index name and parameters
@@ -760,9 +743,7 @@ class Database:
         max_parallel_workers_per_gather = 62
         work_mem = "1GB"
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-        cursor.execute(
-            f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};"
-        )
+        cursor.execute(f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
         cursor.execute(f"SET work_mem='{work_mem}'")
 
         # Set index search parameters
@@ -805,11 +786,7 @@ class Database:
                                            If None, all indexes on the table are prewarmed. Defaults to None.
         """
         cursor = self.conn.cursor()
-        msg = (
-            f"Prewarming table {table_name}" + ".{target_column}"
-            if target_column
-            else ""
-        )
+        msg = f"Prewarming table {table_name}" + ".{target_column}" if target_column else ""
         print(msg)
 
         """
@@ -887,17 +864,13 @@ class Database:
         max_parallel_workers_per_gather = max_parallel_workers - 1
         work_mem = "1GB"
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-        cursor.execute(
-            f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};"
-        )
+        cursor.execute(f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
         cursor.execute(f"SET work_mem='{work_mem}'")
         cursor.execute(f"SET enable_indexscan = on;")
         # NOTE: ef_search could be higher
         ef_search = top_k
         if top_k > 1000:
-            print(
-                f"  WARNING: Setting ef_search ({top_k}) to 1000, highest supported by pgvector."
-            )
+            print(f"  WARNING: Setting ef_search ({top_k}) to 1000, highest supported by pgvector.")
             ef_search = 1000
         cursor.execute(f"SET hnsw.ef_search = {ef_search};")
         cursor.execute("SET enable_seqscan = off;")
