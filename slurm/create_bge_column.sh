@@ -14,6 +14,6 @@ cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline
 git pull
 ./pg_start.sh
 cd database
-python database.py --create-vector-column --table-name="lib" --target-column chunk --embedder="BAAI/bge-small-en" --batch-size=128
+python database.py --create-vector-column --table-name="lib" --target-column chunk --embedder="BAAI/bge-small-en" --batch-size=256
 timestamp=$(date +"%Y%m%d_%H%M%S")
 echo "ended at: $timestamp"
