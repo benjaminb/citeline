@@ -1,14 +1,22 @@
 import json
 import os
+import pandas as pd
 import re
 from tqdm import tqdm
 from parsing import get_inline_citations, INLINE_CITATION_REGEX
-from utils import load_dataset
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from functools import partial
 
-REVIEW_JOURNAL_BIBCODES = {'RvGeo', 'SSRv.', 'LRSP.',
-                           'NewAR', 'ESRv.', 'NRvEE', 'P&SS.', 'ARA&A', 'A&ARv'}
+REVIEW_JOURNAL_BIBCODES = {
+    "RvGeo",
+    "SSRv.",
+    "LRSP.",
+    "NewAR",
+    "ESRv.",
+    "NRvEE",
+    "P&SS.",
+    "ARA&A",
+    "A&ARv",
+}
 
 
 def bibcode_regex(author: str, year: str):
@@ -18,7 +26,7 @@ def bibcode_regex(author: str, year: str):
     """
     initial = author[0]
     year = year[:4]  # cut off any letters at the end
-    pattern = fr'^{year}.*{initial}$'
+    pattern = rf"^{year}.*{initial}$"
     return re.compile(pattern)
 
 
@@ -31,100 +39,126 @@ def bibcode_matches(inline_citation: tuple[str, str], references: list[str]) -> 
     return [s for s in references if pattern.match(s)]
 
 
-def sentence_to_example(record, sentence, index, all_records):
+def sentence_to_example(
+    record: dict, sentence: str, index: int, reference_records: list[dict]
+) -> dict | None:
     """
-    Takes all the inline citations of a sentence and if it can resolve them to dois
-    then it returns the 
-    """
-    # print(f"Working on sentence {index} of {record['doi'][0]}")
+    Takes all inline citations of a sentence, resolves them to DOIs if possible, and returns
+    a dictionary representing the example.
 
-    def citation_to_doi(citation):
-        """
-        Takes a single inline citation as tuple of (author, year) and determines if there is a unique
-        matching bibcode in the record's references. If so, it continues to look for a unique
-        doi matching that bibcode in the entire dataset. It returns the doi if resolved, otherwise None.
-        """
-        bibcodes = bibcode_matches(citation, record['reference'])
+    Args:
+        record (dict): A dictionary containing keys like "doi", "reference", and "bibcode".
+        sentence (str): The sentence to process.
+        index (int): The index of the sentence in the record.
+        reference_records (list[dict]): A list of dictionaries with keys including "doi" and "bibcode",
+                                    used to look up unique DOIs.
+
+    Returns:
+        dict | None: A dictionary containing the example data if successful, otherwise None.
+    """
+
+    def citation_to_doi(citation: tuple[str, str]) -> str | None:
+        """Resolve a single inline citation (author, year) to a DOI if it's uniquely matched."""
+
+        # Attempt to uniquely match an inline citation to a bibcode in the record's references list
+        bibcodes = bibcode_matches(citation, record["reference"])
         if len(bibcodes) != 1:
             return None
 
-        # Take the bibcode and look for a unique corresponding doi AND that the citation isn't to a review journal
-        matching_dois = [record['doi'][0]
-                         for record in all_records if record['bibcode'] == bibcodes[0]
-                         and record['bibcode'][4:9] not in REVIEW_JOURNAL_BIBCODES]
-        if len(matching_dois) != 1:
+        bib = bibcodes[0]
+
+        # Find matching references by bibcode
+        filtered = [
+            ref
+            for ref in reference_records
+            if ref["bibcode"] == bib and ref["bibcode"][4:9] not in REVIEW_JOURNAL_BIBCODES
+        ]
+
+        if len(filtered) != 1:
             return None
-        return matching_dois[0]
+
+        # Extract the DOI from the matched reference
+        doi_list = filtered[0]["doi"]
+        if not doi_list:
+            return None
+
+        return doi_list[0]
 
     inline_citations = get_inline_citations(sentence)
-
-    # if not (inline_citations := get_inline_citations(sentence)):
-    #     return 0
     citation_dois = []
+
     for citation in inline_citations:
-        if not (doi := citation_to_doi(citation)):
+        # If any citation cannot be resolved, skip this sentence
+        doi = citation_to_doi(citation)
+        if not doi:
             return None
         citation_dois.append(doi)
 
-    # If all citations resolved to dois, return the example
-    # TODO: is this too strict?
-    # if len(inline_citations) != len(citation_dois): # this is already accounted for in the loop above?
-    #     return -1
     return {
-        'source_doi': record['doi'][0],
-        'sent_original': sentence,
-        'sent_no_cit': re.sub(INLINE_CITATION_REGEX, '', sentence),
-        'sent_idx': index,
-        'citation_dois': citation_dois
+        "source_doi": record["doi"][0],
+        "sent_original": sentence,
+        "sent_no_cit": re.sub(INLINE_CITATION_REGEX, "", sentence),
+        "sent_idx": index,
+        "citation_dois": citation_dois,
     }
 
 
-def examples_from_record(record, all_records):
+def examples_from_record(record, reference_records):
     return [
         example
-        for i, sentence in enumerate(record['body_sentences'])
-        if (example := sentence_to_example(record, sentence, i, all_records))
-    ]
-
-
-def get_all_records(paths: list[str]) -> list[dict]:
-    """
-    `all_records` used in examples_from_record reall only needs the bibcode and doi keys, so
-    here we filter out all other keys to keep memory demand low
-    """
-    return [
-        {'doi': record['doi'], 'bibcode': record['bibcode']}
-        for path in paths
-        for record in load_dataset('data/json/' + path)
+        for i, sentence in enumerate(record["body_sentences"])
+        if (example := sentence_to_example(record, sentence, i, reference_records))
     ]
 
 
 def main():
-    all_records = get_all_records(
-        [f for f in os.listdir('data/json/') if f.endswith('.json')])
+    # Load data
+    research = pd.read_json("data/preprocessed/research.jsonl", lines=True)
+    reviews = pd.read_json("data/preprocessed/reviews.jsonl", lines=True)
+    print(f"Loaded {len(research)} research records and {len(reviews)} review records.")
 
-    # Bind all_records to examples_from_record, since executor.submit doesn't allow for multiple args
-    get_examples_fn = partial(examples_from_record, all_records=all_records)
+    # Convert DataFrames to lists of dictionaries for pickling
+    research_dicts = research.to_dict("records")
+    reviews_dicts = reviews.to_dict("records")
 
-    for dataset in ['Astro_Reviews.json', 'Earth_Science_Reviews.json', 'Planetary_Reviews.json']:
-        print(f"Processing {dataset}...")
-        records = load_dataset('data/sentence_segmented_and_merged/' + dataset)
+    # Free up memory from pandas DataFrames
+    del research
+    del reviews
 
-        with ProcessPoolExecutor(max_workers=os.cpu_count()) as executor:
-            futures = [executor.submit(get_examples_fn, record)
-                       for record in records]
-            for future in tqdm(as_completed(futures), total=len(futures)):
-                examples = future.result()
+    # Verify columns in dictionaries
+    required_cols = {"body_sentences", "reference", "doi", "bibcode"}
+    for name, records in [("research", research_dicts[:5]), ("reviews", reviews_dicts[:5])]:
+        for record in records:
+            missing = required_cols - set(record.keys())
+            if missing:
+                print(f"Warning: {name} records are missing columns {missing}")
+                break
 
-                # Write out examples to jsonl
-                for example in examples:
-                    # Not all citations resolved
-                    if example is None:
-                        continue
-                    destination = 'data/dataset/no_reviews/nontrivial.jsonl' if len(
-                        example['citation_dois']) > 0 else 'data/dataset/no_reviews/trivial.jsonl'
-                    with open(destination, 'a') as f:
-                        f.write(json.dumps(example) + '\n')
+    trivial_examples, nontrivial_examples = [], []
+    with ProcessPoolExecutor(max_workers=os.cpu_count() - 2) as executor:
+        futures = [
+            executor.submit(examples_from_record, record, research_dicts)
+            for record in reviews_dicts
+        ]
+
+        for future in tqdm(as_completed(futures), total=len(futures), desc="Processing records"):
+            # Process results from each worker
+            examples = future.result()
+            for example in examples:
+                if example is None:
+                    continue
+                elif len(example["citation_dois"]) == 0:
+                    trivial_examples.append(example)
+                else:
+                    nontrivial_examples.append(example)
+
+    print(f"Writing out jsonl...")
+    with open("data/dataset/trivial.jsonl", "w") as f:
+        for example in trivial_examples:
+            f.write(json.dumps(example) + "\n")
+    with open("data/dataset/nontrivial.jsonl", "w") as f:
+        for example in nontrivial_examples:
+            f.write(json.dumps(example) + "\n")
 
 
 if __name__ == "__main__":
