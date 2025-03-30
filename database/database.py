@@ -413,7 +413,6 @@ class Database:
         table_name: str = "library",
         target_column: str = "chunk",
         batch_size: int = 32,
-        num_consumers: int = 4,  # Number of consumer threads to create
     ):
         """
         Create a new column in the specified table to store vector embeddings.
@@ -424,7 +423,6 @@ class Database:
             table_name (str): Name of the target table.
             target_column (str): Name of the column to embed into vectors.
             batch_size (int): Batch size for embedding operations.
-            num_consumers (int): Number of consumer threads for parallel database operations.
         """
         # Instantiate embedder and construct the new column's name
         from Embedders import get_embedder
@@ -474,8 +472,13 @@ class Database:
             texts_with_dois = zip(all_chunks, all_dois)
             all_chunks = enricher.enrich_batch(texts_with_dois=texts_with_dois)
 
+        # Auto-determine number of consumer threads based on available CPUs
+        # We have 62 CPUs for consumer operations, but using too many can lead to overhead
+        # Use 75% of available CPUs to leave resources for the system and producer
+        num_consumers = min(46, os.cpu_count() - 2)  # 75% of 62 = ~46
+
         # Use a queue with a reasonable size limit to prevent memory issues
-        results_queue = queue.Queue(maxsize=num_consumers * 3)
+        results_queue = queue.Queue(maxsize=num_consumers * 2)
         total_batches = (len(all_chunks) + batch_size - 1) // batch_size
 
         # Set up thread-safe counters for progress tracking
@@ -600,11 +603,9 @@ class Database:
                 conn.close()
                 print(f"Consumer {consumer_id}: finished")
 
-        # Determine number of consumer threads based on CPU cores if not specified
-        if num_consumers <= 0:
-            num_consumers = max(1, min(8, os.cpu_count() - 2))  # Leave some cores for system
-
-        print(f"Starting producer thread and {num_consumers} consumer threads...")
+        print(
+            f"Starting producer thread and {num_consumers} consumer threads using available CPUs..."
+        )
 
         # Start producer thread
         producer_thread = threading.Thread(target=producer, daemon=True)
