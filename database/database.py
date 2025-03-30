@@ -44,12 +44,6 @@ def argument_parser():
         "--test-connection", "-t", action="store_true", help="Test database connection"
     )
     operation_group.add_argument(
-        "--create-vector-table",
-        "-V",
-        action="store_true",
-        help="Create a new vector table",
-    )
-    operation_group.add_argument(
         "--create-index", "-I", action="store_true", help="Create an index on a table"
     )
     operation_group.add_argument(
@@ -239,15 +233,15 @@ These must be outside the class definition to be pickled, which is necessary for
 """
 
 
-def insert_batch(data_name_and_processor):
-    data, name, processor = data_name_and_processor
-    # conn = psycopg2.connect(**processor.db_params)
-    conn = processor.conn
-    cursor = conn.cursor()
-    execute_values(cursor, f"INSERT INTO {name} (embedding, chunk_id) VALUES %s;", data)
-    conn.commit()
-    cursor.close()
-    # conn.close()
+# def insert_batch(data_name_and_processor):
+#     data, name, processor = data_name_and_processor
+#     # conn = psycopg2.connect(**processor.db_params)
+#     conn = processor.conn
+#     cursor = conn.cursor()
+#     execute_values(cursor, f"INSERT INTO {name} (embedding, chunk_id) VALUES %s;", data)
+#     conn.commit()
+#     cursor.close()
+#     # conn.close()
 
 
 def record_to_chunked_records(record, max_length, overlap):
@@ -473,6 +467,8 @@ class Database:
         )
 
         cursor = self.conn.cursor()
+        cursor.execute("SET synchronous_commit = off;")  # Makes writes faster
+        cursor.execute("SET work_mem = '2GB';")
         query = f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({embedder.dim});"
         print(f"Executing query: {query}")
         cursor.execute(
@@ -510,11 +506,13 @@ class Database:
 
         def consumer():
             cursor = self.conn.cursor()
+            print("Consumer: started processing")
 
             # Create temp table once at start
             cursor.execute(
                 f"CREATE TEMP TABLE temp_embeddings (id int, embedding vector({embedder.dim}))"
             )
+            print("Consumer: created temp table")
 
             progress_bar = tqdm(total=total_batches, desc="Writing to database", leave=True)
             processed_batches = 0
