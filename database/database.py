@@ -322,7 +322,7 @@ class Database:
         # Get the calling function's name
         caller_name = inspect.currentframe().f_back.f_code.co_name
         with open("database_errors.log", "a") as f:
-            f.write(f"[{timestamp}]: {message}\n")
+            f.write(f"[{timestamp}]: (caller: {caller_name}) {message}\n")
 
     def __clear_gpu_memory(self):
         if self.device == "cuda":
@@ -481,7 +481,7 @@ class Database:
         self.conn.commit()
         print("  Successfully created column")
 
-        # Get all text chunks to embed)
+        # Get all text chunks to embed
         cursor.execute(f"SELECT id, doi, {target_column} FROM {table_name};")
         rows = cursor.fetchall()
         all_ids, all_dois, all_chunks = zip(*rows)
@@ -507,8 +507,12 @@ class Database:
                 results_queue.put((ids, embeddings))
             results_queue.put(None)  # Signal completion
 
+        total_batches = (len(all_chunks) + batch_size - 1) // batch_size
+
         def consumer():
             cursor = self.conn.cursor()
+            progress_bar = tqdm(total=total_batches, desc="Writing to database", leave=True)
+            processed = 0
 
             # Set resources
             cursor.execute("SET work_mem='2GB';")
@@ -544,6 +548,10 @@ class Database:
 
                     # Clear for next batch
                     cursor.execute("TRUNCATE temp_embeddings")
+
+                    processed += 1
+                    progress_bar.update(1)
+                    progress_bar.set_postfix({"processed": processed})
 
             except queue.Empty:
                 print("  WARNING: Queue timeout")
