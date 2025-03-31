@@ -77,9 +77,7 @@ def argument_parser():
     )
 
     # Used by multiple operations
-    parser.add_argument(
-        "--table-name", "-T", type=str, default="lib", help="Name of target table"
-    )
+    parser.add_argument("--table-name", "-T", type=str, default="lib", help="Name of target table")
 
     # Create vector column arguments
     parser.add_argument(
@@ -154,9 +152,7 @@ def argument_parser():
     )
 
     # Add chunks arguments
-    parser.add_argument(
-        "--path", "-p", type=str, help="Path to the dataset to add to the database"
-    )
+    parser.add_argument("--path", "-p", type=str, help="Path to the dataset to add to the database")
     parser.add_argument(
         "--max-length",
         "-L",
@@ -164,9 +160,7 @@ def argument_parser():
         default=1500,
         help="Maximum length of each chunk",
     )
-    parser.add_argument(
-        "--overlap", "-o", type=int, default=150, help="Overlap between chunks"
-    )
+    parser.add_argument("--overlap", "-o", type=int, default=150, help="Overlap between chunks")
 
     args = parser.parse_args()
 
@@ -304,9 +298,7 @@ class Database:
 
         # TODO: does the database need to do any vector embedding itself?
         self.device = (
-            "cuda"
-            if torch.cuda.is_available()
-            else "mps" if torch.mps.is_available() else "cpu"
+            "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
         )
 
         # For text splitting; instantiated in _create_base_table
@@ -378,14 +370,10 @@ class Database:
         cores = max(1, os.cpu_count() - 1)
         with ProcessPoolExecutor(max_workers=cores) as process_executor:
             futures = [
-                process_executor.submit(
-                    record_to_chunked_records, record, max_length, overlap
-                )
+                process_executor.submit(record_to_chunked_records, record, max_length, overlap)
                 for record in records
             ]
-            for future in tqdm(
-                as_completed(futures), total=len(futures), desc="Chunking records"
-            ):
+            for future in tqdm(as_completed(futures), total=len(futures), desc="Chunking records"):
                 chunked_records.extend(future.result())  # Collect all chunks
 
         try:
@@ -468,9 +456,7 @@ class Database:
         if enricher_name:
             vector_column_name += f"_{enricher_name}"
 
-        print(
-            f"Attempting to create column '{vector_column_name}' in table '{table_name}'..."
-        )
+        print(f"Attempting to create column '{vector_column_name}' in table '{table_name}'...")
 
         cursor = self.conn.cursor()
         query = f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({embedder.dim});"
@@ -482,9 +468,12 @@ class Database:
         print("  Successfully created column")
 
         # Get all text chunks to embed
+        start = time()
         cursor.execute(f"SELECT id, doi, {target_column} FROM {table_name};")
         rows = cursor.fetchall()
+        print(f"  SELECT execution time: {time() - start:.2f} seconds")
         all_ids, all_dois, all_chunks = zip(*rows)
+        print(f"  Fetched {len(all_ids)} rows from the database")
         del rows
         cursor.close()
 
@@ -604,9 +593,7 @@ class Database:
         )
         print("=" * 72)
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-        cursor.execute(
-            f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};"
-        )
+        cursor.execute(f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
         cursor.execute(f"SET work_mem='{work_mem}';")
         cursor.execute(
             f"SET maintenance_work_mem='{maintenance_work_mem}';",
@@ -644,12 +631,8 @@ class Database:
             ids, texts = list(zip(*batch))
             start = time()
             embeddings = embedder(texts)
-            print(
-                f"Embedding time: {time() - start:.2f} seconds for {len(texts)} chunks"
-            )
-            data_batch = [
-                (embedding, id_num) for embedding, id_num in zip(embeddings, ids)
-            ]
+            print(f"Embedding time: {time() - start:.2f} seconds for {len(texts)} chunks")
+            data_batch = [(embedding, id_num) for embedding, id_num in zip(embeddings, ids)]
 
             # Insert
             start_insert = time()
@@ -699,9 +682,7 @@ class Database:
         cursor.execute(
             f"SET maintenance_work_mem='{maintenance_work_mem}';",
         )
-        cursor.execute(
-            f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};"
-        )
+        cursor.execute(f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
 
         # Resolve index name and parameters
@@ -766,9 +747,7 @@ class Database:
         max_parallel_workers_per_gather = 62
         work_mem = "1GB"
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-        cursor.execute(
-            f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};"
-        )
+        cursor.execute(f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
         cursor.execute(f"SET work_mem='{work_mem}'")
 
         # Set index search parameters
@@ -811,11 +790,7 @@ class Database:
                                            If None, all indexes on the table are prewarmed. Defaults to None.
         """
         cursor = self.conn.cursor()
-        msg = (
-            f"Prewarming table {table_name}" + ".{target_column}"
-            if target_column
-            else ""
-        )
+        msg = f"Prewarming table {table_name}" + ".{target_column}" if target_column else ""
         print(msg)
 
         """
@@ -893,17 +868,13 @@ class Database:
         max_parallel_workers_per_gather = max_parallel_workers - 1
         work_mem = "1GB"
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-        cursor.execute(
-            f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};"
-        )
+        cursor.execute(f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
         cursor.execute(f"SET work_mem='{work_mem}'")
         cursor.execute(f"SET enable_indexscan = on;")
         # NOTE: ef_search could be higher
         ef_search = top_k
         if top_k > 1000:
-            print(
-                f"  WARNING: Setting ef_search ({top_k}) to 1000, highest supported by pgvector."
-            )
+            print(f"  WARNING: Setting ef_search ({top_k}) to 1000, highest supported by pgvector.")
             ef_search = 1000
         cursor.execute(f"SET hnsw.ef_search = {ef_search};")
         cursor.execute("SET enable_seqscan = off;")
