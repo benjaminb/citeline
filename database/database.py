@@ -5,6 +5,7 @@ import numpy as np
 import os
 from datetime import datetime
 import inspect
+import multiprocessing
 import pandas as pd
 import psycopg
 import queue
@@ -177,7 +178,7 @@ def argument_parser():
     elif args.create_index:
         if not all([args.table_name, args.target_column, args.index_type]):
             parser.error("--create-index requires --index-type and --table-name")
-        if args.index_type == "ivfflat" and notall([args.num_lists]):
+        if args.index_type == "ivfflat" and not all([args.num_lists]):
             parser.error("ivfflat index requires --num-lists")
         if args.index_type == "hnsw" and not all([args.m, args.ef_construction]):
             parser.error("hnsw index requires --m and --ef-construction")
@@ -231,17 +232,6 @@ class ChunkAndVector:
 PICKLEABLE DB HELPER FUNCTIONS
 These must be outside the class definition to be pickled, which is necessary for multiprocessing.
 """
-
-
-def insert_batch(data_name_and_processor):
-    data, name, processor = data_name_and_processor
-    # conn = psycopg2.connect(**processor.db_params)
-    conn = processor.conn
-    cursor = conn.cursor()
-    execute_values(cursor, f"INSERT INTO {name} (embedding, chunk_id) VALUES %s;", data)
-    conn.commit()
-    cursor.close()
-    # conn.close()
 
 
 def record_to_chunked_records(record, max_length, overlap):
@@ -482,10 +472,12 @@ class Database:
             texts_with_dois = zip(all_chunks, all_dois)
             all_chunks = enricher.enrich_batch(texts_with_dois=texts_with_dois)
 
-        results_queue = queue.Queue()
+        # Create a multiprocessing Queue
+        results_queue = multiprocessing.Queue()
+        total_batches = (len(all_chunks) + batch_size - 1) // batch_size
 
-        def producer():
-            # Puts batches of (ids, embeddings) into the queue
+        # Producer function
+        def producer_proc(all_ids, all_chunks, results_queue):
             for i in tqdm(
                 range(0, len(all_chunks), batch_size),
                 desc="Embedding batches",
@@ -494,69 +486,76 @@ class Database:
                 texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
                 embeddings = embedder(texts)
                 results_queue.put((ids, embeddings))
-            results_queue.put(None)  # Signal completion
+            # Signal that producer is done
+            for _ in range(num_consumers):
+                results_queue.put(None)
 
-        total_batches = (len(all_chunks) + batch_size - 1) // batch_size
+        # Consumer function
+        def consumer_proc(db_params, results_queue):
+            # Each process creates its own connection
+            conn = psycopg.connect(**db_params)
+            cur = conn.cursor()
 
-        def consumer():
-            cursor = self.conn.cursor()
+            # Optional: config
+            cur.execute("SET work_mem='2GB';")
+            cur.execute("SET maintenance_work_mem='2GB';")
+
+            # Create temp table
+            cur.execute(
+                f"CREATE TEMP TABLE temp_embeddings (id int, embedding vector({embedder.dim}))"
+            )
+            conn.commit()
+
             progress_bar = tqdm(total=total_batches, desc="Writing to database", leave=True)
             processed = 0
 
-            # Set resources
-            cursor.execute("SET work_mem='2GB';")
-            cursor.execute("SET maintenance_work_mem='2GB';")
-            cursor.execute("SET max_parallel_workers=30;")
-            cursor.execute("SET temp_buffers='1GB';")
+            while True:
+                item = results_queue.get()
+                if item is None:
+                    break
 
-            # Create temp table once at start
-            cursor.execute(
-                f"CREATE TEMP TABLE temp_embeddings (id int, embedding vector({embedder.dim}))"
-            )
+                batch_ids, batch_embeddings = item
+                with cur.copy(
+                    "COPY temp_embeddings (id, embedding) FROM STDIN WITH (FORMAT BINARY)"
+                ) as copy:
+                    copy.set_types(["int4", "vector"])
+                    for row_id, embedding in zip(batch_ids, batch_embeddings):
+                        copy.write_row([row_id, embedding])
 
-            try:
-                while True:
-                    item = results_queue.get(timeout=45)
-                    if item is None:  # Producer finished
-                        break
+                cur.execute(
+                    f"UPDATE {table_name} SET {vector_column_name} = temp.embedding "
+                    f"FROM temp_embeddings temp WHERE {table_name}.id = temp.id"
+                )
+                cur.execute("TRUNCATE temp_embeddings")
 
-                    # Unpack batch
-                    batch_ids, batch_embeddings = item
+                processed += 1
+                progress_bar.update(1)
+                progress_bar.set_postfix({"processed": processed})
 
-                    # Load batch into temp table, then update target table
-                    with cursor.copy(
-                        "COPY temp_embeddings (id, embedding) FROM STDIN WITH (FORMAT BINARY)"
-                    ) as copy:
-                        copy.set_types(["int4", "vector"])
-                        for row_id, embedding in zip(batch_ids, batch_embeddings):
-                            copy.write_row([row_id, embedding])
-                    cursor.execute(
-                        f"UPDATE {table_name} SET {vector_column_name} = temp.embedding "
-                        + f"FROM temp_embeddings temp WHERE {table_name}.id = temp.id"
-                    )
+            cur.close()
+            conn.commit()
+            conn.close()
+            progress_bar.close()
 
-                    # Clear for next batch
-                    cursor.execute("TRUNCATE temp_embeddings")
+        # Start producer process
+        producer_process = multiprocessing.Process(
+            target=producer_proc, args=(all_ids, all_chunks, results_queue)
+        )
+        producer_process.start()
 
-                    processed += 1
-                    progress_bar.update(1)
-                    progress_bar.set_postfix({"processed": processed})
+        # Start consumer processes
+        consumers = []
+        for _ in range(num_consumers):
+            p = multiprocessing.Process(target=consumer_proc, args=(self.db_params, results_queue))
+            p.start()
+            consumers.append(p)
 
-            except queue.Empty:
-                print("  WARNING: Queue timeout")
-                self.__log_error("Queue timeout")
-            finally:
-                self.conn.commit()
-                cursor.close()
+        # Wait for producer to finish
+        producer_process.join()
 
-        producer_thread = threading.Thread(target=producer, daemon=True)
-        consumer_thread = threading.Thread(target=consumer, daemon=True)
-        producer_thread.start()
-        consumer_thread.start()
-
-        # Wait for both threads to finish
-        producer_thread.join()
-        consumer_thread.join()
+        # Wait for all consumers to finish
+        for c in consumers:
+            c.join()
 
     def create_vector_table_enriched(
         self,
