@@ -475,6 +475,7 @@ class Database:
         # Create a multiprocessing Queue
         results_queue = multiprocessing.Queue()
         total_batches = (len(all_chunks) + batch_size - 1) // batch_size
+        num_consumers = os.getenv("CPU_COUNT", os.cpu_count() - 2)
 
         # Producer function
         def producer_proc(all_ids, all_chunks, results_queue):
@@ -666,10 +667,10 @@ class Database:
         cursor = self.conn.cursor()
 
         # NOTE: these settings based on how I tend to run the db host on FASRC
-        max_worker_processes = 110
-        max_parallel_workers = 110
-        max_parallel_maintenance_workers = 110
-        maintenance_work_mem = "32GB"
+        max_worker_processes = 62
+        max_parallel_workers = 62
+        max_parallel_maintenance_workers = 62
+        maintenance_work_mem = "6GB"
         print("=" * 48 + "CONFIG" + "=" * 48)
         print(
             "max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | maintenance_work_mem"
@@ -685,7 +686,7 @@ class Database:
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
 
         # Resolve index name and parameters
-        index_name = f"{target_column}_{index_type}_m{m}_ef{ef_construction}"
+        index_name = f"idx_{target_column}_{index_type}"
         print(f"Creating index {index_name}")
         parameters = ""
         start = time()
@@ -699,7 +700,9 @@ class Database:
 
         # Create index
         query = f"CREATE INDEX {index_name} ON {table_name} USING {index_type} ({target_column} vector_cosine_ops) WITH {parameters}"
+        start = time()
         cursor.execute(query)
+        print(f"  Index creation time: {time() - start:.2f} seconds")
         self.conn.commit()
 
         # Cleanup
@@ -711,9 +714,9 @@ class Database:
 
     def query_vector_column(
         self,
-        query_vector,
+        query_vector: np.array,
         target_column: str,
-        table_name: str = "library",
+        table_name: str = "lib",
         metric: str = "vector_cosine_ops",
         top_k=5,
         use_index=True,
@@ -734,11 +737,11 @@ class Database:
         if ef_search < top_k:
             print(f"  WARNING: ef_search ({ef_search}) is less than top_k ({top_k}).")
 
-        if ef_search > 1000:
-            print(
-                f"  WARNING: Setting ef_search ({ef_search}) to 1000, highest supported by pgvector."
-            )
-            ef_search = 1000
+        # if ef_search > 1000:
+        #     print(
+        #         f"  WARNING: Setting ef_search ({ef_search}) to 1000, highest supported by pgvector."
+        #     )
+        #     ef_search = 1000
 
         # Set the session resources
         cursor = self.conn.cursor()
@@ -756,7 +759,7 @@ class Database:
             cursor.execute(f"SET enable_indexscan = on;")
             cursor.execute(f"SET hnsw.ef_search = {ef_search};")
             cursor.execute("SET enable_seqscan = off;")
-            cursor.execute(f"SET ivfflat.probes={probes};")
+            # cursor.execute(f"SET ivfflat.probes={probes};")""
 
         start = time()
         cursor.execute(
@@ -764,13 +767,15 @@ class Database:
             SELECT id, doi, title, abstract, chunk, {target_column} {_operator_} %s AS distance
             FROM {table_name}
             ORDER BY distance ASC
-            -- LIMIT {top_k};
+            LIMIT {top_k};
             """,
             (query_vector,),
         )
         print(f"  Query execution time: {time() - start:.2f} seconds")
 
         results = cursor.fetchall()
+        print(f"  Found {len(results)} results")
+        print(f"top_k: {top_k}")
         # Close up
         cursor.close()
 

@@ -68,7 +68,7 @@ def examples_from_record_with_index(record, bibcode_index):
 
 # Modified sentence_to_example function using the index
 def sentence_to_example_with_index(record, sentence, index, bibcode_index):
-    def citation_to_doi(citation):
+    def citation_to_doi_and_bibcode(citation):
         bibcodes = bibcode_matches(citation, record["reference"])
         if len(bibcodes) != 1:
             return None
@@ -78,29 +78,34 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
         # Fast O(1) lookup using the index
         if bib not in bibcode_index or len(bibcode_index[bib]) != 1:
             return None
+        doi = bibcode_index[bib][0]["doi"]
 
-        doi_list = bibcode_index[bib][0]["doi"]
-        if not doi_list:
-            return None
+        if doi:
+            return doi, bib
+        return None
 
-        return doi_list[0]
 
     # Rest of the function remains the same
     inline_citations = get_inline_citations(sentence)
-    citation_dois = []
+    citation_dois, bibcodes = [], []
 
+    # If ANY inline citation is not found, return None
     for citation in inline_citations:
-        doi = citation_to_doi(citation)
-        if not doi:
+        result = citation_to_doi_and_bibcode()(citation)
+        if not result:
             return None
+        doi, bib = result
         citation_dois.append(doi)
+        bibcodes.append(bib)
+
 
     return {
-        "source_doi": record["doi"][0],
+        "source_doi": record["doi"],
         "sent_original": sentence,
         "sent_no_cit": re.sub(INLINE_CITATION_REGEX, "", sentence),
         "sent_idx": index,
         "citation_dois": citation_dois,
+        "resolved_bibcodes": bibcodes,
     }
 
 
