@@ -30,9 +30,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 """
 USAGE:
 python database.py --test-connection
-python database.py --create-base-table --table-name lib --from-path="../data/preprocessed/research.jsonl"
-python database.py --create-vector-column --table-name lib --target-column chunk --embedder-name "BAAI/bge-small-en" [--normalize] --batch-size 16
-python database.py --create-index --table-name lib --target-column bge_norm --index-type hnsw --m 32 --ef-construction 512
+python database.py --create-base-table --table-name library --from-path="../data/preprocessed/research.jsonl"
+python database.py --create-vector-column --table-name library --target-column chunk --embedder-name "BAAI/bge-small-en" [--normalize] --batch-size 16
+python database.py --create-index --table-name library --target-column bge_norm --index-type hnsw --m 32 --ef-construction 512
 """
 
 
@@ -42,6 +42,12 @@ def argument_parser():
     operation_group = parser.add_mutually_exclusive_group(required=True)
     operation_group.add_argument(
         "--test-connection", "-t", action="store_true", help="Test database connection"
+    )
+    operation_group.add_argument(
+        "--create-vector-table",
+        "-V",
+        action="store_true",
+        help="Create a new vector table",
     )
     operation_group.add_argument(
         "--create-index", "-I", action="store_true", help="Create an index on a table"
@@ -71,7 +77,9 @@ def argument_parser():
     )
 
     # Used by multiple operations
-    parser.add_argument("--table-name", "-T", type=str, default="lib", help="Name of target table")
+    parser.add_argument(
+        "--table-name", "-T", type=str, default="lib", help="Name of target table"
+    )
 
     # Create vector column arguments
     parser.add_argument(
@@ -146,7 +154,9 @@ def argument_parser():
     )
 
     # Add chunks arguments
-    parser.add_argument("--path", "-p", type=str, help="Path to the dataset to add to the database")
+    parser.add_argument(
+        "--path", "-p", type=str, help="Path to the dataset to add to the database"
+    )
     parser.add_argument(
         "--max-length",
         "-L",
@@ -154,7 +164,9 @@ def argument_parser():
         default=1500,
         help="Maximum length of each chunk",
     )
-    parser.add_argument("--overlap", "-o", type=int, default=150, help="Overlap between chunks")
+    parser.add_argument(
+        "--overlap", "-o", type=int, default=150, help="Overlap between chunks"
+    )
 
     args = parser.parse_args()
 
@@ -165,10 +177,13 @@ def argument_parser():
     elif args.create_vector_column and not all([args.table_name, args.embedder_name]):
         parser.error("--create-vector-column requires --table-name and --embedder")
 
+    elif args.create_vector_table and not all([args.table_name, args.embedder_name]):
+        parser.error("--create-vector-table requires --table-name and --embedder")
+
     elif args.create_index:
         if not all([args.table_name, args.target_column, args.index_type]):
             parser.error("--create-index requires --index-type and --table-name")
-        if args.index_type == "ivfflat" and not all([args.num_lists]):
+        if args.index_type == "ivfflat" and notall([args.num_lists]):
             parser.error("ivfflat index requires --num-lists")
         if args.index_type == "hnsw" and not all([args.m, args.ef_construction]):
             parser.error("hnsw index requires --m and --ef-construction")
@@ -224,15 +239,15 @@ These must be outside the class definition to be pickled, which is necessary for
 """
 
 
-# def insert_batch(data_name_and_processor):
-#     data, name, processor = data_name_and_processor
-#     # conn = psycopg2.connect(**processor.db_params)
-#     conn = processor.conn
-#     cursor = conn.cursor()
-#     execute_values(cursor, f"INSERT INTO {name} (embedding, chunk_id) VALUES %s;", data)
-#     conn.commit()
-#     cursor.close()
-#     # conn.close()
+def insert_batch(data_name_and_processor):
+    data, name, processor = data_name_and_processor
+    # conn = psycopg2.connect(**processor.db_params)
+    conn = processor.conn
+    cursor = conn.cursor()
+    execute_values(cursor, f"INSERT INTO {name} (embedding, chunk_id) VALUES %s;", data)
+    conn.commit()
+    cursor.close()
+    # conn.close()
 
 
 def record_to_chunked_records(record, max_length, overlap):
@@ -289,7 +304,9 @@ class Database:
 
         # TODO: does the database need to do any vector embedding itself?
         self.device = (
-            "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
+            "cuda"
+            if torch.cuda.is_available()
+            else "mps" if torch.mps.is_available() else "cpu"
         )
 
         # For text splitting; instantiated in _create_base_table
@@ -359,12 +376,16 @@ class Database:
         # Use ProcessPoolExecutor to parallelize chunking
         chunked_records = []
         cores = max(1, os.cpu_count() - 1)
-        with ProcessPoolExecutor(max_workers=cores) as executor:
+        with ProcessPoolExecutor(max_workers=cores) as process_executor:
             futures = [
-                executor.submit(record_to_chunked_records, record, max_length, overlap)
+                process_executor.submit(
+                    record_to_chunked_records, record, max_length, overlap
+                )
                 for record in records
             ]
-            for future in tqdm(as_completed(futures), total=len(futures), desc="Chunking records"):
+            for future in tqdm(
+                as_completed(futures), total=len(futures), desc="Chunking records"
+            ):
                 chunked_records.extend(future.result())  # Collect all chunks
 
         try:
@@ -422,7 +443,8 @@ class Database:
             enricher_name (str, optional): Name of the enricher to use. Defaults to None.
             table_name (str): Name of the target table.
             target_column (str): Name of the column to embed into vectors.
-            batch_size (int): Batch size for embedding operations.
+            dim (int): Dimension of the vector embeddings.
+            enricher_name (str, optional): Name of the enricher to use. Defaults to None.
         """
         # Instantiate embedder and construct the new column's name
         from Embedders import get_embedder
@@ -446,21 +468,20 @@ class Database:
         if enricher_name:
             vector_column_name += f"_{enricher_name}"
 
-        print(f"Attempting to create column '{vector_column_name}' in table '{table_name}'...")
+        print(
+            f"Attempting to create column '{vector_column_name}' in table '{table_name}'..."
+        )
 
         cursor = self.conn.cursor()
-        cursor.execute("SET synchronous_commit = off;")  # Makes writes faster
-        cursor.execute("SET max_parallel_workers = 12;")
-        cursor.execute("SET max_parallel_workers_per_gather = 6;")  # Adjust based on CPU cores
-        cursor.execute("SET work_mem = '2GB';")
-        cursor.execute("SET maintenance_work_mem = '2GB';")
         query = f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({embedder.dim});"
         print(f"Executing query: {query}")
-        cursor.execute(query)
+        cursor.execute(
+            f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({embedder.dim});"
+        )
         self.conn.commit()
         print("  Successfully created column")
 
-        # Get all text chunks to embed
+        # Get all text chunks to embed)
         cursor.execute(f"SELECT id, doi, {target_column} FROM {table_name};")
         rows = cursor.fetchall()
         all_ids, all_dois, all_chunks = zip(*rows)
@@ -472,256 +493,167 @@ class Database:
             texts_with_dois = zip(all_chunks, all_dois)
             all_chunks = enricher.enrich_batch(texts_with_dois=texts_with_dois)
 
-        # Auto-determine number of consumer threads based on available CPUs
-        # We have 62 CPUs for consumer operations, but using too many can lead to overhead
-        # Use 75% of available CPUs to leave resources for the system and producer
-        num_consumers = min(46, os.cpu_count() - 2)  # 75% of 62 = ~46
-
-        # Use a queue with a reasonable size limit to prevent memory issues
-        results_queue = queue.Queue(maxsize=num_consumers * 2)
-        total_batches = (len(all_chunks) + batch_size - 1) // batch_size
-
-        # Set up thread-safe counters for progress tracking
-        import threading
-
-        progress_lock = threading.Lock()
-        processed_batches = 0
-        total_rows_updated = 0
-
-        # Create a shared progress bar
-        progress_bar = tqdm(total=total_batches, desc="Database Updates", leave=True)
+        results_queue = queue.Queue()
 
         def producer():
             # Puts batches of (ids, embeddings) into the queue
             for i in tqdm(
                 range(0, len(all_chunks), batch_size),
-                desc="Embedding batches (GPU)",
+                desc="Embedding batches",
                 leave=True,
             ):
                 texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
                 embeddings = embedder(texts)
                 results_queue.put((ids, embeddings))
+            results_queue.put(None)  # Signal completion
 
-            # Signal completion - add one None per consumer
-            for _ in range(num_consumers):
-                results_queue.put(None)
+        def consumer():
+            cursor = self.conn.cursor()
 
-        def consumer(consumer_id):
-            nonlocal processed_batches, total_rows_updated
+            # Set resources
+            cursor.execute("SET work_mem='2GB';")
+            cursor.execute("SET maintenance_work_mem='2GB';")
+            cursor.execute("SET max_parallel_workers=30;")
+            cursor.execute("SET temp_buffers='1GB';")
 
-            # Each consumer gets its own database connection
-            conn = psycopg.connect(**self.db_params)
-            register_vector(conn)
-            cursor = conn.cursor()
-            print(f"Consumer {consumer_id}: started processing")
-
-            # Create temp table for this consumer
-            temp_table = f"temp_embeddings_{consumer_id}"
+            # Create temp table once at start
             cursor.execute(
-                f"CREATE TEMP TABLE {temp_table} (id int, embedding vector({embedder.dim}))"
+                f"CREATE TEMP TABLE temp_embeddings (id int, embedding vector({embedder.dim}))"
             )
-            # Add index to temp table for better join performance
-            cursor.execute(f"CREATE INDEX ON {temp_table} (id)")
-            print(f"Consumer {consumer_id}: created temp table with index")
-
-            # Set database parameters for better performance
-            cursor.execute("SET work_mem = '1GB'")  # Increase work memory for complex operations
-            cursor.execute("SET maintenance_work_mem = '2GB'")
-            cursor.execute("SET synchronous_commit = off")  # Faster commits
-            cursor.execute("SET random_page_cost = 1.1")  # Assume good I/O performance
-
-            last_log_time = time()
 
             try:
                 while True:
-                    try:
-                        item = results_queue.get(timeout=60)
-                        if item is None:  # Producer finished
-                            break
-
-                        # Unpack batch
-                        batch_ids, batch_embeddings = item
-
-                        # Track batch size for logging
-                        current_batch_size = len(batch_ids)
-
-                        # Load batch into temp table, then update target table
-                        with cursor.copy(
-                            f"COPY {temp_table} (id, embedding) FROM STDIN WITH (FORMAT BINARY)"
-                        ) as copy:
-                            copy.set_types(["int4", "vector"])
-                            for row_id, embedding in zip(batch_ids, batch_embeddings):
-                                copy.write_row([row_id, embedding])
-
-                        # Execute update with better feedback
-                        start_update = time()
-                        cursor.execute(
-                            f"UPDATE {table_name} SET {vector_column_name} = temp.embedding "
-                            + f"FROM {temp_table} temp WHERE {table_name}.id = temp.id"
-                        )
-                        rows_updated = cursor.rowcount
-                        update_time = time() - start_update
-
-                        # Commit after each batch to prevent transaction bloat
-                        conn.commit()
-
-                        # Clear temp table for next batch
-                        cursor.execute(f"TRUNCATE {temp_table}")
-
-                        # Update progress and logging (thread-safe)
-                        with progress_lock:
-                            total_rows_updated += rows_updated
-                            processed_batches += 1
-                            progress_bar.update(1)
-                            progress_bar.set_postfix(
-                                {
-                                    "processed": processed_batches,
-                                    "total": total_batches,
-                                    "last_batch_time": f"{update_time:.2f}s",
-                                    "rows_updated": total_rows_updated,
-                                }
-                            )
-
-                            # Detailed logging every minute
-                            current_time = time()
-                            if current_time - last_log_time > 60:
-                                print(
-                                    f"Consumer {consumer_id}: {processed_batches}/{total_batches} batches | "
-                                    f"Last batch: {current_batch_size} rows in {update_time:.2f}s | "
-                                    f"Total updated: {total_rows_updated} rows"
-                                )
-                                last_log_time = current_time
-
-                    except queue.Empty:
-                        print(f"  WARNING: Consumer {consumer_id} queue timeout")
-                        self.__log_error(f"Consumer {consumer_id} queue timeout")
+                    item = results_queue.get(timeout=45)
+                    if item is None:  # Producer finished
                         break
 
-            finally:
-                conn.commit()
-                cursor.close()
-                conn.close()
-                print(f"Consumer {consumer_id}: finished")
+                    # Unpack batch
+                    batch_ids, batch_embeddings = item
 
+                    # Load batch into temp table, then update target table
+                    with cursor.copy(
+                        "COPY temp_embeddings (id, embedding) FROM STDIN WITH (FORMAT BINARY)"
+                    ) as copy:
+                        copy.set_types(["int4", "vector"])
+                        for row_id, embedding in zip(batch_ids, batch_embeddings):
+                            copy.write_row([row_id, embedding])
+                    cursor.execute(
+                        f"UPDATE {table_name} SET {vector_column_name} = temp.embedding "
+                        + f"FROM temp_embeddings temp WHERE {table_name}.id = temp.id"
+                    )
+
+                    # Clear for next batch
+                    cursor.execute("TRUNCATE temp_embeddings")
+
+            except queue.Empty:
+                print("  WARNING: Queue timeout")
+                self.__log_error("Queue timeout")
+            finally:
+                self.conn.commit()
+                cursor.close()
+
+        producer_thread = threading.Thread(target=producer, daemon=True)
+        consumer_thread = threading.Thread(target=consumer, daemon=True)
+        producer_thread.start()
+        consumer_thread.start()
+
+        # Wait for both threads to finish
+        producer_thread.join()
+        consumer_thread.join()
+
+    def create_vector_table_enriched(
+        self,
+        table_name: str,
+        dim: int,
+        embedder,
+        enricher,
+        work_mem="2048MB",
+        maintenance_work_mem="2048MB",
+        batch_size=32,
+    ):
+        """
+        1. Creates a vector table
+        2. Creates indexes for all distance metrics
+        3. Batch embeds all records in the `chunks` table using the given embedder
+
+        available distance metrics:
+        vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
+        """
+
+        # Set session resources
+        cursor = self.conn.cursor()
+        cores = os.cpu_count()
+        cursor.execute("SHOW max_worker_processes;")
+        max_worker_processes = int(cursor.fetchone()[0])
+        max_parallel_workers = max(1, cores - 2)
+        max_parallel_maintenance_workers = int(0.2 * max_worker_processes)
+        print("=" * 33 + "CONFIG" + "=" * 33)
         print(
-            f"Starting producer thread and {num_consumers} consumer threads using available CPUs..."
+            "max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | work_mem | maintenance_work_mem"
+        )
+        print(
+            f"{max_worker_processes:^21} {max_parallel_workers:^22} {max_parallel_maintenance_workers:^34} {work_mem:^10} {maintenance_work_mem:^21}"
+        )
+        print("=" * 72)
+        cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
+        cursor.execute(
+            f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};"
+        )
+        cursor.execute(f"SET work_mem='{work_mem}';")
+        cursor.execute(
+            f"SET maintenance_work_mem='{maintenance_work_mem}';",
         )
 
-        # Start producer thread
-        producer_thread = threading.Thread(target=producer, daemon=True)
-        producer_thread.start()
+        # Create table
+        cursor.execute(
+            f"""CREATE TABLE {table_name} (
+                id SERIAL PRIMARY KEY,
+                embedding VECTOR({dim}),
+                chunk_id INTEGER REFERENCES chunks(id)
+                );
+            """
+        )
+        self.conn.commit()
+        print(f"Created table {table_name}")
 
-        # Start consumer threads
-        consumer_threads = []
-        for i in range(num_consumers):
-            t = threading.Thread(target=consumer, args=(i,), daemon=True)
-            consumer_threads.append(t)
-            t.start()
+        # Get all chunks for embedding
+        enricher = get_enricher(enricher)
+        ids_and_chunks = self._get_all_chunks(cursor)
+        print(f"Embedding and enriching {len(ids_and_chunks)} chunks...")
 
-        # Wait for producer to finish
-        producer_thread.join()
-        print("Producer thread finished")
+        # Embed an insert in batches
+        for i in tqdm(
+            range(0, len(ids_and_chunks), batch_size),
+            desc="Inserting embeddings",
+            leave=False,
+        ):
+            # Clear GPU memory every 50 batches
+            if i % 50 == 0:
+                self.__clear_gpu_memory()
 
-        # Wait for all consumers to finish
-        for i, t in enumerate(consumer_threads):
-            t.join()
-            print(f"Consumer thread {i} finished")
+            # Prepare batch
+            batch = ids_and_chunks[i : i + batch_size]
+            ids, texts = list(zip(*batch))
+            start = time()
+            embeddings = embedder(texts)
+            print(
+                f"Embedding time: {time() - start:.2f} seconds for {len(texts)} chunks"
+            )
+            data_batch = [
+                (embedding, id_num) for embedding, id_num in zip(embeddings, ids)
+            ]
 
-        print(f"\nCompleted vector column creation. Updated {total_rows_updated} rows.")
+            # Insert
+            start_insert = time()
+            execute_values(
+                cursor,
+                f"INSERT INTO {table_name} (embedding, chunk_id) VALUES %s;",
+                data_batch,
+            )
+            print(f"Insert time: {time() - start_insert}")
+            self.conn.commit()
 
-    # def create_vector_table_enriched(
-    #     self,
-    #     table_name: str,
-    #     dim: int,
-    #     embedder,
-    #     enricher,
-    #     work_mem="2048MB",
-    #     maintenance_work_mem="2048MB",
-    #     batch_size=32,
-    # ):
-    #     """
-    #     1. Creates a vector table
-    #     2. Creates indexes for all distance metrics
-    #     3. Batch embeds all records in the `chunks` table using the given embedder
-
-    #     available distance metrics:
-    #     vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
-    #     """
-
-    #     # Set session resources
-    #     cursor = self.conn.cursor()
-    #     cores = os.cpu_count()
-    #     cursor.execute("SHOW max_worker_processes;")
-    #     max_worker_processes = int(cursor.fetchone()[0])
-    #     max_parallel_workers = max(1, cores - 2)
-    #     max_parallel_maintenance_workers = int(0.2 * max_worker_processes)
-    #     print("=" * 33 + "CONFIG" + "=" * 33)
-    #     print(
-    #         "max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | work_mem | maintenance_work_mem"
-    #     )
-    #     print(
-    #         f"{max_worker_processes:^21} {max_parallel_workers:^22} {max_parallel_maintenance_workers:^34} {work_mem:^10} {maintenance_work_mem:^21}"
-    #     )
-    #     print("=" * 72)
-    #     cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-    #     cursor.execute(
-    #         f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};"
-    #     )
-    #     cursor.execute(f"SET work_mem='{work_mem}';")
-    #     cursor.execute(
-    #         f"SET maintenance_work_mem='{maintenance_work_mem}';",
-    #     )
-
-    #     # Create table
-    #     cursor.execute(
-    #         f"""CREATE TABLE {table_name} (
-    #             id SERIAL PRIMARY KEY,
-    #             embedding VECTOR({dim}),
-    #             chunk_id INTEGER REFERENCES chunks(id)
-    #             );
-    #         """
-    #     )
-    #     self.conn.commit()
-    #     print(f"Created table {table_name}")
-
-    #     # Get all chunks for embedding
-    #     enricher = get_enricher(enricher)
-    #     ids_and_chunks = self._get_all_chunks(cursor)
-    #     print(f"Embedding and enriching {len(ids_and_chunks)} chunks...")
-
-    #     # Embed an insert in batches
-    #     for i in tqdm(
-    #         range(0, len(ids_and_chunks), batch_size),
-    #         desc="Inserting embeddings",
-    #         leave=False,
-    #     ):
-    #         # Clear GPU memory every 50 batches
-    #         if i % 50 == 0:
-    #             self.__clear_gpu_memory()
-
-    #         # Prepare batch
-    #         batch = ids_and_chunks[i : i + batch_size]
-    #         ids, texts = list(zip(*batch))
-    #         start = time()
-    #         embeddings = embedder(texts)
-    #         print(
-    #             f"Embedding time: {time() - start:.2f} seconds for {len(texts)} chunks"
-    #         )
-    #         data_batch = [
-    #             (embedding, id_num) for embedding, id_num in zip(embeddings, ids)
-    #         ]
-
-    #         # Insert
-    #         start_insert = time()
-    #         execute_values(
-    #             cursor,
-    #             f"INSERT INTO {table_name} (embedding, chunk_id) VALUES %s;",
-    #             data_batch,
-    #         )
-    #         print(f"Insert time: {time() - start_insert}")
-    #         self.conn.commit()
-
-    #     cursor.close()
+        cursor.close()
 
     def create_index(
         self,
@@ -759,7 +691,9 @@ class Database:
         cursor.execute(
             f"SET maintenance_work_mem='{maintenance_work_mem}';",
         )
-        cursor.execute(f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
+        cursor.execute(
+            f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};"
+        )
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
 
         # Resolve index name and parameters
@@ -824,7 +758,9 @@ class Database:
         max_parallel_workers_per_gather = 62
         work_mem = "1GB"
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-        cursor.execute(f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
+        cursor.execute(
+            f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};"
+        )
         cursor.execute(f"SET work_mem='{work_mem}'")
 
         # Set index search parameters
@@ -867,7 +803,11 @@ class Database:
                                            If None, all indexes on the table are prewarmed. Defaults to None.
         """
         cursor = self.conn.cursor()
-        msg = f"Prewarming table {table_name}" + ".{target_column}" if target_column else ""
+        msg = (
+            f"Prewarming table {table_name}" + ".{target_column}"
+            if target_column
+            else ""
+        )
         print(msg)
 
         """
@@ -933,10 +873,10 @@ class Database:
         outdir: str = "tests/db/",
     ):
         # Set up db connection
-        # assert (
-        #     metric in PGVECTOR_DISTANCE_METRICS
-        # ), f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
-        # operator = PGVECTOR_DISTANCE_METRICS[metric]
+        assert (
+            metric in PGVECTOR_DISTANCE_METRICS
+        ), f"Invalid metric: {metric}. I don't have that metric in the PGVECTOR_DISTANCE_METRICS dictionary"
+        operator = PGVECTOR_DISTANCE_METRICS[metric]
 
         # Set session resources
         cursor = self.conn.cursor()
@@ -945,13 +885,17 @@ class Database:
         max_parallel_workers_per_gather = max_parallel_workers - 1
         work_mem = "1GB"
         cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-        cursor.execute(f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
+        cursor.execute(
+            f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};"
+        )
         cursor.execute(f"SET work_mem='{work_mem}'")
         cursor.execute(f"SET enable_indexscan = on;")
         # NOTE: ef_search could be higher
         ef_search = top_k
         if top_k > 1000:
-            print(f"  WARNING: Setting ef_search ({top_k}) to 1000, highest supported by pgvector.")
+            print(
+                f"  WARNING: Setting ef_search ({top_k}) to 1000, highest supported by pgvector."
+            )
             ef_search = 1000
         cursor.execute(f"SET hnsw.ef_search = {ef_search};")
         cursor.execute("SET enable_seqscan = off;")
