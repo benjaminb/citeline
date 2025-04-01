@@ -391,15 +391,15 @@ class Database:
         """
         Set session resources for PostgreSQL
         """
-        db_mem = round(0.9 * float(os.getenv("DB_MEM")), 2)  # In Leave 10% for OS overhead
+        db_mem = round(0.9 * float(os.getenv("DB_MEM")), 2)  # In GB. Leave 10% for OS overhead
         db_cpus = int(os.getenv("DB_CPUS")) - 2  # Leave 2 CPUs for OS overhead
 
         if optimize_for == "query":
             query = f"""
                 SET synchronous_commit = 'on';
                 -- SET wal_level = 'replica';
-                SET maintenance_work_mem = '0MB';
-                SET max_wal_size = 'DEFAULT';
+                -- SET max_wal_size = 'DEFAULT';
+                SET maintenance_work_mem = '1MB';
                 SET random_page_cost = '1.1';
                 SET parallel_tuple_cost = '0.1';
                 SET parallel_setup_cost = '1000';
@@ -415,23 +415,23 @@ class Database:
             query = f"""
                 SET synchronous_commit = 'off';
                 -- SET wal_level = 'minimal';
-                SET work_mem = '{max(int(0.01 * db_mem), 256)}MB';
-                SET maintenance_work_mem = '{int(0.15 * db_mem)}MB';
-                SET max_wal_size = '{int(0.1 * db_mem)}MB';
+                -- SET max_wal_size = '{int(0.1 * db_mem)}GB';
+                SET work_mem = '{max(int(0.01 * db_mem), 256)}GB';
+                SET maintenance_work_mem = '{int(0.15 * db_mem)}GB';
                 SET checkpoint_timeout = '30min';
                 SET max_parallel_workers_per_gather = '{db_cpus}';  -- Use all CPUs for query parallelism
                 SET max_parallel_maintenance_workers = '{int(0.75 * db_cpus)}';  -- Use 75% of CPUs for index creation (reduces contention)
-                SET shared_buffers = '{int(0.25 * db_mem)}MB';
-                SET effective_cache_size = '{int(0.5 * db_mem)}MB';
+                SET shared_buffers = '{int(0.25 * db_mem)}GB';
+                SET effective_cache_size = '{int(0.5 * db_mem)}GB';
             """
 
         elif optimize_for == "insert":
             query = f"""
                 SET synchronous_commit = 'off';
                 -- SET wal_level = 'minimal';
+                -- SET max_wal_size = '{int(0.1 * db_mem)}GB';
                 SET work_mem = '{max(int(0.002 * db_mem), 256)}GB';
                 SET maintenance_work_mem = '4MB';
-                SET max_wal_size = '{int(0.1 * db_mem)}GB';
                 SET checkpoint_completion_target = '0.9';
                 SET wal_writer_delay = '200ms';
                 SET max_parallel_workers_per_gather = '0';
