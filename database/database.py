@@ -589,7 +589,9 @@ class Database:
             f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
         )
         print(f"Executing query: {query}")
-        cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({dim});")
+        cursor.execute(
+            f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
+        )
         self.conn.commit()
         print("Column created (or it already existed)")
 
