@@ -5,13 +5,13 @@ import numpy as np
 import os
 from datetime import datetime
 import inspect
-import logging
 import multiprocessing
 import pandas as pd
 import psycopg
 import queue
 import sys
 import torch
+from typing import Literal
 from dataclasses import dataclass
 from dotenv import load_dotenv
 from pgvector.psycopg import register_vector
@@ -343,15 +343,21 @@ class Database:
         }
 
     def __init__(self, path_to_env: str = "../.env"):
+        # Check ell env variables have been set
+        load_dotenv(path_to_env, override=True)
+        required_vars = ["DB_NAME", "DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_MEM", "DB_CPUS"]
+        missing_vars = [var for var in required_vars if os.getenv(var) is None]
+        if missing_vars:
+            raise ValueError(f"Missing environment variables: {', '.join(missing_vars)}")
+
+        # Connect to the database
         self.db_params = Database.get_db_params(path_to_env=path_to_env)
         self.conn = psycopg.connect(**self.db_params)
         register_vector(self.conn)
 
-        # TODO: does the database need to do any vector embedding itself?
         self.device = (
             "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
         )
-
         # For text splitting; instantiated in _create_base_table
         self.splitter = None
 
@@ -372,6 +378,60 @@ class Database:
             torch.cuda.empty_cache()
         elif self.device == "mps":
             torch.mps.empty_cache()
+
+    def __set_session_resources(self, cursor, optimize_for: Literal['query', 'index', 'insert']):
+        """
+        Set session resources for PostgreSQL
+        """
+        db_mem = 0.9 * os.getenv("DB_MEM") # Leave 10% for OS overhead
+        db_cpus = os.getenv("DB_CPUS") - 2 # Leave 2 CPUs for OS overhead
+
+        if optimize_for == "query":
+            query = f"""
+                SET synchronous_commit = 'on';
+                SET wal_level = 'replica';
+                SET maintenance_work_mem = '0MB';
+                SET max_wal_size = 'DEFAULT';
+                SET random_page_cost = '1.1';
+                SET parallel_tuple_cost = '0.1';
+                SET parallel_setup_cost = '1000';
+                SET max_parallel_workers = '{max(1, db_cpus)}';
+                SET work_mem = '{max(1, db_mem // db_cpus)}GB';
+                SET max_parallel_workers_per_gather = '{max(1, db_cpus)}';
+                SET shared_buffers = '{int(0.25 * db_mem)}GB';
+                SET effective_cache_size = '{int(0.75 * db_mem)}GB';
+                SET effective_io_concurrency = '200';
+            """
+
+        elif optimize_for == "index":
+            query = f"""
+                SET synchronous_commit = 'off';
+                SET wal_level = 'minimal';
+                SET work_mem = '{int(0.01 * db_mem)}MB';
+                SET maintenance_work_mem = '{int(0.15 * db_mem)}MB';
+                SET max_wal_size = '{int(0.1 * db_mem)}MB';
+                SET checkpoint_timeout = '30min';
+                SET max_parallel_workers_per_gather = '{db_cpus}';  -- Use all CPUs for query parallelism
+                SET max_parallel_maintenance_workers = '{int(0.75 * db_cpus)}';  -- Use 75% of CPUs for index creation (reduces contention)
+                SET shared_buffers = '{int(0.25 * db_mem)}MB';
+                SET effective_cache_size = '{int(0.5 * db_mem)}MB';
+            """
+
+        elif optimize_for == "insert":
+            query = f"""
+                SET synchronous_commit = 'off';
+                SET wal_level = 'minimal';
+                SET work_mem = '{int(0.002 * db_mem)}MB';
+                SET maintenance_work_mem = '0MB';
+                SET max_wal_size = '{int(0.1 * db_mem)}MB';
+                SET checkpoint_completion_target = '0.9';
+                SET wal_writer_delay = '200ms';
+                SET max_parallel_workers_per_gather = '0';
+                SET max_parallel_maintenance_workers = '0';
+                SET shared_buffers = '{int(0.25 * db_mem)}MB';
+                SET effective_cache_size = '{int(0.5 * db_mem)}MB';
+            """
+        cursor.execute(query)
 
     def _create_base_table(
         self,
@@ -580,7 +640,6 @@ class Database:
                     progress = progress_queue.get(timeout=1)  # Adjust timeout as needed
                     processed += progress
                     progress_bar.update(progress)
-                    progress_bar.set_postfix({"processed": processed})
                 except queue.Empty:
                     # No progress update received, continue waiting
                     pass
@@ -754,7 +813,6 @@ class Database:
         metric: str = "vector_cosine_ops",
         top_k=5,
         use_index=True,
-        ef_search=20,
         probes=40,
     ):
         """
@@ -766,16 +824,6 @@ class Database:
         """
         # Resolve the distance operator
         _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
-
-        # Best practice is ef_search should be at least top_k
-        if ef_search < top_k:
-            print(f"  WARNING: ef_search ({ef_search}) is less than top_k ({top_k}).")
-
-        # if ef_search > 1000:
-        #     print(
-        #         f"  WARNING: Setting ef_search ({ef_search}) to 1000, highest supported by pgvector."
-        #     )
-        #     ef_search = 1000
 
         # Set the session resources
         cursor = self.conn.cursor()
@@ -791,9 +839,8 @@ class Database:
             cursor.execute(f"SET enable_indexscan = off;")
         else:
             cursor.execute(f"SET enable_indexscan = on;")
-            cursor.execute(f"SET hnsw.ef_search = {ef_search};")
             cursor.execute("SET enable_seqscan = off;")
-            # cursor.execute(f"SET ivfflat.probes={probes};")""
+            cursor.execute(f"SET ivfflat.probes={probes};")
 
         start = time()
         cursor.execute(
