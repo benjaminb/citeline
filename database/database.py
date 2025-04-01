@@ -23,6 +23,8 @@ from time import time
 import cProfile
 import pstats
 
+multiprocessing.set_start_method("spawn")
+
 # Add the parent directory to sys.path so we can import Embedders, Enrichers, etc.
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # fmt: off
