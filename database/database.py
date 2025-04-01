@@ -345,7 +345,15 @@ class Database:
     def __init__(self, path_to_env: str = "../.env"):
         # Check ell env variables have been set
         load_dotenv(path_to_env, override=True)
-        required_vars = ["DB_NAME", "DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_MEM", "DB_CPUS"]
+        required_vars = [
+            "DB_NAME",
+            "DB_USER",
+            "DB_PASSWORD",
+            "DB_HOST",
+            "DB_PORT",
+            "DB_MEM",
+            "DB_CPUS",
+        ]
         missing_vars = [var for var in required_vars if os.getenv(var) is None]
         if missing_vars:
             raise ValueError(f"Missing environment variables: {', '.join(missing_vars)}")
@@ -379,12 +387,12 @@ class Database:
         elif self.device == "mps":
             torch.mps.empty_cache()
 
-    def __set_session_resources(self, cursor, optimize_for: Literal['query', 'index', 'insert']):
+    def __set_session_resources(self, cursor, optimize_for: Literal["query", "index", "insert"]):
         """
         Set session resources for PostgreSQL
         """
-        db_mem = round(0.9 * float(os.getenv("DB_MEM")), 2) # In Leave 10% for OS overhead
-        db_cpus = os.getenv("DB_CPUS") - 2 # Leave 2 CPUs for OS overhead
+        db_mem = round(0.9 * float(os.getenv("DB_MEM")), 2)  # In Leave 10% for OS overhead
+        db_cpus = int(os.getenv("DB_CPUS")) - 2  # Leave 2 CPUs for OS overhead
 
         if optimize_for == "query":
             query = f"""
@@ -577,7 +585,9 @@ class Database:
         cursor = self.conn.cursor()
         self.__set_session_resources(cursor=cursor, optimize_for="insert")
 
-        query = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
+        query = (
+            f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
+        )
         print(f"Executing query: {query}")
         cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({dim});")
         self.conn.commit()
