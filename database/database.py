@@ -415,7 +415,7 @@ class Database:
             query = f"""
                 SET synchronous_commit = 'off';
                 -- SET wal_level = 'minimal';
-                SET work_mem = '{int(0.01 * db_mem)}MB';
+                SET work_mem = '{max(int(0.01 * db_mem), 256)}MB';
                 SET maintenance_work_mem = '{int(0.15 * db_mem)}MB';
                 SET max_wal_size = '{int(0.1 * db_mem)}MB';
                 SET checkpoint_timeout = '30min';
@@ -429,7 +429,7 @@ class Database:
             query = f"""
                 SET synchronous_commit = 'off';
                 -- SET wal_level = 'minimal';
-                SET work_mem = '{int(0.002 * db_mem)}MB';
+                SET work_mem = '{max(int(0.002 * db_mem), 256)}MB';
                 SET maintenance_work_mem = '0MB';
                 SET max_wal_size = '{int(0.1 * db_mem)}MB';
                 SET checkpoint_completion_target = '0.9';
