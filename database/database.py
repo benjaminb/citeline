@@ -36,7 +36,7 @@ USAGE:
 python database.py --test-connection
 python database.py --create-base-table --table-name library --from-path="../data/preprocessed/research.jsonl"
 python database.py --create-vector-column --table-name library --target-column chunk --embedder-name "BAAI/bge-small-en" [--normalize] --batch-size 16
-python database.py --create-index --table-name lib --target-column bge_norm --index-type hnsw --m 32 --ef-construction 512
+python database.py --create-index --table-name lib --target-column bge_norm --index-type ivfflat --num-lists [--m 32 --ef-construction 512]
 """
 
 
@@ -150,9 +150,9 @@ def argument_parser():
     parser.add_argument(
         "--num-lists",
         "-l",
-        default=1580,
+        default=1472,
         type=int,
-        help="Number of lists for IVFFlat (default: 1580)",
+        help="Number of lists for IVFFlat (default: 1472)",
     )
 
     # Add chunks arguments
@@ -605,7 +605,7 @@ class Database:
         results_queue = multiprocessing.Queue()
         progress_queue = multiprocessing.Queue()
         total_batches = (len(all_chunks) + batch_size - 1) // batch_size
-        num_consumers = os.getenv("CPU_COUNT", os.cpu_count() - 2)
+        num_consumers = os.getenv("CPUS", max(1, os.cpu_count() - 1))
 
         # Start consumer processes
         consumers = []
