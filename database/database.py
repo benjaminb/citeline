@@ -1,3 +1,4 @@
+import multiprocessing
 import argparse
 import gc
 import json
@@ -5,7 +6,6 @@ import numpy as np
 import os
 from datetime import datetime
 import inspect
-import multiprocessing
 
 multiprocessing.set_start_method("spawn")
 import pandas as pd
