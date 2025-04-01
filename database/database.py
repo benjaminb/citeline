@@ -1,4 +1,5 @@
 import multiprocessing
+# multiprocessing.set_start_method("spawn")
 import argparse
 import gc
 import json
@@ -7,7 +8,6 @@ import os
 from datetime import datetime
 import inspect
 
-multiprocessing.set_start_method("spawn")
 import pandas as pd
 import psycopg
 import queue
@@ -237,22 +237,22 @@ These must be outside the class definition to be pickled, which is necessary for
 
 
 # Producer function
-def producer_proc(
-    all_ids, all_chunks, results_queue, embedder_name, normalize, batch_size, num_consumers
-):
-    # Set up embedder
-    from Embedders import get_embedder
+# def producer_proc(
+#     all_ids, all_chunks, results_queue, embedder_name, normalize, batch_size, num_consumers
+# ):
+#     # Set up embedder
+#     from Embedders import get_embedder
 
-    device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
-    embedder = get_embedder(embedder_name, device=device, normalize=normalize)
+#     device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
+#     embedder = get_embedder(embedder_name, device=device, normalize=normalize)
 
-    for i in range(0, len(all_chunks), batch_size):
-        texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
-        embeddings = embedder(texts)
-        results_queue.put((ids, embeddings))
-    # Signal that producer is done
-    for _ in range(num_consumers):
-        results_queue.put(None)
+#     for i in range(0, len(all_chunks), batch_size):
+#         texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
+#         embeddings = embedder(texts)
+#         results_queue.put((ids, embeddings))
+#     # Signal that producer is done
+#     for _ in range(num_consumers):
+#         results_queue.put(None)
 
 
 # Consumer function
@@ -550,31 +550,21 @@ class Database:
     ):
         """
         Create a new column in the specified table to store vector embeddings.
-
-        Args:
-            embedder_name (str): Name of the embedding model to use.
-            enricher_name (str, optional): Name of the enricher to use. Defaults to None.
-            table_name (str): Name of the target table.
-            target_column (str): Name of the column to embed into vectors.
-            dim (int): Dimension of the vector embeddings.
-            enricher_name (str, optional): Name of the enricher to use. Defaults to None.
         """
-        # Get embedder dimension
         from Embedders import get_embedder
 
+        # Initialize the embedder in the main process
         embedder = get_embedder(embedder_name, self.device)
         dim = embedder.dim
-        del embedder
 
         if enricher_name:
             from TextEnrichers import get_enricher
-
             enricher = get_enricher(
                 name=enricher_name, path_to_data="../data/preprocessed/research.jsonl"
             )
             print(f"Using enricher: {enricher_name}")
 
-        # Construct column name; use the embedder's short name if written into class, otherwise derive it from model name
+        # Construct column name
         vector_column_name = Database.EMBEDDER_SHORTNAMES.get(
             embedder_name, embedder_name.replace("/", "_").replace("-", "_")
         )
@@ -592,9 +582,7 @@ class Database:
             f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
         )
         print(f"Executing query: {query}")
-        cursor.execute(
-            f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
-        )
+        cursor.execute(query)
         self.conn.commit()
         print("Column created (or it already existed)")
 
@@ -608,31 +596,16 @@ class Database:
         del rows
         cursor.close()
 
-        # Setting up a producer/consumer queue so writing to db doesn't block embedding the next batch of chunks
-        if enricher_name:  # this assumes enricher was resolved above
+        # Enrich chunks if an enricher is provided
+        if enricher_name:
             texts_with_dois = zip(all_chunks, all_dois)
             all_chunks = enricher.enrich_batch(texts_with_dois=texts_with_dois)
 
-        # Create a multiprocessing Queue
+        # Create a multiprocessing Queue for results
         results_queue = multiprocessing.Queue()
         progress_queue = multiprocessing.Queue()
         total_batches = (len(all_chunks) + batch_size - 1) // batch_size
         num_consumers = os.getenv("CPU_COUNT", os.cpu_count() - 2)
-
-        # Start producer process
-        producer_process = multiprocessing.Process(
-            target=producer_proc,
-            args=(
-                all_ids,
-                all_chunks,
-                results_queue,
-                embedder_name,
-                normalize,
-                batch_size,
-                num_consumers,
-            ),
-        )
-        producer_process.start()
 
         # Start consumer processes
         consumers = []
@@ -651,6 +624,18 @@ class Database:
             p.start()
             consumers.append(p)
 
+        # Producer logic in the main process
+        print("Starting producer in the main process...")
+        for i in range(0, len(all_chunks), batch_size):
+            texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
+            embeddings = embedder(texts)
+            results_queue.put((ids, embeddings))
+
+        # Signal that the producer is done
+        for _ in range(num_consumers):
+            results_queue.put(None)
+
+        # Monitor progress in the main process
         with tqdm(total=total_batches, desc="Writing to database", leave=True) as progress_bar:
             processed = 0
             while processed < total_batches:
@@ -662,9 +647,6 @@ class Database:
                 except queue.Empty:
                     # No progress update received, continue waiting
                     pass
-
-        # Wait for producer to finish
-        producer_process.join()
 
         # Wait for all consumers to finish
         for c in consumers:
