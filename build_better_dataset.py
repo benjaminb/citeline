@@ -4,8 +4,6 @@ import pandas as pd
 import re
 from tqdm import tqdm
 from parsing import get_inline_citations, INLINE_CITATION_REGEX
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from functools import lru_cache  # Add this import
 
 REVIEW_JOURNAL_BIBCODES = {
     "RvGeo",
@@ -84,10 +82,8 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
             return doi, bib
         return None
 
-    # Remove inline citations from the sentence
+    # Remove inline citations from the sentence, skip if result is too short (chose 63 after some inspection)
     sent_no_citation = re.sub(INLINE_CITATION_REGEX, "", sentence).strip()
-
-    # If the sentence is too short removing citations, return None (chose 63 after some inspection)
     if len(sent_no_citation) < 63:
         return None
 
@@ -110,6 +106,7 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
         "sent_no_cit": sent_no_citation,
         "sent_idx": index,
         "citation_dois": citation_dois,
+        "pubdate": record["pubdate"],
         "resolved_bibcodes": bibcodes,
     }
 
@@ -158,12 +155,13 @@ def main():
 
 
 if __name__ == "__main__":
-    import cProfile, pstats
+    main()
+    # import cProfile, pstats
 
-    profiler = cProfile.Profile()
-    profiler.enable()
-    main()  # Run your main function
-    profiler.disable()
+    # profiler = cProfile.Profile()
+    # profiler.enable()
+    # main()  # Run your main function
+    # profiler.disable()
 
-    stats = pstats.Stats(profiler).strip_dirs().sort_stats("cumulative")
-    stats.print_stats(40)
+    # stats = pstats.Stats(profiler).strip_dirs().sort_stats("cumulative")
+    # stats.print_stats(40)
