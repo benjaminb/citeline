@@ -429,15 +429,15 @@ class Database:
             query = f"""
                 SET synchronous_commit = 'off';
                 -- SET wal_level = 'minimal';
-                SET work_mem = '{max(int(0.002 * db_mem), 256)}MB';
-                SET maintenance_work_mem = '0MB';
-                SET max_wal_size = '{int(0.1 * db_mem)}MB';
+                SET work_mem = '{max(int(0.002 * db_mem), 256)}GB';
+                SET maintenance_work_mem = '4MB';
+                SET max_wal_size = '{int(0.1 * db_mem)}GB';
                 SET checkpoint_completion_target = '0.9';
                 SET wal_writer_delay = '200ms';
                 SET max_parallel_workers_per_gather = '0';
                 SET max_parallel_maintenance_workers = '0';
-                SET shared_buffers = '{int(0.25 * db_mem)}MB';
-                SET effective_cache_size = '{int(0.5 * db_mem)}MB';
+                SET shared_buffers = '{int(0.25 * db_mem)}GB';
+                SET effective_cache_size = '{int(0.5 * db_mem)}GB';
             """
         cursor.execute(query)
         print(f"Session resources set for {optimize_for} optimization:")
