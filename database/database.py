@@ -383,7 +383,7 @@ class Database:
         """
         Set session resources for PostgreSQL
         """
-        db_mem = 0.9 * os.getenv("DB_MEM") # Leave 10% for OS overhead
+        db_mem = round(0.9 * float(os.getenv("DB_MEM")), 2) # In Leave 10% for OS overhead
         db_cpus = os.getenv("DB_CPUS") - 2 # Leave 2 CPUs for OS overhead
 
         if optimize_for == "query":
