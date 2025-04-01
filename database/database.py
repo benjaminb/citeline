@@ -1,4 +1,5 @@
 import multiprocessing
+
 # multiprocessing.set_start_method("spawn")
 import argparse
 import gc
@@ -34,9 +35,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 """
 USAGE:
 python database.py --test-connection
-python database.py --create-base-table --table-name library --from-path="../data/preprocessed/research.jsonl"
-python database.py --create-vector-column --table-name library --target-column chunk --embedder-name "BAAI/bge-small-en" [--normalize] --batch-size 16
-python database.py --create-index --table-name lib --target-column bge_norm --index-type ivfflat --num-lists [--m 32 --ef-construction 512]
+python database.py --create-base-table --table-name lib --from-path="../data/preprocessed/research.jsonl"
+python database.py --create-vector-column --table-name lib --target-column chunk --embedder-name "BAAI/bge-small-en" [--normalize] --batch-size 16
+python database.py --create-index --table-name lib --target-column bge_norm --index-type ivfflat --num-lists 1472 [--m 32 --ef-construction 512]
 """
 
 
@@ -198,13 +199,15 @@ DATACLASSES
 
 # TODO: factor these out to models
 
+
 @dataclass
-class SingleVectorQueryResult:
+class VectorQueryResult:
     chunk_id: int
     doi: str
     title: str
     abstract: str
     chunk: str
+    pubdate: str
     distance: float
 
 
@@ -235,25 +238,6 @@ class ChunkAndVector:
 PICKLEABLE DB HELPER FUNCTIONS
 These must be outside the class definition to be pickled, which is necessary for multiprocessing.
 """
-
-
-# Producer function
-# def producer_proc(
-#     all_ids, all_chunks, results_queue, embedder_name, normalize, batch_size, num_consumers
-# ):
-#     # Set up embedder
-#     from Embedders import get_embedder
-
-#     device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
-#     embedder = get_embedder(embedder_name, device=device, normalize=normalize)
-
-#     for i in range(0, len(all_chunks), batch_size):
-#         texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
-#         embeddings = embedder(texts)
-#         results_queue.put((ids, embeddings))
-#     # Signal that producer is done
-#     for _ in range(num_consumers):
-#         results_queue.put(None)
 
 
 # Consumer function
@@ -403,16 +387,16 @@ class Database:
                 SET synchronous_commit = 'on';
                 -- SET wal_level = 'replica';
                 -- SET max_wal_size = 'DEFAULT';
-                SET maintenance_work_mem = '1MB';
-                SET random_page_cost = '1.1';
-                SET parallel_tuple_cost = '0.1';
-                SET parallel_setup_cost = '1000';
-                SET max_parallel_workers = '{max(1, db_cpus)}';
+                SET maintenance_work_mem = '1GB';
+                -- SET random_page_cost = '1.1';
+                -- SET parallel_tuple_cost = '0.1';
+                -- SET parallel_setup_cost = '1000';
+                SET max_parallel_workers = '{max(1, db_cpus - 2)}';
                 SET work_mem = '{max(1, db_mem // db_cpus)}GB';
-                SET max_parallel_workers_per_gather = '{max(1, db_cpus)}';
-                SET shared_buffers = '{int(0.25 * db_mem)}GB';
+                SET max_parallel_workers_per_gather = '{max(1, db_cpus - 2)}';
+                -- SET shared_buffers = '{int(0.25 * db_mem)}GB';
                 SET effective_cache_size = '{int(0.75 * db_mem)}GB';
-                SET effective_io_concurrency = '200';
+                -- SET effective_io_concurrency = '200';
             """
 
         elif optimize_for == "index":
@@ -561,6 +545,7 @@ class Database:
 
         if enricher_name:
             from TextEnrichers import get_enricher
+
             enricher = get_enricher(
                 name=enricher_name, path_to_data="../data/preprocessed/research.jsonl"
             )
@@ -821,28 +806,20 @@ class Database:
         target_column: str,
         table_name: str = "lib",
         metric: str = "vector_cosine_ops",
+        pubdate: str | None = None,
         top_k=5,
         use_index=True,
         probes=40,
     ):
         """
-        table_name: name of the vector table
-        query_vector: the vector to query
-        metric: a key in PGVECTOR_DISTANCE_METRICS to resolve the distance operator
-        top_k: number of results to return
-
+        Query the vector column in the database.
         """
         # Resolve the distance operator
         _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
 
         # Set the session resources
         cursor = self.conn.cursor()
-        max_parallel_workers = 62
-        max_parallel_workers_per_gather = 62
-        work_mem = "1GB"
-        cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-        cursor.execute(f"SET max_parallel_workers_per_gather={max_parallel_workers_per_gather};")
-        cursor.execute(f"SET work_mem='{work_mem}'")
+        self.__set_session_resources(cursor=cursor, optimize_for="query")
 
         # Set index search parameters
         if not use_index:
@@ -852,11 +829,26 @@ class Database:
             cursor.execute("SET enable_seqscan = off;")
             cursor.execute(f"SET ivfflat.probes={probes};")
 
+        # Make sure pubdate set, in YYYY-MM-DD format
+        if not pubdate:
+            # Set to today in YYY-MM-DD format
+            pubdate = datetime.now().strftime("%Y-%m-%d")
+        else:
+            try:
+                datetime.strptime(pubdate, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError(f"Invalid pubdate format: {pubdate}. Use YYYY-MM-DD format.")
+
         start = time()
         cursor.execute(
             f"""
-            SELECT id, doi, title, abstract, chunk, {target_column} {_operator_} %s AS distance
-            FROM {table_name}
+            WITH filtered_table AS (
+                SELECT *
+                FROM {table_name}
+                WHERE pubdate < '{pubdate}'
+            )
+            SELECT id, doi, title, abstract, chunk, pubdate, {target_column} {_operator_} %s AS distance
+            FROM filtered_table
             ORDER BY distance ASC
             LIMIT {top_k};
             """,
@@ -870,10 +862,7 @@ class Database:
         # Close up
         cursor.close()
 
-        assert (
-            len(results) <= top_k
-        ), f"Query returned {len(results)} results, but top_k is set to {top_k}"
-        return [SingleVectorQueryResult(*result) for result in results]
+        return [VectorQueryResult(*result) for result in results]
 
     def prewarm_table(self, table_name: str, target_column: str = None):
         """

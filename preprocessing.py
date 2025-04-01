@@ -154,7 +154,6 @@ def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
     results = []
     max_workers = max(1, os.cpu_count() - 2)
     print(f"Processing records with {max_workers} workers")
-    # Manually manage the executor
 
     executor = ProcessPoolExecutor(max_workers=max_workers)
     try:

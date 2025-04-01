@@ -35,7 +35,7 @@ def build_bibcode_index(reference_records):
 
 
 # Cache regex patterns
-@lru_cache(maxsize=1024)
+# @lru_cache(maxsize=2048)
 def bibcode_regex(author: str, year: str):
     """
     Given first author and year, return a regex pattern for the
@@ -84,6 +84,12 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
             return doi, bib
         return None
 
+    # Remove inline citations from the sentence
+    sent_no_citation = re.sub(INLINE_CITATION_REGEX, "", sentence).strip()
+
+    # If the sentence is too short removing citations, return None (chose 63 after some inspection)
+    if len(sent_no_citation) < 63:
+        return None
 
     # Rest of the function remains the same
     inline_citations = get_inline_citations(sentence)
@@ -91,18 +97,17 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
 
     # If ANY inline citation is not found, return None
     for citation in inline_citations:
-        result = citation_to_doi_and_bibcode()(citation)
+        result = citation_to_doi_and_bibcode(citation)
         if not result:
             return None
         doi, bib = result
         citation_dois.append(doi)
         bibcodes.append(bib)
 
-
     return {
         "source_doi": record["doi"],
         "sent_original": sentence,
-        "sent_no_cit": re.sub(INLINE_CITATION_REGEX, "", sentence),
+        "sent_no_cit": sent_no_citation,
         "sent_idx": index,
         "citation_dois": citation_dois,
         "resolved_bibcodes": bibcodes,
@@ -121,39 +126,23 @@ def main():
     reviews_dicts = reviews.to_dict("records")
 
     # Build the index for fast lookup by bibcode
-    print("Building bibcode index for faster lookups...")
+    print("Building bibcode index for faster lookups...", end="")
     bibcode_index = build_bibcode_index(research_dicts)
+    print("done.")
 
     del research  # Free memory
     del reviews
 
-    # Process in batches to reduce memory pressure
-    batch_size = 500
     trivial_examples, nontrivial_examples = [], []
-
-    for i in range(0, len(reviews_dicts), batch_size):
-        batch = reviews_dicts[i : i + batch_size]
-        print(
-            f"Processing batch {i//batch_size + 1}/{(len(reviews_dicts) + batch_size - 1)//batch_size}"
-        )
-
-        with ProcessPoolExecutor(max_workers=os.cpu_count() - 2) as executor:
-            futures = [
-                executor.submit(examples_from_record_with_index, record, bibcode_index)
-                for record in batch
-            ]
-
-            for future in tqdm(
-                as_completed(futures), total=len(futures), desc=f"Batch {i//batch_size + 1}"
-            ):
-                examples = future.result()
-                for example in examples:
-                    if example is None:
-                        continue
-                    elif len(example["citation_dois"]) == 0:
-                        trivial_examples.append(example)
-                    else:
-                        nontrivial_examples.append(example)
+    for record in tqdm(reviews_dicts, total=len(reviews_dicts), desc="Processing records"):
+        examples = examples_from_record_with_index(record, bibcode_index)
+        for example in examples:
+            if example is None:
+                continue
+            elif len(example["citation_dois"]) == 0:
+                trivial_examples.append(example)
+            else:
+                nontrivial_examples.append(example)
 
     # Write results
     print(
@@ -169,4 +158,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import cProfile, pstats
+
+    profiler = cProfile.Profile()
+    profiler.enable()
+    main()  # Run your main function
+    profiler.disable()
+
+    stats = pstats.Stats(profiler).strip_dirs().sort_stats("cumulative")
+    stats.print_stats(40)
