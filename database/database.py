@@ -607,7 +607,7 @@ class Database:
         results_queue = multiprocessing.Queue()
         progress_queue = multiprocessing.Queue()
         total_batches = (len(all_chunks) + batch_size - 1) // batch_size
-        num_consumers = os.getenv("CPUS", max(1, os.cpu_count() - 1))
+        num_consumers = int(os.getenv("CPUS", max(1, os.cpu_count() - 1)))
 
         # Start consumers
         consumers = []
