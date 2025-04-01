@@ -397,7 +397,7 @@ class Database:
         if optimize_for == "query":
             query = f"""
                 SET synchronous_commit = 'on';
-                SET wal_level = 'replica';
+                -- SET wal_level = 'replica';
                 SET maintenance_work_mem = '0MB';
                 SET max_wal_size = 'DEFAULT';
                 SET random_page_cost = '1.1';
@@ -414,7 +414,7 @@ class Database:
         elif optimize_for == "index":
             query = f"""
                 SET synchronous_commit = 'off';
-                SET wal_level = 'minimal';
+                -- SET wal_level = 'minimal';
                 SET work_mem = '{int(0.01 * db_mem)}MB';
                 SET maintenance_work_mem = '{int(0.15 * db_mem)}MB';
                 SET max_wal_size = '{int(0.1 * db_mem)}MB';
@@ -428,7 +428,7 @@ class Database:
         elif optimize_for == "insert":
             query = f"""
                 SET synchronous_commit = 'off';
-                SET wal_level = 'minimal';
+                -- SET wal_level = 'minimal';
                 SET work_mem = '{int(0.002 * db_mem)}MB';
                 SET maintenance_work_mem = '0MB';
                 SET max_wal_size = '{int(0.1 * db_mem)}MB';
