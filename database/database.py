@@ -432,6 +432,8 @@ class Database:
                 SET effective_cache_size = '{int(0.5 * db_mem)}MB';
             """
         cursor.execute(query)
+        print(f"Session resources set for {optimize_for} optimization:")
+        print(query)
 
     def _create_base_table(
         self,
@@ -573,6 +575,8 @@ class Database:
         print(f"Attempting to create column '{vector_column_name}' in table '{table_name}'...")
 
         cursor = self.conn.cursor()
+        self.__set_session_resources(cursor=cursor, optimize_for="insert")
+
         query = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
         print(f"Executing query: {query}")
         cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {vector_column_name} VECTOR({dim});")
