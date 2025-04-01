@@ -196,6 +196,7 @@ def argument_parser():
 DATACLASSES
 """
 
+# TODO: factor these out to models
 
 @dataclass
 class SingleVectorQueryResult:
@@ -554,6 +555,7 @@ class Database:
         from Embedders import get_embedder
 
         # Initialize the embedder in the main process
+        print(f"Resolving embedder '{embedder_name}'...")
         embedder = get_embedder(embedder_name, self.device)
         dim = embedder.dim
 
@@ -601,13 +603,13 @@ class Database:
             texts_with_dois = zip(all_chunks, all_dois)
             all_chunks = enricher.enrich_batch(texts_with_dois=texts_with_dois)
 
-        # Create a multiprocessing Queue for results
+        # Create multiprocessing Queues
         results_queue = multiprocessing.Queue()
         progress_queue = multiprocessing.Queue()
         total_batches = (len(all_chunks) + batch_size - 1) // batch_size
         num_consumers = os.getenv("CPUS", max(1, os.cpu_count() - 1))
 
-        # Start consumer processes
+        # Start consumers
         consumers = []
         for _ in range(num_consumers):
             p = multiprocessing.Process(
@@ -624,29 +626,36 @@ class Database:
             p.start()
             consumers.append(p)
 
-        # Producer logic in the main process
+        # Producer in the main process (required by CUDA, plus this is GPU bound)
         print("Starting producer in the main process...")
-        for i in range(0, len(all_chunks), batch_size):
-            texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
-            embeddings = embedder(texts)
-            results_queue.put((ids, embeddings))
+        # for i in range(0, len(all_chunks), batch_size):
+        #     texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
+        #     embeddings = embedder(texts)
+        #     results_queue.put((ids, embeddings))
 
         # Signal that the producer is done
-        for _ in range(num_consumers):
-            results_queue.put(None)
+        # for _ in range(num_consumers):
+        #     results_queue.put(None)
 
         # Monitor progress in the main process
         with tqdm(total=total_batches, desc="Writing to database", leave=True) as progress_bar:
             processed = 0
-            while processed < total_batches:
+            # while processed < total_batches:
+            for i in range(0, len(all_chunks), batch_size):
+                texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
+                embeddings = embedder(texts)
+                results_queue.put((ids, embeddings))
                 try:
                     # Get progress updates from the queue
                     progress = progress_queue.get(timeout=1)  # Adjust timeout as needed
                     processed += progress
                     progress_bar.update(progress)
                 except queue.Empty:
-                    # No progress update received, continue waiting
                     pass
+
+            # Signal that the producer is done
+            for _ in range(num_consumers):
+                results_queue.put(None)
 
         # Wait for all consumers to finish
         for c in consumers:
