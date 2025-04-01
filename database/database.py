@@ -416,7 +416,7 @@ class Database:
                 SET synchronous_commit = 'off';
                 -- SET wal_level = 'minimal';
                 -- SET max_wal_size = '{int(0.1 * db_mem)}GB';
-                SET work_mem = '{max(int(0.01 * db_mem), 256)}GB';
+                SET work_mem = '{max(int(0.25 * db_mem), 4)}GB';
                 SET maintenance_work_mem = '{int(0.15 * db_mem)}GB';
                 SET checkpoint_timeout = '30min';
                 SET max_parallel_workers_per_gather = '{db_cpus}';  -- Use all CPUs for query parallelism
@@ -430,7 +430,7 @@ class Database:
                 SET synchronous_commit = 'off';
                 -- SET wal_level = 'minimal';
                 -- SET max_wal_size = '{int(0.1 * db_mem)}GB';
-                SET work_mem = '{max(int(0.002 * db_mem), 256)}GB';
+                SET work_mem = '{max(int(0.002 * db_mem), 0.5)}GB';
                 SET maintenance_work_mem = '4MB';
                 -- SET checkpoint_completion_target = '0.9';
                 -- SET wal_writer_delay = '200ms';
