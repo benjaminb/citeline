@@ -1,7 +1,10 @@
 dataset: 'data/dataset/100/nontrivial.jsonl'
 table: 'lib'
+target_column: 'bge'
 metric: 'vector_cosine_ops'
 embedder: 'BAAI/bge-small-en'
 normalize: True
 enrichment: 'identity'
-top_k: 50
+batch_size: 16
+top_k: 10_000
+probes: 40

@@ -375,7 +375,7 @@ class Database:
         elif self.device == "mps":
             torch.mps.empty_cache()
 
-    def __set_session_resources(self, cursor, optimize_for: Literal["query", "index", "insert"]):
+    def set_session_resources(self, cursor, optimize_for: Literal["query", "index", "insert"]):
         """
         Set session resources for PostgreSQL
         """
@@ -428,8 +428,6 @@ class Database:
                 SET effective_cache_size = '{int(0.5 * db_mem)}GB';
             """
         cursor.execute(query)
-        print(f"Session resources set for {optimize_for} optimization:")
-        print(query)
 
     def _create_base_table(
         self,
@@ -563,7 +561,7 @@ class Database:
         print(f"Attempting to create column '{vector_column_name}' in table '{table_name}'...")
 
         cursor = self.conn.cursor()
-        self.__set_session_resources(cursor=cursor, optimize_for="insert")
+        self.set_session_resources(cursor=cursor, optimize_for="insert")
 
         query = (
             f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
@@ -613,14 +611,6 @@ class Database:
 
         # Producer in the main process (required by CUDA, plus this is GPU bound)
         print("Starting producer in the main process...")
-        # for i in range(0, len(all_chunks), batch_size):
-        #     texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
-        #     embeddings = embedder(texts)
-        #     results_queue.put((ids, embeddings))
-
-        # Signal that the producer is done
-        # for _ in range(num_consumers):
-        #     results_queue.put(None)
 
         # Monitor progress in the main process
         with tqdm(total=total_batches, desc="Writing to database", leave=True) as progress_bar:
@@ -803,12 +793,12 @@ class Database:
     def query_vector_column(
         self,
         query_vector: np.array,
+        table_name: str,
         target_column: str,
-        table_name: str = "lib",
         metric: str = "vector_cosine_ops",
         pubdate: str | None = None,
-        top_k=5,
         use_index=True,
+        top_k=5,
         probes=40,
     ):
         """
@@ -819,7 +809,7 @@ class Database:
 
         # Set the session resources
         cursor = self.conn.cursor()
-        self.__set_session_resources(cursor=cursor, optimize_for="query")
+        self.set_session_resources(cursor=cursor, optimize_for="query")
 
         # Set index search parameters
         if not use_index:
