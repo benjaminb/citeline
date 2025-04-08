@@ -1,6 +1,6 @@
 dataset: 'data/dataset/100/nontrivial.jsonl'
 table: 'lib'
-target_column: 'bge'
+target_column: 'bge_norm'
 metric: 'vector_cosine_ops'
 embedder: 'BAAI/bge-small-en'
 normalize: True
