@@ -11,7 +11,7 @@ from matplotlib.ticker import MultipleLocator
 from datetime import datetime
 from dotenv import load_dotenv
 from tqdm import tqdm
-from database.database import Database
+from database.database import Database, VectorQueryResult
 from TextEnrichers import get_enricher
 from Embedders import get_embedder
 
@@ -53,7 +53,6 @@ def argument_parser():
         "--query-plan", action="store_true", help="generate EXPLAIN/ANALYZE query plan for database"
     )
 
-    # Config argument is optional now
     parser.add_argument("--config", type=str, help="Path to the YAML configuration file.")
 
     # Dataset building arguments
@@ -169,13 +168,26 @@ class Experiment:
                 return results[:i]
         return results
 
+    def __compute_stats(
+        self, target_dois: list[str], results: list[VectorQueryResult]
+    ) -> list[np.longdouble]:
+        """
+        NOTE: this assumes that target_dois is non-empty
+        """
+        target_dois_set = set(target_dois)
+        jaccard_scores = []
+        for i in range(len(results)):
+            predicted_dois = set(result.doi for result in results[: i + 1])
+            score = self.__jaccard_similarity(predicted_dois, target_dois_set)
+            jaccard_scores.append(score)
+
     def _evaluate_prediction(self, example, results):
         unique_predicted_dois = set(result.doi for result in results)
         citation_dois = set(doi for doi in example.citation_dois)
-        score = self._jaccard_similarity(unique_predicted_dois, citation_dois)
+        score = self.__jaccard_similarity(unique_predicted_dois, citation_dois)
         return score
 
-    def _jaccard_similarity(self, set1, set2):
+    def __jaccard_similarity(self, set1, set2):
         intersection = np.longdouble(len(set1.intersection(set2)))
         union = np.longdouble(len(set1.union(set2)))
         return intersection / union
@@ -189,8 +201,8 @@ class Experiment:
         plt.plot(thresholds, avg_scores, marker=".", linestyle="-", label="Average Jaccard Score")
         plt.xlabel(f"Distance Threshold (n = {len(self.dataset)})")
 
-        plt.grid(True, which='major', linestyle='-', linewidth=0.8, alpha=0.7)
-        plt.grid(True, which='minor', linestyle=':', linewidth=0.5, alpha=0.4)
+        plt.grid(True, which="major", linestyle="-", linewidth=0.8, alpha=0.7)
+        plt.grid(True, which="minor", linestyle=":", linewidth=0.5, alpha=0.4)
         plt.gca().xaxis.set_minor_locator(MultipleLocator(0.05))
 
         plt.savefig(outfile)
@@ -215,9 +227,7 @@ class Experiment:
         # Prep results and outfile name
         metric_str = self.metric_to_str.get(self.metric)
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename_base = (
-            f"{self.target_column}_{self.enrichment}_norm{self.normalize}_topk{self.top_k}_{current_time}"
-        )
+        filename_base = f"{self.target_column}_{self.enrichment}_norm{self.normalize}_topk{self.top_k}_{current_time}"
 
         # Create directory if it doesn't exist
         if not os.path.exists(f"experiments/results/{filename_base}"):
@@ -279,6 +289,7 @@ class Experiment:
 
                 # Statistics
                 # start = time()
+
                 for threshold in DISTANCE_THRESHOLDS:
                     predicted_chunks = self._closest_neighbors(results, threshold)
                     score = self._evaluate_prediction(example, predicted_chunks)

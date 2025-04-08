@@ -800,9 +800,22 @@ class Database:
         use_index=True,
         top_k=5,
         probes=40,
-    ):
+    ) -> list[VectorQueryResult]:
         """
-        Query the vector column in the database.
+        Query the specified vector column in the database.
+
+        Args:
+            query_vector (np.array): The vector to query.
+            table_name (str): The name of the table to query.
+            target_column (str): The name of the column to query.
+            metric (str): The distance metric to use. Default is 'vector_cosine_ops'.
+            pubdate (str | None): Optional publication date filter in YYYY-MM-DD format.
+            use_index (bool): Whether to use the index for the query. Default is True.
+            top_k (int): Number of nearest neighbors to return. Default is 5.
+            probes (int): Number of probes for IVFFlat index. Default is 40.
+
+        Returns:
+            list[VectorQueryResult]: A list of VectorQueryResult objects containing the results.
         """
         # Resolve the distance operator
         _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
@@ -847,8 +860,17 @@ class Database:
         print(f"  Query execution time: {time() - start:.2f} seconds")
 
         results = cursor.fetchall()
-        print(f"  Found {len(results)} results")
-        print(f"top_k: {top_k}")
+        if len(results) != top_k:
+            print(f"WARNING: Expected {top_k} results, but got {len(results)}.")
+            # print the arguments
+            print(f"table_name: {table_name}")
+            print(f"target_column: {target_column}")
+            print(f"metric: {metric}")
+            print(f"pubdate: {pubdate}")
+            print(f"use_index: {use_index}")
+            print(f"top_k: {top_k}")
+            print(f"probes: {probes}") 
+
         # Close up
         cursor.close()
 
