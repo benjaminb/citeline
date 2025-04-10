@@ -23,22 +23,17 @@ def enricher_factory(keys_and_headers: list[tuple[str, str]], prev_n: int = 0):
     Factory function to create an enrichment function based on the keys and number of previous sentences
     """
 
-    def enrichment_function(text, record: pd.Series | dict) -> str:
+    # NOTE: changing this to take an example (pd.Series) rather than just the text
+    def enrichment_function(example, record: pd.Series | dict) -> str:
+
+        text = example.sent_no_cit
         if prev_n > 0:
             # Find index of the text in the body_sentences
-            for i, body_sentence in enumerate(record["body_sentences"]):
-                shorter, longer = (
-                    (text, body_sentence)
-                    if len(text) < len(body_sentence)
-                    else (body_sentence, text)
-                )
-                if shorter in longer:
-                    break
-            else:
-                raise ValueError(f"Text '{text}' not found in body_sentences")
+            start_index = max(0, example.sent_idx - prev_n)
+            end_index = example.sent_idx
 
-            start_index = max(i - prev_n, 0)
-            prev_n_sentences = record["body_sentences"][start_index:i]
+            # Append the sentence with no citation to the previous n sentences
+            prev_n_sentences = record["body_sentences"][start_index:end_index]
             text = " ".join(prev_n_sentences) + " " + text
 
         # Add the header and corresponding value
@@ -61,7 +56,9 @@ class TextEnricher:
         "add_title_and_abstract": enricher_factory(
             [("title", "Title:"), ("abstract", "Abstract:")]
         ),
-        "add_previous_3_sentences": enricher_factory([], prev_n=3),
+        "add_prev_3": enricher_factory([], prev_n=3),
+        "add_abstract_prev_3": enricher_factory([("abstract", "Abstract:")], prev_n=3),
+        "add_title_prev_3": enricher_factory([("title", "Title:")], prev_n=3),
         # 'add_previous_7_sentences': add_previous_7_sentences,
         # 'add_headers_and_previous_3_sentences': add_headers_and_previous_3_sentences,
         # 'add_headers_and_previous_7_sentences': add_headers_previous_7_sentences
@@ -114,10 +111,10 @@ class TextEnricher:
 
         return results
 
-    def __call__(self, examples: pd.DataFrame, key: str = "sent_no_cit") -> list[str]:
+    def __call__(self, examples: pd.DataFrame) -> list[str]:
         results = []
-        for _, example in examples.iterrows():
-            print(f"Example: {example}")
+        # for _, example in examples.iterrows():
+        for example in examples.itertuples():
             # Get the full record for this example
             record = self.doi_to_record.get(example.source_doi)
 
@@ -125,16 +122,16 @@ class TextEnricher:
                 raise ValueError(
                     f"While enriching example with source doi '{example.source_doi}', full record not found"
                 )
-            results.append(self.enricher(example[key], record))
+            results.append(self.enricher(example, record))
         return results
 
 
 def get_enricher(name: str, path_to_data: str) -> TextEnricher:
     try:
         data = pd.read_json(path_to_data, lines=True)
+        return TextEnricher(enrichment_function=name, reference_data=data)
     except Exception as e:
         print(f"Error loading data source: {e}")
-    return TextEnricher(enrichment_function=name, reference_data=data)
 
 
 def main():

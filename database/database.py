@@ -375,35 +375,34 @@ class Database:
         elif self.device == "mps":
             torch.mps.empty_cache()
 
-    def set_session_resources(self, cursor, optimize_for: Literal["query", "index", "insert"]):
+    def set_session_resources(self, optimize_for: Literal["query", "index", "insert"]):
         """
         Set session resources for PostgreSQL
+
+        Also good settings for postegresql.conf (presumably):
+        wal_level = 'minimal'; -- minimal amount of data to write to WAL logs
+            max_wal_senders = 0; -- required by wal_level = minimal, meaning no replication
+        shared_buffers = 'xxGB'; -- amount of memory to use (50% of host if you're the only user)
         """
         db_mem = round(0.9 * float(os.getenv("DB_MEM")), 2)  # In GB. Leave 10% for OS overhead
         db_cpus = int(os.getenv("DB_CPUS")) - 2  # Leave 2 CPUs for OS overhead
 
         if optimize_for == "query":
             query = f"""
-                SET synchronous_commit = 'on';
-                -- SET wal_level = 'replica';
-                -- SET max_wal_size = 'DEFAULT';
+                -- SET synchronous_commit = 'off';
                 SET maintenance_work_mem = '1GB';
                 -- SET random_page_cost = '1.1';
                 -- SET parallel_tuple_cost = '0.1';
                 -- SET parallel_setup_cost = '1000';
-                SET max_parallel_workers = '{max(1, db_cpus - 2)}';
-                SET work_mem = '{max(1, db_mem // db_cpus)}GB';
-                SET max_parallel_workers_per_gather = '{max(1, db_cpus - 2)}';
-                -- SET shared_buffers = '{int(0.25 * db_mem)}GB';
+                SET max_parallel_workers = {max(1, db_cpus)};
+                SET work_mem = '{max(1, db_mem // (db_cpus * 2))}GB';
+                SET max_parallel_workers_per_gather = {max(1, db_cpus)};
                 SET effective_cache_size = '{int(0.75 * db_mem)}GB';
-                -- SET effective_io_concurrency = '200';
             """
 
         elif optimize_for == "index":
             query = f"""
                 SET synchronous_commit = 'off';
-                -- SET wal_level = 'minimal';
-                -- SET max_wal_size = '{int(0.1 * db_mem)}GB';
                 SET work_mem = '{max(int(0.25 * db_mem), 4)}GB';
                 SET maintenance_work_mem = '{int(0.15 * db_mem)}GB';
                 SET checkpoint_timeout = '30min';
@@ -415,19 +414,18 @@ class Database:
 
         elif optimize_for == "insert":
             query = f"""
-                SET synchronous_commit = 'off';
-                -- SET wal_level = 'minimal';
-                -- SET max_wal_size = '{int(0.1 * db_mem)}GB';
+                SET synchronous_commit = 'on';
                 SET work_mem = '{max(int(0.002 * db_mem), 0.5)}GB';
                 SET maintenance_work_mem = '4MB';
                 -- SET checkpoint_completion_target = '0.9';
                 -- SET wal_writer_delay = '200ms';
                 SET max_parallel_workers_per_gather = '0';
                 SET max_parallel_maintenance_workers = '0';
-                -- SET shared_buffers = '{int(0.25 * db_mem)}GB';
                 SET effective_cache_size = '{int(0.5 * db_mem)}GB';
             """
-        cursor.execute(query)
+        print(f"Executing query:\n{query}")
+        with self.conn.cursor() as cursor:
+            cursor.execute(query)
 
     def _create_base_table(
         self,
@@ -790,6 +788,20 @@ class Database:
         )
         cursor.close()
 
+    def query(self, q: str) -> list[tuple]:
+        """
+        Directly execute a sql query
+
+        TODO: Be sure to remove this from the final version. This is only for development
+
+        """
+
+        cursor = self.conn.cursor()
+        cursor.execute(q)
+        rows = cursor.fetchall()
+        cursor.close()
+        return rows
+
     def query_vector_column(
         self,
         query_vector: np.array,
@@ -800,6 +812,7 @@ class Database:
         use_index=True,
         top_k=5,
         probes=40,
+        explain=True,
     ) -> list[VectorQueryResult]:
         """
         Query the specified vector column in the database.
@@ -821,16 +834,6 @@ class Database:
         _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
 
         # Set the session resources
-        cursor = self.conn.cursor()
-        self.set_session_resources(cursor=cursor, optimize_for="query")
-
-        # Set index search parameters
-        if not use_index:
-            cursor.execute(f"SET enable_indexscan = off;")
-        else:
-            cursor.execute(f"SET enable_indexscan = on;")
-            cursor.execute("SET enable_seqscan = off;")
-            cursor.execute(f"SET ivfflat.probes={probes};")
 
         # Make sure pubdate set, in YYYY-MM-DD format
         if not pubdate:
@@ -842,24 +845,22 @@ class Database:
             except ValueError:
                 raise ValueError(f"Invalid pubdate format: {pubdate}. Use YYYY-MM-DD format.")
 
-        start = time()
-        cursor.execute(
-            f"""
-            WITH filtered_table AS (
-                SELECT *
+        with self.conn.cursor() as cursor:
+            cursor.execute(f"SET ivfflat.probes = {probes};")
+            cursor.execute(
+                f"""
+                SELECT
+                    id, doi, title, abstract, chunk, pubdate, {target_column} {_operator_} %s AS distance
                 FROM {table_name}
                 WHERE pubdate < '{pubdate}'
+                ORDER BY distance ASC
+                LIMIT {top_k};
+                """,
+                (query_vector,),
             )
-            SELECT id, doi, title, abstract, chunk, pubdate, {target_column} {_operator_} %s AS distance
-            FROM filtered_table
-            ORDER BY distance ASC
-            LIMIT {top_k};
-            """,
-            (query_vector,),
-        )
-        print(f"  Query execution time: {time() - start:.2f} seconds")
+            results = cursor.fetchall()
+            return [VectorQueryResult(*result) for result in results]
 
-        results = cursor.fetchall()
         if len(results) != top_k:
             print(f"WARNING: Expected {top_k} results, but got {len(results)}.")
             # print the arguments
@@ -869,7 +870,7 @@ class Database:
             print(f"pubdate: {pubdate}")
             print(f"use_index: {use_index}")
             print(f"top_k: {top_k}")
-            print(f"probes: {probes}") 
+            print(f"probes: {probes}")
 
         # Close up
         cursor.close()
@@ -885,63 +886,84 @@ class Database:
             target_column (str, optional): The name of the column whose indexes should be prewarmed.
                                            If None, all indexes on the table are prewarmed. Defaults to None.
         """
-        cursor = self.conn.cursor()
-        msg = f"Prewarming table {table_name}" + ".{target_column}" if target_column else ""
-        print(msg)
+        prewarmed_objects = []
 
-        """
-        this query fetches indexes on a given target_column:
-        SELECT i.relname AS index_name
-        FROM pg_index ix
-        JOIN pg_class i ON i.oid = ix.indexrelid
-        JOIN pg_class t ON t.oid = ix.indrelid
-        JOIN pg_attribute a ON a.attrelid = ix.indrelid
-        WHERE t.relname = 'library'
-        AND a.attname = 'bge_norm'
-        AND a.attnum = ANY(ix.indkey);
-        """
         try:
-            # Execute query to get all relevant objects
-            cursor.execute(
-                f"""
-                SELECT relname, pg_prewarm(oid) as blocks_loaded
-                FROM pg_class 
-                WHERE relname = '{table_name}' 
-                OR relname IN (
-                    SELECT indexname 
-                    FROM pg_indexes 
-                    WHERE tablename = '{table_name}'
-                );
-            """
-            )
+            with self.conn.cursor() as cursor:
+                # Prewarm pubdate index
+                cursor.execute("SELECT pg_prewarm('idx_pubdate');")
+                results = cursor.fetchall()
+                prewarmed_objects.append(
+                    ("idx_pubdate", results[0][0] if results and results[0][0] else 0)
+                )
 
-            # Fetch and display results
-            results = cursor.fetchall()
+                # Prewarm table
+                cursor.execute(f"SELECT pg_prewarm('{table_name}');")
+                results = cursor.fetchall()
+                prewarmed_objects.append(
+                    (table_name, results[0][0] if results and results[0][0] else 0)
+                )
 
+                # Prewarm index on target column (the vector column)
+                if target_column:
+                    cursor.execute(
+                        f"""
+                        SELECT i.relname AS index_name
+                        FROM pg_index ix
+                        JOIN pg_class i ON i.oid = ix.indexrelid
+                        JOIN pg_class t ON t.oid = ix.indrelid
+                        JOIN pg_attribute a ON a.attrelid = ix.indrelid
+                        WHERE t.relname = '{table_name}'
+                        AND a.attname = '{target_column}'
+                        AND a.attnum = ANY(ix.indkey);
+                        """
+                    )
+                    indexes = [row[0] for row in cursor.fetchall()]
+                    for index in indexes:
+                        cursor.execute(f"SELECT pg_prewarm('{index}');")
+                        results = cursor.fetchall()
+                        prewarmed_objects.append(
+                            (index, results[0][0] if results and results[0][0] else 0)
+                        )
+
+                    # Get sizes of prewarmed objects
+                    cursor.execute(
+                        f"""
+                        SELECT relname, pg_relation_size(oid) AS bytes
+                        FROM pg_class
+                        WHERE relname = '{table_name}'
+                        OR relname = ANY(%s);
+                        """,
+                        (indexes,),
+                    )
+                    size_data = {row[0]: row[1] for row in cursor.fetchall()}
+
+            # Print summary table
             print("\n" + "=" * 70)
-            print(f"{'Object Name':<30} {'Blocks Loaded':<15} {'Size (MB)':<15}")
+            print(f"{'Object Name':<30} {'Blocks Loaded':<15} {'Size (GB)':<15}")
             print("-" * 70)
 
             total_blocks = 0
-            for obj_name, blocks in results:
-                if blocks is None:
-                    blocks = 0
+            total_size_bytes = 0
+            for obj_name, blocks in prewarmed_objects:
+                blocks = blocks if blocks is not None else 0
                 total_blocks += blocks
-                # Convert blocks to MB (8KB per block / 1024 = MB)
-                size_mb = blocks * 8 / 1024
-                print(f"{obj_name:<30} {blocks:<15} {size_mb:.2f} MB")
 
-            total_size_mb = total_blocks * 8 / 1024
+                # Get size in GB
+                size_bytes = size_data.get(obj_name, 0)
+                total_size_bytes += size_bytes
+                size_gb = size_bytes / (1024 * 1024 * 1024)
+
+                print(f"{obj_name:<30} {blocks:<15} {size_gb:.4f} GB")
+
+            total_size_gb = total_size_bytes / (1024 * 1024 * 1024)
             print("-" * 70)
-            print(f"{'TOTAL':<30} {total_blocks:<15} {total_size_mb:.2f} MB")
+            print(f"{'TOTAL':<30} {total_blocks:<15} {total_size_gb:.4f} GB")
             print("=" * 70 + "\n")
 
-            return results
         except Exception as e:
             print(f"Error prewarming table {table_name}: {e}")
             raise e
-        finally:
-            cursor.close()
 
     def explain_analyze(
         self,
