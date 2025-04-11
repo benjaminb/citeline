@@ -1,7 +1,0 @@
-dataset: 'data/dataset/no_reviews/nontrivial.jsonl'
-table: 'astrobert'
-metric: 'vector_cosine_ops'
-embedder: 'adsabs/astroBERT'
-normalize: False
-enrichment: 'identity'
-batch_size: 256

@@ -1,7 +1,0 @@
-dataset: 'data/dataset/100/nontrivial.jsonl'
-table: 'lib'
-metric: 'vector_cosine_ops'
-embedder: 'BAAI/bge-small-en'
-normalize: True
-enrichment: 'identity'
-top_k: 50
