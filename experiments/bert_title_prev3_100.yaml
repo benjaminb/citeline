@@ -2,9 +2,9 @@ dataset: 'data/dataset/100/nontrivial.jsonl'
 table: 'lib'
 target_column: 'bert'
 metric: 'vector_cosine_ops'
-embedder: 'BAAI/bge-small-en'
+embedder: 'bert-base-uncased'
 normalize: True
-enrichment: 'bert-base-uncased'
+enrichment: 'add_title_prev_3'
 batch_size: 16
 top_k: 10_000
 probes: 50

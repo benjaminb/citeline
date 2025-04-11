@@ -1,4 +1,5 @@
 accelerate==1.1.1
+cohere==5.14.2
 dotenv
 jupyter=1.1.1
 matplotlib==3.10.0

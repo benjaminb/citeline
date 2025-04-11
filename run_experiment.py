@@ -105,6 +105,10 @@ def write_train_test_to_file(train: pd.DataFrame, test: pd.DataFrame, path: str)
 
 
 class Experiment:
+
+    # @classmethod
+    # def create_all_experiments(model_name, dataset, top_k, probes):
+
     metric_to_str = {"vector_l2_ops": "L2", "vector_cosine_ops": "cosine", "vector_ip_ops": "ip"}
 
     def __init__(
@@ -155,7 +159,9 @@ class Experiment:
         {0.5: 0.1785} means after only keeping query results with distance < 0.5, the average IoU score for
         all examples in the dataset is 0.1785
         """
-        self.averages = {}
+        self.average_scores = {}
+        self.best_top_ks = []
+        self.best_top_distances = []
 
     def _closest_neighbors(self, results, threshold: float):
         """
@@ -196,16 +202,42 @@ class Experiment:
         outfile = f"experiments/results/{filename_base}/roc_{filename_base}.png"
 
         plt.figure()
-        thresholds = sorted(self.averages.keys())
-        avg_scores = [self.averages[threshold] for threshold in thresholds]
+        thresholds = sorted(self.average_scores.keys())
+        avg_scores = [self.average_scores[threshold] for threshold in thresholds]
         plt.plot(thresholds, avg_scores, marker=".", linestyle="-", label="Average Jaccard Score")
         plt.xlabel(f"Distance Threshold (n = {len(self.dataset)})")
+
+        # Calculate average values
+        avg_best_distance = (
+            sum(self.best_top_distances) / len(self.best_top_distances)
+            if self.best_top_distances
+            else 0
+        )
+        avg_best_top_k = sum(self.best_top_ks) / len(self.best_top_ks) if self.best_top_ks else 0
+
+        # Add a text box with metrics in the top-right corner
+        textstr = (
+            f"Avg Best Distance: {avg_best_distance:.4f}\nAvg Best Top-k: {int(avg_best_top_k)}"
+        )
+        props = dict(boxstyle="round", facecolor="white", alpha=0.8, edgecolor="gray")
+
+        # Place the text box in the top right (coordinates are in axes space: 0,0 is bottom left, 1,1 is top right)
+        plt.text(
+            0.95,
+            0.95,
+            textstr,
+            transform=plt.gca().transAxes,
+            verticalalignment="top",
+            horizontalalignment="right",
+            bbox=props,
+        )
 
         plt.grid(True, which="major", linestyle="-", linewidth=0.8, alpha=0.7)
         plt.grid(True, which="minor", linestyle=":", linewidth=0.5, alpha=0.4)
         plt.gca().xaxis.set_minor_locator(MultipleLocator(0.05))
 
         plt.savefig(outfile)
+        plt.close()
 
     def _get_output_filename_base(self):
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -213,7 +245,13 @@ class Experiment:
 
     def _write_json_results(self, filename_base):
         # Prep results and outfile name
-        output = {"config": self.get_config_dict(), "averages": self.averages}
+        output = {
+            "config": self.get_config_dict(),
+            "averages": self.average_scores,
+            "avg_best_top_k": sum(self.best_top_ks) / len(self.best_top_ks),
+            "avg_best_distance_threshold": sum(self.best_top_distances)
+            / len(self.best_top_distances),
+        }
 
         # Create directory if it doesn't exist
         if not os.path.exists(f"experiments/results/{filename_base}"):
@@ -225,9 +263,10 @@ class Experiment:
 
     def _write_results(self):
         # Prep results and outfile name
-        metric_str = self.metric_to_str.get(self.metric)
+        # metric_str = self.metric_to_str.get(self.metric)
+
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename_base = f"{self.target_column}_{self.enrichment}_norm{self.normalize}_topk{self.top_k}_{current_time}"
+        filename_base = f"{self.target_column}_{self.enrichment}_norm{self.normalize}_n{len(self.dataset)}_topk{self.top_k}_{current_time}"
 
         # Create directory if it doesn't exist
         if not os.path.exists(f"experiments/results/{filename_base}"):
@@ -259,7 +298,6 @@ class Experiment:
             range(0, len(self.dataset), self.batch_size), desc="Batch number", leave=True
         ):
             if i % 50 == 0:
-                print(f"Batch {i+1}")
                 if self.device == "cuda":
                     torch.cuda.empty_cache()
                 elif self.device == "mps":
@@ -268,8 +306,7 @@ class Experiment:
             # Enrich and embed batch
             batch = self.dataset.iloc[i : i + self.batch_size]
             enriched_batch = self.enricher(batch)
-            print(f"Iteration {i+1}: Enriching batch of size {len(batch)}")
-            print(f"Enriched batch: {len(enriched_batch)}")
+            # print(f"Iteration {i+1}: Enriching batch of size {len(batch)}")
             embeddings = self.embedder(enriched_batch)
 
             # TODO: implement batch querying?
@@ -288,14 +325,27 @@ class Experiment:
                     probes=self.probes,
                 )
 
-                # Statistics
-                # for threshold in DISTANCE_THRESHOLDS:
-                #     predicted_chunks = self._closest_neighbors(results, threshold)
-                #     score = self._evaluate_prediction(example, predicted_chunks)
-                #     self.jaccard_scores[threshold].append(score)
+                # Compute IoU scores for each distance threshold, find best distance cutoff
+                best_score = 0
+                best_threshold = 0
+                for threshold in DISTANCE_THRESHOLDS:
+                    predicted_chunks = self._closest_neighbors(results, threshold)
+                    score = self._evaluate_prediction(example, predicted_chunks)
+                    if score > best_score:
+                        best_score = score
+                        best_threshold = threshold
+                    self.jaccard_scores[threshold].append(score)
+
+                # Find the top-k corresponding to best threshold
+                for i in range(len(results)):
+                    if results[i].distance > best_threshold:
+                        self.best_top_ks.append(i + 1)  # i is 0-indexed, top k is 1-indexed
+                        self.best_top_distances.append(best_threshold)
+                        break
+                self.best_top_ks.append(i)
 
         # Compute average scores and write out results
-        self.averages = {
+        self.average_scores = {
             round(threshold, 2): float(sum(scores) / len(scores))
             for threshold, scores in self.jaccard_scores.items()
         }

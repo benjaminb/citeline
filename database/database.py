@@ -558,81 +558,81 @@ class Database:
 
         print(f"Attempting to create column '{vector_column_name}' in table '{table_name}'...")
 
-        cursor = self.conn.cursor()
-        self.set_session_resources(cursor=cursor, optimize_for="insert")
+        self.set_session_resources(optimize_for="insert")
 
         query = (
             f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
         )
         print(f"Executing query: {query}")
-        cursor.execute(query)
-        self.conn.commit()
-        print("Column created (or it already existed)")
+        with self.conn.cursor() as cursor:
+            cursor.execute(query)
+            self.conn.commit()
+            print("Column created (or it already existed)")
 
-        # Get all text chunks to embed
-        start = time()
-        cursor.execute(f"SELECT id, doi, {target_column} FROM {table_name};")
-        rows = cursor.fetchall()
-        print(f"  SELECT execution time: {time() - start:.2f} seconds")
-        all_ids, all_dois, all_chunks = zip(*rows)
-        print(f"  Fetched {len(all_ids)} rows from the database")
-        del rows
-        cursor.close()
+            # Get all text chunks to embed
+            start = time()
+            cursor.execute(f"SELECT id, doi, {target_column} FROM {table_name};")
+            rows = cursor.fetchall()
+            print(f"  SELECT execution time: {time() - start:.2f} seconds")
+            all_ids, all_dois, all_chunks = zip(*rows)
+            print(f"  Fetched {len(all_ids)} rows from the database")
+            del rows
+            cursor.close()
 
-        # Enrich chunks if an enricher is provided
-        if enricher_name:
-            texts_with_dois = zip(all_chunks, all_dois)
-            all_chunks = enricher.enrich_batch(texts_with_dois=texts_with_dois)
+            # Enrich chunks if an enricher is provided
+            if enricher_name:
+                texts_with_dois = zip(all_chunks, all_dois)
+                all_chunks = enricher.enrich_batch(texts_with_dois=texts_with_dois)
 
-        # Create multiprocessing Queues
-        results_queue = multiprocessing.Queue()
-        progress_queue = multiprocessing.Queue()
-        total_batches = (len(all_chunks) + batch_size - 1) // batch_size
-        num_consumers = int(os.getenv("CPUS", max(1, os.cpu_count() - 1)))
+            # Create multiprocessing Queues
+            results_queue = multiprocessing.Queue()
+            progress_queue = multiprocessing.Queue()
+            total_batches = (len(all_chunks) + batch_size - 1) // batch_size
+            num_consumers = int(os.getenv("CPUS", max(1, os.cpu_count() - 1)))
 
-        # Start consumers
-        consumers = []
-        for _ in range(num_consumers):
-            p = multiprocessing.Process(
-                target=consumer_proc,
-                args=(
-                    self.db_params,
-                    results_queue,
-                    dim,
-                    table_name,
-                    vector_column_name,
-                    progress_queue,
-                ),
-            )
-            p.start()
-            consumers.append(p)
-
-        # Producer in the main process (required by CUDA, plus this is GPU bound)
-        print("Starting producer in the main process...")
-
-        # Monitor progress in the main process
-        with tqdm(total=total_batches, desc="Writing to database", leave=True) as progress_bar:
-            processed = 0
-            # while processed < total_batches:
-            for i in range(0, len(all_chunks), batch_size):
-                texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
-                embeddings = embedder(texts)
-                results_queue.put((ids, embeddings))
-                try:
-                    # Get progress updates from the queue
-                    progress = progress_queue.get(timeout=1)  # Adjust timeout as needed
-                    processed += progress
-                    progress_bar.update(progress)
-                except queue.Empty:
-                    pass
-
-            # Signal that the producer is done
+            # Start consumers
+            consumers = []
             for _ in range(num_consumers):
-                results_queue.put(None)
+                p = multiprocessing.Process(
+                    target=consumer_proc,
+                    args=(
+                        self.db_params,
+                        results_queue,
+                        dim,
+                        table_name,
+                        vector_column_name,
+                        progress_queue,
+                    ),
+                )
+                p.start()
+                consumers.append(p)
 
-        # Wait for all consumers to finish
-        for c in consumers:
-            c.join()
+            # Producer in the main process (required by CUDA, plus this is GPU bound)
+            print("Starting producer in the main process...")
+
+            # Monitor progress in the main process
+            with tqdm(total=total_batches, desc="Writing to database", leave=True) as progress_bar:
+                processed = 0
+                # while processed < total_batches:
+                for i in range(0, len(all_chunks), batch_size):
+                    texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
+                    embeddings = embedder(texts)
+                    results_queue.put((ids, embeddings))
+                    try:
+                        # Get progress updates from the queue
+                        progress = progress_queue.get(timeout=1)  # Adjust timeout as needed
+                        processed += progress
+                        progress_bar.update(progress)
+                    except queue.Empty:
+                        pass
+
+                # Signal that the producer is done
+                for _ in range(num_consumers):
+                    results_queue.put(None)
+
+            # Wait for all consumers to finish
+            for c in consumers:
+                c.join()
 
     def create_vector_table_enriched(
         self,

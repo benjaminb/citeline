@@ -59,9 +59,10 @@ class TextEnricher:
         "add_prev_3": enricher_factory([], prev_n=3),
         "add_abstract_prev_3": enricher_factory([("abstract", "Abstract:")], prev_n=3),
         "add_title_prev_3": enricher_factory([("title", "Title:")], prev_n=3),
-        # 'add_previous_7_sentences': add_previous_7_sentences,
-        # 'add_headers_and_previous_3_sentences': add_headers_and_previous_3_sentences,
-        # 'add_headers_and_previous_7_sentences': add_headers_previous_7_sentences
+        "add_title_abstract_prev3": enricher_factory(
+            [("title", "Title:"), ("abstract", "Abstract:")], prev_n=3
+        ),
+        "add_prev_7": enricher_factory([], prev_n=7),
     }
 
     def __init__(
