@@ -45,9 +45,6 @@ def argument_parser():
     # Create mutually exclusive operation groups
     operation_group = parser.add_mutually_exclusive_group(required=True)
     operation_group.add_argument("--run", action="store_true", help="run the experiment")
-    operation_group.add_argument(
-        "--run-threaded", action="store_true", help="run the experiment with threading"
-    )
     operation_group.add_argument("--build", action="store_true", help="build a dataset")
     operation_group.add_argument(
         "--write", action="store_true", help="write out train/test datasets"
@@ -293,68 +290,6 @@ class Experiment:
         }
 
     def run(self):
-        # Load the vector table into memory (shared_buffer) on db host
-        self.db.set_session_resources(optimize_for="query")
-        self.db.prewarm_table(self.table, target_column=self.target_column)
-
-        for i in tqdm(
-            range(0, len(self.dataset), self.batch_size), desc="Batch number", leave=True
-        ):
-            if i % 50 == 0:
-                if self.device == "cuda":
-                    torch.cuda.empty_cache()
-                elif self.device == "mps":
-                    torch.mps.empty_cache()
-
-            # Enrich and embed batch
-            batch = self.dataset.iloc[i : i + self.batch_size]
-            enriched_batch = self.enricher(batch)
-            # print(f"Iteration {i+1}: Enriching batch of size {len(batch)}")
-            embeddings = self.embedder(enriched_batch)
-
-            # TODO: implement batch querying?
-
-            for j in tqdm(range(len(batch)), desc="Querying database", leave=False):
-                example = batch.iloc[j]
-                this_embedding = embeddings[j]
-                results = self.db.query_vector_column(
-                    query_vector=this_embedding,
-                    table_name=self.table,
-                    target_column=self.target_column,
-                    metric=self.metric,
-                    pubdate=example["pubdate"],
-                    use_index=True,
-                    top_k=self.top_k,  # 2167399 total chunks
-                    probes=self.probes,
-                )
-
-                # Compute IoU scores for each distance threshold, find best distance cutoff
-                best_score = 0
-                best_threshold = 0
-                for threshold in DISTANCE_THRESHOLDS:
-                    predicted_chunks = self._closest_neighbors(results, threshold)
-                    score = self._evaluate_prediction(example, predicted_chunks)
-                    if score > best_score:
-                        best_score = score
-                        best_threshold = threshold
-                    self.jaccard_scores[threshold].append(score)
-
-                # Find the top-k corresponding to best threshold
-                for i in range(len(results)):
-                    if results[i].distance > best_threshold:
-                        self.best_top_ks.append(i + 1)  # i is 0-indexed, top k is 1-indexed
-                        self.best_top_distances.append(best_threshold)
-                        break
-                self.best_top_ks.append(i)
-
-        # Compute average scores and write out results
-        self.average_scores = {
-            round(threshold, 2): float(sum(scores) / len(scores))
-            for threshold, scores in self.jaccard_scores.items()
-        }
-        self._write_results()
-
-    def run_threaded(self):
         assert (
             "CPUS" in os.environ
         ), "CPUS environment variable not set. Please set it to the number of CPU cores available."
@@ -367,7 +302,6 @@ class Experiment:
             raise ValueError(
                 f"Invalid value for CPUS environment variable (CPUS={num_cpus}). Please set it to an integer."
             )
-
 
         self.db.set_session_resources(optimize_for="query")
         self.db.prewarm_table(self.table, target_column=self.target_column)
@@ -452,6 +386,7 @@ class Experiment:
         num_workers = max(1, num_cpus - 1)  # Adjust based on your system
         print(f"Starting {num_workers} database query workers")
 
+        start = time()
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             for _ in range(num_workers):
                 executor.submit(consumer)
@@ -518,6 +453,9 @@ class Experiment:
             round(threshold, 2): float(sum(scores) / len(scores))
             for threshold, scores in self.jaccard_scores.items()
         }
+
+        end = time()
+        print(f"Experiment computed in {end - start:.2f} seconds")
         self._write_results()
 
     def __str__(self):
@@ -571,29 +509,6 @@ def main():
         )
         print(experiment)
         experiment.run()
-        return
-
-    if args.run_threaded:
-        # Load expermient configs
-        with open(args.config, "r") as config_file:
-            config = yaml.safe_load(config_file)
-
-        # Set up and run experiment
-        experiment = Experiment(
-            device=device,
-            dataset_path=config["dataset"],
-            table=config.get("table", "lib"),
-            target_column=config.get("target_column", "chunk"),
-            metric=config.get("metric", "vector_cosine_ops"),
-            embedding_model_name=config["embedder"],
-            normalize=config["normalize"],
-            enrichment=config["enrichment"],
-            batch_size=config.get("batch_size", 16),
-            top_k=config.get("top_k"),
-            probes=config.get("probes"),
-        )
-        print(experiment)
-        experiment.run_threaded()
         return
 
     if args.write:

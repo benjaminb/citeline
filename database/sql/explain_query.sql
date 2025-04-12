@@ -9,7 +9,7 @@ SET effective_cache_size = '24GB';
 SELECT pg_prewarm('idx_bge_ivfflat');
 SElECT pg_prewarm('lib');
 EXPLAIN (ANALYZE, BUFFERS, VERBOSE) WITH random_vector AS (
-    SELECT bge,
+    SELECT bge
     FROM lib
     WHERE id = (
             SELECT FLOOR(RANDOM() * 2100000) + 1
