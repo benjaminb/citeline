@@ -2,13 +2,8 @@ import pysbd
 import re
 
 # Regex for inline citations
-# lastname = r"[A-Z][a-zA-ZÀ-ÖØ-öø-ÿ-]*(?:'[A-Z][a-zA-ZÀ-ÖØ-öø-ÿ-]*)?"
-# year = r"\(?(\s?\d{4}[a-z]?)\s?\)?"
-# name_sep = r"(?:,?\s?| and )"
-# INLINE_CITATION_REGEX = re.compile(
-#     fr"({lastname}(?:{name_sep}{lastname})*(?: et al.?\s?)?),?\s*{year}")
+
 lastname = r"[A-Z][a-zA-ZÀ-ÖØ-öø-ÿ-]*(?:'[A-Z][a-zA-ZÀ-ÖØ-öø-ÿ-]*)?"
-# year = r"\(?(\s?\d{4}[a-z]?)\s?\)?"
 year = r"\(?\s?(\d{4}[a-z]?)\s?\)?"
 name_sep = r",?\s| and | & "
 INLINE_CITATION_REGEX = re.compile(
