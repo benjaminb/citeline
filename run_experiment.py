@@ -45,6 +45,9 @@ def argument_parser():
     # Create mutually exclusive operation groups
     operation_group = parser.add_mutually_exclusive_group(required=True)
     operation_group.add_argument("--run", action="store_true", help="run the experiment")
+    operation_group.add_argument(
+        "--run-threaded", action="store_true", help="run the experiment with threading"
+    )
     operation_group.add_argument("--build", action="store_true", help="build a dataset")
     operation_group.add_argument(
         "--write", action="store_true", help="write out train/test datasets"
@@ -351,6 +354,172 @@ class Experiment:
         }
         self._write_results()
 
+    def run_threaded(self):
+        assert (
+            "CPUS" in os.environ
+        ), "CPUS environment variable not set. Please set it to the number of CPU cores available."
+        from concurrent.futures import ThreadPoolExecutor
+        import queue
+
+        try:
+            num_cpus = int(os.getenv("CPUS"))
+        except ValueError:
+            raise ValueError(
+                f"Invalid value for CPUS environment variable (CPUS={num_cpus}). Please set it to an integer."
+            )
+
+
+        self.db.set_session_resources(optimize_for="query")
+        self.db.prewarm_table(self.table, target_column=self.target_column)
+
+        # Create queues
+        task_queue = queue.Queue()
+        results_queue = queue.Queue()
+        progress_update_queue = queue.Queue()
+        num_completed = 0
+
+        # Consumer function to run database queries and statistics
+        def consumer():
+            # Create a dedicated database connection for this thread
+            thread_db = Database(path_to_env=".env")
+            thread_db.set_session_resources(optimize_for="query", verbose=False)
+
+            while True:
+                try:
+                    # Get task from queue
+                    task = task_queue.get()
+                    if task is None:  # Sentinel to signal completion
+                        task_queue.task_done()
+                        break
+
+                    example, embedding = task
+
+                    # Query the database
+                    results = thread_db.query_vector_column(
+                        query_vector=embedding,
+                        table_name=self.table,
+                        target_column=self.target_column,
+                        metric=self.metric,
+                        pubdate=example["pubdate"],
+                        use_index=True,
+                        top_k=self.top_k,
+                        probes=self.probes,
+                    )
+
+                    # Compute IoU scores for each distance threshold, find best distance cutoff
+                    best_score = 0
+                    best_threshold = 0
+                    threshold_scores = {}
+                    best_top_k = 0
+                    best_distance = 0
+
+                    for threshold in DISTANCE_THRESHOLDS:
+                        predicted_chunks = self._closest_neighbors(results, threshold)
+                        score = self._evaluate_prediction(example, predicted_chunks)
+                        threshold_scores[threshold] = score
+
+                        if score > best_score:
+                            best_score = score
+                            best_threshold = threshold
+
+                    # Find the top-k corresponding to best threshold
+                    for i in range(len(results)):
+                        if results[i].distance > best_threshold:
+                            best_top_k = i + 1  # i is 0-indexed, top k is 1-indexed
+                            best_distance = best_threshold
+                            break
+                    else:  # No break occurred
+                        best_top_k = len(results)
+
+                    progress_update_queue.put(True)
+
+                    # Put results in results queue
+                    results_queue.put(
+                        {
+                            "threshold_scores": threshold_scores,
+                            "best_top_k": best_top_k,
+                            "best_distance": best_distance,
+                        }
+                    )
+                    task_queue.task_done()
+
+                except Exception as e:
+                    print(f"Consumer thread error: {e}")
+                    progress_update_queue.put(False)
+                    task_queue.task_done()
+
+        # Start consumer threads
+        num_workers = max(1, num_cpus - 1)  # Adjust based on your system
+        print(f"Starting {num_workers} database query workers")
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            for _ in range(num_workers):
+                executor.submit(consumer)
+
+            # 3) Producer section in the main thread, with two progress bars:
+            dataset_size = len(self.dataset)
+            with tqdm(total=dataset_size, desc="Embedding", position=0) as enqueue_bar, tqdm(
+                total=dataset_size, desc="Querying", position=1
+            ) as process_bar:
+
+                # Producer enqueues tasks
+                for i in range(0, dataset_size, self.batch_size):
+                    # GPU cache clearing
+                    if i % 50 == 0 and self.device == "cuda":
+                        torch.cuda.empty_cache()
+                    elif i % 50 == 0 and self.device == "mps":
+                        torch.mps.empty_cache()
+
+                    # Enrich + embed
+                    batch = self.dataset.iloc[i : i + self.batch_size]
+                    enriched_batch = self.enricher(batch)
+                    embeddings = self.embedder(enriched_batch)
+
+                    # Enqueue tasks, update "Queueing tasks" bar
+                    for j in range(len(batch)):
+                        example = batch.iloc[j]
+                        embedding = embeddings[j]
+                        task_queue.put((example, embedding))
+                        enqueue_bar.update(1)
+
+                        while not progress_update_queue.empty():
+                            success = progress_update_queue.get()
+                            if success:
+                                process_bar.update(1)
+
+                        # Process completed results after EACH example is enqueued
+                        while not results_queue.empty():
+                            result = results_queue.get()
+                            # Update stats
+                            for threshold, score in result["threshold_scores"].items():
+                                self.jaccard_scores[threshold].append(score)
+                            self.best_top_ks.append(result["best_top_k"])
+                            self.best_top_distances.append(result["best_distance"])
+                            num_completed += 1
+
+                # 4) Signal consumers to stop, then wait for them
+                for _ in range(num_workers):
+                    task_queue.put(None)
+                task_queue.join()
+
+                # Process leftover results
+                while not results_queue.empty():
+                    result = results_queue.get()
+                    for threshold, score in result["threshold_scores"].items():
+                        self.jaccard_scores[threshold].append(score)
+                    self.best_top_ks.append(result["best_top_k"])
+                    self.best_top_distances.append(result["best_distance"])
+                    num_completed += 1
+                    if num_completed <= dataset_size:
+                        process_bar.update(1)
+
+        # 5) Final stats + writing results (unchanged)
+        self.average_scores = {
+            round(threshold, 2): float(sum(scores) / len(scores))
+            for threshold, scores in self.jaccard_scores.items()
+        }
+        self._write_results()
+
     def __str__(self):
         return (
             f"Experiment Configuration:\n"
@@ -390,7 +559,7 @@ def main():
         experiment = Experiment(
             device=device,
             dataset_path=config["dataset"],
-            table=config.get("table", "library"),
+            table=config.get("table", "lib"),
             target_column=config.get("target_column", "chunk"),
             metric=config.get("metric", "vector_cosine_ops"),
             embedding_model_name=config["embedder"],
@@ -402,6 +571,29 @@ def main():
         )
         print(experiment)
         experiment.run()
+        return
+
+    if args.run_threaded:
+        # Load expermient configs
+        with open(args.config, "r") as config_file:
+            config = yaml.safe_load(config_file)
+
+        # Set up and run experiment
+        experiment = Experiment(
+            device=device,
+            dataset_path=config["dataset"],
+            table=config.get("table", "lib"),
+            target_column=config.get("target_column", "chunk"),
+            metric=config.get("metric", "vector_cosine_ops"),
+            embedding_model_name=config["embedder"],
+            normalize=config["normalize"],
+            enrichment=config["enrichment"],
+            batch_size=config.get("batch_size", 16),
+            top_k=config.get("top_k"),
+            probes=config.get("probes"),
+        )
+        print(experiment)
+        experiment.run_threaded()
         return
 
     if args.write:
