@@ -193,6 +193,18 @@ class Experiment:
         score = self.__jaccard_similarity(unique_predicted_dois, citation_dois)
         return score
 
+    def _evaluate_prediction_dict(self, example, results):
+        unique_predicted_dois = set(result.doi for result in results)
+
+        # Change this line to use dict access instead of attribute access
+        if isinstance(example, dict):
+            citation_dois = set(doi for doi in example["citation_dois"])
+        else:  # Still a pandas Series
+            citation_dois = set(doi for doi in example.citation_dois)
+
+        score = self.__jaccard_similarity(unique_predicted_dois, citation_dois)
+        return score
+
     def __jaccard_similarity(self, set1, set2):
         intersection = np.longdouble(len(set1.intersection(set2)))
         union = np.longdouble(len(set1.union(set2)))
@@ -458,6 +470,205 @@ class Experiment:
         print(f"Experiment computed in {end - start:.2f} seconds")
         self._write_results()
 
+    def run_mp(self):
+        """
+        Run the experiment with the producer on the main thread and consumer threads:
+        - Producer (embedding generation) runs on the main thread with GPU
+        - Multiple consumer threads for database operations
+        """
+        from concurrent.futures import ThreadPoolExecutor
+        import queue
+        import threading
+
+        # Make sure we have CPU count available
+        assert "CPUS" in os.environ, "CPUS environment variable not set."
+        try:
+            num_cpus = int(os.getenv("CPUS"))
+        except ValueError:
+            raise ValueError(f"Invalid value for CPUS environment variable.")
+
+        # Set up database for efficient queries
+        self.db.set_session_resources(optimize_for="query", verbose=False)
+        self.db.prewarm_table(self.table, target_column=self.target_column)
+
+        # Create thread-safe queues for tasks and results
+        task_queue = queue.Queue(maxsize=20)
+        results_queue = queue.Queue()
+        progress_lock = threading.Lock()
+        query_bar_lock = threading.Lock()
+
+        # For tracking progress
+        dataset_size = len(self.dataset)
+        producer_progress = 0
+        consumer_progress = 0
+
+        # Thread-safe counter for consumers
+        progress_lock = threading.Lock()
+
+        def consumer_thread():
+            """Consumer thread that handles database queries and evaluations"""
+            nonlocal consumer_progress
+
+            # Create a dedicated database connection for this thread
+            thread_db = Database(path_to_env=".env")
+            thread_db.set_session_resources(optimize_for="query", verbose=False)
+
+            while True:
+                try:
+                    # Get task from queue
+                    task = task_queue.get(timeout=60)
+                    if task is None:  # Sentinel to signal completion
+                        task_queue.task_done()
+                        break
+
+                    example, embedding = task
+
+                    # Query the database
+                    results = thread_db.query_vector_column(
+                        query_vector=embedding,
+                        table_name=self.table,
+                        target_column=self.target_column,
+                        metric=self.metric,
+                        pubdate=example.get("pubdate"),
+                        use_index=True,
+                        top_k=self.top_k,
+                        probes=self.probes,
+                    )
+
+                    # Compute IoU scores for each threshold
+                    # [existing evaluation code]
+                    best_score = 0
+                    best_threshold = 0
+                    threshold_scores = {}
+                    best_top_k = 0
+                    best_distance = 0
+
+                    for threshold in DISTANCE_THRESHOLDS:
+                        predicted_chunks = self._closest_neighbors(results, threshold)
+                        score = self._evaluate_prediction_dict(example, predicted_chunks)
+                        threshold_scores[threshold] = score
+
+                        if score > best_score:
+                            best_score = score
+                            best_threshold = threshold
+
+                    # Find the top-k corresponding to best threshold
+                    for i in range(len(results)):
+                        if results[i].distance > best_threshold:
+                            best_top_k = i + 1  # i is 0-indexed, top k is 1-indexed
+                            best_distance = best_threshold
+                            break
+                    else:  # No break occurred
+                        best_top_k = len(results)
+
+                    # Put results in results queue
+                    results_queue.put(
+                        {
+                            "threshold_scores": threshold_scores,
+                            "best_top_k": best_top_k,
+                            "best_distance": best_distance,
+                        }
+                    )
+
+                    # Thread-safe update of progress counter
+                    with progress_lock, query_bar_lock:
+                        consumer_progress += 1
+                        query_bar.update(1)  # Update progress bar directly
+
+                    task_queue.task_done()
+
+                except queue.Empty:
+                    print("Consumer timeout waiting for tasks")
+                    break
+                except Exception as e:
+                    print(f"Consumer thread error: {str(e)}")
+                    task_queue.task_done()
+
+        # Start consumer threads
+        num_workers = max(1, num_cpus - 1)  # Leave one core for the main thread
+        print(f"Starting {num_workers} database query workers")
+
+        start = time()
+        consumer_threads = []
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            # Start consumer threads
+            for _ in range(num_workers):
+                thread = executor.submit(consumer_thread)
+                consumer_threads.append(thread)
+
+            # Create progress bars
+            with tqdm(total=dataset_size, desc="Embedding (GPU)", position=0) as embed_bar, tqdm(
+                total=dataset_size, desc="DB Queries", position=1
+            ) as query_bar:
+
+                # Main thread acts as the producer
+                for i in range(0, dataset_size, self.batch_size):
+                    # GPU cache clearing
+                    if i % 50 == 0 and self.device == "cuda":
+                        torch.cuda.empty_cache()
+                    elif i % 50 == 0 and self.device == "mps":
+                        torch.mps.empty_cache()
+
+                    # Get batch and generate embeddings
+                    batch = self.dataset.iloc[i : i + self.batch_size]
+                    enriched_batch = self.enricher(batch)
+                    embeddings = self.embedder(enriched_batch)
+
+                    # Add tasks to queue and update producer progress
+                    for j in range(len(batch)):
+                        example_dict = batch.iloc[j].to_dict()
+                        embedding = embeddings[j]
+                        task_queue.put((example_dict, embedding))
+
+                        # Update producer progress
+                        producer_progress += 1
+                        embed_bar.update(1)
+
+                    # Check and update consumer progress
+                    current_consumer = consumer_progress  # Read once to avoid race conditions
+                    if current_consumer > query_bar.n:
+                        query_bar.update(current_consumer - query_bar.n)
+
+                # Add sentinel values to signal consumer completion
+                for _ in range(num_workers):
+                    task_queue.put(None)
+
+                # Wait for all tasks to be processed
+                task_queue.join()
+
+                # Final consumer progress update
+                if consumer_progress > query_bar.n:
+                    query_bar.update(consumer_progress - query_bar.n)
+
+        # Process all results
+        jaccard_scores = {threshold: [] for threshold in DISTANCE_THRESHOLDS}
+        best_top_ks = []
+        best_top_distances = []
+
+        while not results_queue.empty():
+            result = results_queue.get()
+            # [process result]
+            for threshold, score in result["threshold_scores"].items():
+                jaccard_scores[threshold].append(score)
+            best_top_ks.append(result["best_top_k"])
+            best_top_distances.append(result["best_distance"])
+
+        # Store results
+        self.jaccard_scores = jaccard_scores
+        self.best_top_ks = best_top_ks
+        self.best_top_distances = best_top_distances
+
+        # Calculate final statistics
+        self.average_scores = {
+            round(threshold, 2): float(sum(scores) / len(scores))
+            for threshold, scores in self.jaccard_scores.items()
+        }
+
+        end = time()
+        print(f"Experiment computed in {end - start:.2f} seconds")
+        self._write_results()
+
     def __str__(self):
         return (
             f"Experiment Configuration:\n"
@@ -508,7 +719,9 @@ def main():
             probes=config.get("probes"),
         )
         print(experiment)
-        experiment.run()
+        # experiment.run()
+        experiment.run_mp()
+
         return
 
     if args.write:

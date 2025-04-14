@@ -1,8 +1,4 @@
-import multiprocessing
-
-# multiprocessing.set_start_method("spawn")
 import argparse
-import gc
 import json
 import numpy as np
 import os
@@ -11,7 +7,6 @@ import inspect
 
 import pandas as pd
 import psycopg
-import queue
 import sys
 import torch
 from typing import Literal
@@ -375,7 +370,9 @@ class Database:
         elif self.device == "mps":
             torch.mps.empty_cache()
 
-    def set_session_resources(self, optimize_for: Literal["query", "index", "insert"], verbose=True):
+    def set_session_resources(
+        self, optimize_for: Literal["query", "index", "insert"], verbose=True
+    ):
         """
         Set session resources for PostgreSQL
 
