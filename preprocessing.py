@@ -5,7 +5,6 @@ import os
 import pandas as pd
 import pysbd
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from multiprocessing import Pool
 
 """
 Originally, data was provided in various JSON files representing papers from various fields or journals.
@@ -38,14 +37,6 @@ REQUIRED_KEYS = {
 def argument_parser():
     parser = argparse.ArgumentParser(description="Preprocess datasets.")
 
-    # operation_group = parser.add_mutually_exclusive_group(required=True)
-    # operation_group.add_argument(
-    #     "--research", action="store_true", help="Process research datasets"
-    # )
-    # operation_group.add_argument(
-    #     "--reviews", action="store_true", help="Process review datasets"
-    # )
-    # Add a list argument 'datasets'
     parser.add_argument(
         "--infiles",
         nargs="+",

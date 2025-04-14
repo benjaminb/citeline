@@ -114,7 +114,6 @@ class TextEnricher:
 
     def __call__(self, examples: pd.DataFrame) -> list[str]:
         results = []
-        # for _, example in examples.iterrows():
         for example in examples.itertuples():
             # Get the full record for this example
             record = self.doi_to_record.get(example.source_doi)
