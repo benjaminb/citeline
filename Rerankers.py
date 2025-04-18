@@ -19,16 +19,16 @@ true_premise = "Furthermore, the abundance variations are correlated with the ty
 hypothesis = "The work of  suggests a fundamental distinction in elemental abundances between closed and open magnetic structures, matching the nominal photospheric and coronal abundances, respectively."
 
 
-def entailment_ranker(model_name: str):
+def entailment_ranker(model_name: str, device: str = "mps") -> callable:
     """
     Given an NLI model name that takes two strings as input and returns the entailment score at
     the output's index 1, returns the entailment function
     """
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSequenceClassification.from_pretrained(model_name)
+    model = AutoModelForSequenceClassification.from_pretrained(model_name).to(device)
 
     def entailment_fn(premise: str, hypothesis: str) -> float:
-        inputs = tokenizer(premise, hypothesis, return_tensors="pt", truncation=True)
+        inputs = tokenizer(premise, hypothesis, return_tensors="pt", truncation=True).to(device)
         with torch.no_grad():
             logits = model(**inputs).logits
         probs = F.softmax(logits, dim=1).squeeze().tolist()
