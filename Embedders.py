@@ -25,23 +25,26 @@ class SentenceTransformerEmbedder(Embedder):
         self.model = SentenceTransformer(
             model_name, trust_remote_code=True, device=device)
         self.model.eval()
-        # Found this to be much slower than using a single GPU
-        # if device == 'cuda' and torch.cuda.device_count() > 1:
-        #     self.pool = self.model.start_multi_process_pool()
-        #     def encode(docs):
-        #         embeddings = self.model.encode_multi_process(docs,
-        #                                                      pool=self.pool,
-        #                                                      normalize_embeddings=self.normalize,
-        #                                                      show_progress_bar=True)
-        #         return embeddings
-        #     self.encode = encode
-
-        # else:
-        self.encode = lambda docs: self.model.encode(
-            docs,
-            convert_to_numpy=True,
-            normalize_embeddings=self.normalize,
-            show_progress_bar=False)
+        
+        # Attempted self.model.encode_multi_process but found to be much slower than using single GPU
+        def encode(docs):
+            """
+            Create the embedding function in a no_grad context
+            """
+            with torch.no_grad():
+                embeddings = self.model.encode(
+                    docs,
+                    convert_to_numpy=True,
+                    normalize_embeddings=self.normalize,
+                    show_progress_bar=False)
+            return embeddings
+        self.encode = encode
+        
+        # self.encode = lambda docs: self.model.encode(
+        #     docs,
+        #     convert_to_numpy=True,
+        #     normalize_embeddings=self.normalize,
+        #     show_progress_bar=False)
         self.dim = self.model.get_sentence_embedding_dimension()
 
     def __call__(self, docs):
@@ -81,7 +84,9 @@ class EncoderEmbedder(Embedder):
         if self.max_length and inputs['input_ids'].shape[1] > self.max_length:
             print(
                 f"Warning: input length {inputs['input_ids'].shape[1]} exceeds max_length {self.max_length}")
-        outputs = self.model(**inputs)
+            
+        with torch.no_grad():
+            outputs = self.model(**inputs)
         embeddings = outputs.last_hidden_state[:, 0, :]
 
         if self.normalize:
