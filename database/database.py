@@ -300,6 +300,7 @@ def record_to_chunked_records(record, max_length, overlap):
 class Database:
     EMBEDDER_SHORTNAMES = {
         "BAAI/bge-small-en": "bge",
+        "BAAI/bge-large-en-v1.5": "bge_large",
         "bert-base-uncased": "bert",
         "adsabs/astroBERT": "astrobert",
         "nasa-impact/nasa-ibm-st.38m": "nasa",
