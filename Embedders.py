@@ -93,8 +93,9 @@ class EncoderEmbedder(Embedder):
 EMBEDDING_CLASS = {
     "adsabs/astroBERT": EncoderEmbedder,
     "BAAI/bge-small-en": SentenceTransformerEmbedder,
+    "BAAI/bge-large-en-v1.5": SentenceTransformerEmbedder,
     "bert-base-uncased": EncoderEmbedder,
-    "nasa-impact/nasa-ibm-st.38m": SentenceTransformerEmbedder
+    "nasa-impact/nasa-ibm-st.38m": SentenceTransformerEmbedder,
     # "nvidia/NV-Embed-v2": SentenceTransformerEmbedder
 }
 
