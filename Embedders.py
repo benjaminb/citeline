@@ -44,7 +44,6 @@ class SentenceTransformerEmbedder(Embedder):
                     return self.model.encode_multi_process(
                         docs,
                         pool=self.pool,
-                        convert_to_numpy=True,
                         normalize_embeddings=self.normalize,
                         show_progress_bar=False,
                     )
