@@ -651,7 +651,7 @@ class Database:
             # Start worker threads
             for _ in range(num_workers):
                 executor.submit(consumer_thread)
-            print("Worker threads started")
+            # print("Worker threads started")
             # Producer in the main thread (GPU operations)
             with tqdm(
                 total=total_batches, desc="Embedding and writing to database"
@@ -667,13 +667,13 @@ class Database:
                     embeddings = embedder(texts)
 
                     # Add batch to task queue
-                    print("putting batch in queue", flush=True)
+                    # print("putting batch in queue", flush=True)
                     task_queue.put((ids, embeddings))
 
                     # Check progress queue for updates
                     try:
                         while not progress_queue.empty():
-                            print("getting progress from queue", flush=True)
+                            # print("getting progress from queue", flush=True)
                             progress = progress_queue.get_nowait()
                             processed += progress
                             progress_bar.update(progress)
