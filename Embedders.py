@@ -40,7 +40,6 @@ class SentenceTransformerEmbedder(Embedder):
                 Create the embedding function in a no_grad context
                 """
                 with torch.no_grad():
-                    print("Encoding with multi-process pool")
                     return self.model.encode_multi_process(
                         docs,
                         pool=self.pool,
