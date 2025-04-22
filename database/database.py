@@ -667,11 +667,13 @@ class Database:
                     embeddings = embedder(texts)
 
                     # Add batch to task queue
+                    print("putting batch in queue", flush=True)
                     task_queue.put((ids, embeddings))
 
                     # Check progress queue for updates
                     try:
                         while not progress_queue.empty():
+                            print("getting progress from queue", flush=True)
                             progress = progress_queue.get_nowait()
                             processed += progress
                             progress_bar.update(progress)
