@@ -651,7 +651,7 @@ class Database:
             # Start worker threads
             for _ in range(num_workers):
                 executor.submit(consumer_thread)
-
+            print("Worker threads started")
             # Producer in the main thread (GPU operations)
             with tqdm(
                 total=total_batches, desc="Embedding and writing to database"
