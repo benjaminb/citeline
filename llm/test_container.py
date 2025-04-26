@@ -3,10 +3,10 @@ import requests
 import requests
 import json
 
-url = "http://localhost:11435/api/generate"
+url = "http://localhost:11434/api/generate"
 data = {
     "model": "llama3.2:1b",  # Replace with your model name
-    "prompt": "Explain quantum physics in simple terms",
+    "prompt": "Write me a story about elves meeting an AI",
     "stream": False,  # Set True for streaming responses
 }
 
