@@ -1,6 +1,6 @@
 import pysbd
 import re
-
+import requests
 # Regex for inline citations
 
 lastname = r"[A-Z][a-zA-ZÀ-ÖØ-öø-ÿ-]*(?:'[A-Z][a-zA-ZÀ-ÖØ-öø-ÿ-]*)?"
@@ -14,6 +14,11 @@ def get_inline_citations(text: str) -> list[tuple[str, str]]:
     matches = [match.groups()
                for match in INLINE_CITATION_REGEX.finditer(text)]
     return [(author, year.strip()) for author, year in matches]
+
+def get_inline_citation_llm(text: str) -> list[tuple[str, str]]:
+    # TODO
+    pass
+
 
 
 def segment_sentences(text: str) -> list[str]:

@@ -35,19 +35,4 @@ COPY --from=builder /root/.ollama /root/.ollama
 # Expose the default Ollama port
 EXPOSE 11434
 
-# The default entrypoint for ollama/ollama image is to run 'ollama serve'.
-# If you override ENTRYPOINT/CMD, make sure it runs 'ollama serve'.
-# For example, if you still need your entrypoint script for other reasons,
-# modify entrypoint.sh to ONLY run 'ollama serve'.
-# COPY entrypoint.sh /entrypoint.sh
-# RUN chmod +x /entrypoint.sh
-# ENTRYPOINT [ "/entrypoint.sh" ] 
-# If you don't need a custom script, you can rely on the base image's default
-# or explicitly set it:
 ENTRYPOINT [ "ollama", "serve" ]
-# COPY entrypoint.sh /entrypoint.sh
-# RUN chmod +x /entrypoint.sh
-
-# ENTRYPOINT [ "/entrypoint.sh" ]
-
-# EXPOSE 11434
