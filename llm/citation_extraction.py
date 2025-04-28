@@ -2,7 +2,7 @@ from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
 import json
 
-MODEL_NAME = "llama3:70b"
+MODEL_NAME = "llama3.3:latest"  # Replace with your model name
 
 LLM_OUTPUT_FORMAT = {
     "type": "array",
