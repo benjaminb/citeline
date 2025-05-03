@@ -659,14 +659,8 @@ class Database:
 
                 # Process batches
                 for i in range(0, len(all_chunks), batch_size):
-                    # Get batch
                     texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
-
-                    # Generate embeddings (GPU-bound operation)
                     embeddings = embedder(texts)
-
-                    # Add batch to task queue
-                    # print("putting batch in queue", flush=True)
                     task_queue.put((ids, embeddings))
 
                     # Check progress queue for updates
@@ -679,11 +673,9 @@ class Database:
                     except queue.Empty:
                         pass
 
-                # Add sentinel values to signal workers to exit
+                # Finishing up: add sentinel values to signal workers to exit
                 for _ in range(num_workers):
                     task_queue.put(None)
-
-                # Wait for all tasks to be processed
                 task_queue.join()
 
                 # Final progress update
