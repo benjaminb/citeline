@@ -2,6 +2,7 @@ accelerate==1.1.1
 asyncpg==0.30.0
 cohere==5.14.2
 dotenv
+ipykernel==6.29.5
 jupyter=1.1.1
 matplotlib==3.10.0
 pandas==2.2.3
@@ -10,7 +11,8 @@ pgvector
 torch==2.5.1
 sentence-transformers==3.3.1
 semantic_text_splitter==0.22.0
+semeval
 pyyaml
 
 langchain
-lanchchain-ollama
+langchain-ollama
