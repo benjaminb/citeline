@@ -12,6 +12,9 @@
 ./*.csv
 temp_*
 
+# Allow any files (including .txt) in the llm/ directory
+!llm/*.txt
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
