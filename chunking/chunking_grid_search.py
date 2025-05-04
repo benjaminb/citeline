@@ -7,54 +7,30 @@ from segeval import boundary_similarity
 from LengthPreservingChunker import LengthPreservingChunker
 from langchain_huggingface import HuggingFaceEmbeddings
 import torch
-import re
+
+BREAKPOINTS = {
+    "percentile": [n for n in range(1, 100, 3)],
+    "gradient": [n for n in range(1, 100, 3)],
+    "standard_deviation": [0.1 * n for n in range(1, 40)],
+    "interquartile": [0.1 * n for n in range(1, 40)],
+}
+MIN_CHUNK_SIZES = [50, 100]
 
 """
 LOAD DATA
 """
-df = pd.read_json("../data/preprocessed/research.jsonl", lines=True, nrows=1000)
-np.random.seed(1)
-sample_df = df.sample(3)
-
-"""
-NOTE: during data exploration we discovered that the first sample paper had an error in its body:
-the body text was concatenated with itself so every sentence appeared twice. Here we truncate it
-to make its splits more accurate to what we would want in a real-world scenario.
-"""
-# Get the actual index label of the first row in the sample
-row_index = sample_df.index[0]
-sample_df.loc[row_index, "body"] = sample_df.loc[row_index, "body"][:86620]  # Use .loc for setting
-print(len(sample_df.loc[row_index, "body"]))  # Verify using .loc as well
-
-"""
-IMPORT FIRST PARAGRAPH SENTENCES
-"""
-from first_paragraph_sentences import ukirt, lacey, kobayashi
 
 
 def get_truncated_sentences(lst: list[str], max_length: int = 75) -> list:
     return [sentence[:max_length] for sentence in lst]
 
 
-first_paragraph_sentences = [
-    get_truncated_sentences(ukirt),
-    get_truncated_sentences(lacey),
-    get_truncated_sentences(kobayashi),
-]
-
-"""
-ENSURE SENTENCES ARE 'ACCURATE'
-Meaning: all the 'first sentences' are indeed present in the body of the paper
-         all the sentences appear in the same order as they do in the body
-"""
-
-
-def are_sentences_in_body(idx) -> bool:
+def are_sentences_in_body(first_paragraph_sentences, df, idx) -> bool:
     """
     Check if all sentences in the list are present in the body of the text.
     """
     sentences = first_paragraph_sentences[idx]
-    paper_body = sample_df.iloc[idx]["body"]
+    paper_body = df.iloc[idx]["body"]
     all_there = True
     for i, sentence in enumerate(sentences):
         if sentence not in paper_body:
@@ -63,51 +39,89 @@ def are_sentences_in_body(idx) -> bool:
     return all_there
 
 
-for i in range(3):
-    assert are_sentences_in_body(i), f"Paper {i} has missing sentences in the body."
-print("All sentences are present in the body of the text.")
+def get_sample_df():
+    df = pd.read_json("../data/preprocessed/research.jsonl", lines=True, nrows=1000)
+    np.random.seed(1)
+    sample_df = df.sample(3)
+    return sample_df
 
-sentence_indices = []
-for i in range(3):
-    sentences = first_paragraph_sentences[i]
-    paper_body = sample_df.iloc[i]["body"]
-    sentence_indices.append([paper_body.index(sentence) for sentence in sentences])
 
-# Confirm the sentences are all in order
-all_in_order = True
-for i in range(3):
-    sent_idx_list = sentence_indices[i]
-    for j in range(1, len(sent_idx_list)):
-        if sent_idx_list[j] <= sent_idx_list[j - 1]:
-            print(f"Paper {i} Sentence {j} is out of order in paper {i}: {sent_idx_list}")
-            print(f"  Index of sentence {j}: {sent_idx_list[j]}")
-            print(f"  Index of sentence {j-1}: {sent_idx_list[j-1]}")
-            all_in_order = False
+def get_reference_lengths(df):
+    """
+    NOTE: during data exploration we discovered that the first sample paper had an error in its body:
+    the body text was concatenated with itself so every sentence appeared twice. Here we truncate it
+    to make its splits more accurate to what we would want in a real-world scenario.
+    """
+    # Get the actual index label of the first row in the sample
+    row_index = df.index[0]
+    df.loc[row_index, "body"] = df.loc[row_index, "body"][:86620]  # Use .loc for setting
+    print(len(df.loc[row_index, "body"]))  # Verify using .loc as well
 
-assert all_in_order, "Some sentences are out of order in the body of the text."
-print("All sentences are in order.")
+    """
+    IMPORT FIRST PARAGRAPH SENTENCES
+    """
+    from first_paragraph_sentences import ukirt, lacey, kobayashi
 
-"""
-FORM THE REFERENCE LENGTHS LISTS
-This is used as the reference for the boundary similarity computations
-"""
-reference_lengths = []
-for i in range(3):
-    # Compute all the paragraph lengths
-    idx_list = sentence_indices[i]
-    paragraph_lengths = [idx_list[j] - idx_list[j - 1] for j in range(1, len(idx_list))]
+    first_paragraph_sentences = [
+        get_truncated_sentences(ukirt),
+        get_truncated_sentences(lacey),
+        get_truncated_sentences(kobayashi),
+    ]
 
-    # Add the last paragraph length
-    paragraph_lengths.append(len(sample_df.iloc[i]["body"]) - idx_list[-1])
-    reference_lengths.append(paragraph_lengths)
+    """
+    ENSURE SENTENCES ARE 'ACCURATE'
+    Meaning: all the 'first sentences' are indeed present in the body of the paper
+            all the sentences appear in the same order as they do in the body
+    """
+    for i in range(3):
+        assert are_sentences_in_body(
+            first_paragraph_sentences=first_paragraph_sentences, df=df, idx=i
+        ), f"Paper {i} has missing sentences in the body."
+    print("All sentences are present in the body of the text.")
 
-for i in range(3):
-    print(
-        f"Paper {i} min length: {min(reference_lengths[i])}, max length: {max(reference_lengths[i])}, mean length: {np.mean(reference_lengths[i])}, std: {np.std(reference_lengths[i])}"
-    )
-    assert sum(reference_lengths[i]) == len(
-        sample_df.iloc[i]["body"]
-    ), f"Paper {i} length mismatch: {sum(reference_lengths[i])} != {len(sample_df.iloc[i]['body'])}"
+    sentence_indices = []
+    for i in range(3):
+        sentences = first_paragraph_sentences[i]
+        paper_body = df.iloc[i]["body"]
+        sentence_indices.append([paper_body.index(sentence) for sentence in sentences])
+
+    # Confirm the sentences are all in order
+    all_in_order = True
+    for i in range(3):
+        sent_idx_list = sentence_indices[i]
+        for j in range(1, len(sent_idx_list)):
+            if sent_idx_list[j] <= sent_idx_list[j - 1]:
+                print(f"Paper {i} Sentence {j} is out of order in paper {i}: {sent_idx_list}")
+                print(f"  Index of sentence {j}: {sent_idx_list[j]}")
+                print(f"  Index of sentence {j-1}: {sent_idx_list[j-1]}")
+                all_in_order = False
+
+    assert all_in_order, "Some sentences are out of order in the body of the text."
+    print("All sentences are in order.")
+
+    """
+    FORM THE REFERENCE LENGTHS LISTS
+    This is used as the reference for the boundary similarity computations
+    """
+    reference_lengths = []
+    for i in range(3):
+        # Compute all the paragraph lengths
+        idx_list = sentence_indices[i]
+        paragraph_lengths = [idx_list[j] - idx_list[j - 1] for j in range(1, len(idx_list))]
+
+        # Add the last paragraph length
+        paragraph_lengths.append(len(df.iloc[i]["body"]) - idx_list[-1])
+        reference_lengths.append(paragraph_lengths)
+
+    for i in range(3):
+        print(
+            f"Paper {i} min length: {min(reference_lengths[i])}, max length: {max(reference_lengths[i])}, mean length: {np.mean(reference_lengths[i])}, std: {np.std(reference_lengths[i])}"
+        )
+        assert sum(reference_lengths[i]) == len(
+            df.iloc[i]["body"]
+        ), f"Paper {i} length mismatch: {sum(reference_lengths[i])} != {len(df.iloc[i]['body'])}"
+
+    return reference_lengths
 
 
 def evaluate_params(
@@ -115,6 +129,8 @@ def evaluate_params(
     breakpoint_threshold_type: str,
     breakpoint_threshold_amount: float,
     min_chunk_size: int,
+    df: pd.DataFrame,
+    reference_lengths: list[int],
 ):
     """
     Instantiates a chunker with the given parameters and evaluates its boundary similarity on the reference chunks
@@ -141,7 +157,7 @@ def evaluate_params(
     scores = []
     for i in range(3):
         # Get the predicted chunks
-        chunks = chunker.split_text(sample_df.iloc[i]["body"])
+        chunks = chunker.split_text(df.iloc[i]["body"])
         chunk_lengths = [len(chunk) for chunk in chunks]
 
         # Compute the boundary similarity score
@@ -161,15 +177,6 @@ def evaluate_params(
     return average_score
 
 
-breakpoints = {
-    "percentile": [n for n in range(1, 100, 3)],
-    "gradient": [n for n in range(1, 100, 3)],
-    "standard_deviation": [0.1 * n for n in range(1, 40)],
-    "interquartile": [0.1 * n for n in range(1, 40)],
-}
-MIN_CHUNK_SIZES = [50, 100]
-
-
 def main():
     parser = argparse.ArgumentParser(description="Evaluate chunker parameters.")
     parser.add_argument(
@@ -180,9 +187,12 @@ def main():
     args = parser.parse_args()
     model = args.model_name
 
+    df = get_sample_df()
+    reference_lengths = get_reference_lengths(df)
+
     # Generate configs for grid search
     all_configs_kwargs = []
-    for bp_type, bp_amounts in breakpoints.items():
+    for bp_type, bp_amounts in BREAKPOINTS.items():
         for bp_amount in bp_amounts:
             for chunk_size in MIN_CHUNK_SIZES:
                 # Create the kwargs dictionary
@@ -191,6 +201,8 @@ def main():
                     "breakpoint_threshold_type": bp_type,
                     "breakpoint_threshold_amount": bp_amount,
                     "min_chunk_size": chunk_size,
+                    "df": df,
+                    "reference_lengths": reference_lengths,
                 }
                 all_configs_kwargs.append(config_kwargs)
 
@@ -199,7 +211,15 @@ def main():
 
     for config in all_configs_kwargs:
         score = evaluate_params(**config)
-        print(f"Config: {config}, Score: {score}")
+        print_config = {
+            "model_name": config["model_name"],
+            "breakpoint_threshold_type": config["breakpoint_threshold_type"],
+            "breakpoint_threshold_amount": config["breakpoint_threshold_amount"],
+            "min_chunk_size": config["min_chunk_size"],
+        }
+        print(
+            f"[{config['model_name']}]({config['breakpoint_threshold_type']}:{config['breakpoint_threshold_amount']}|min={config['min_chunk_size']}) Avg Score: {score}"
+        )
     print("All configurations evaluated.")
 
 

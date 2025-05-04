@@ -1,4 +1,5 @@
 from langchain_experimental.text_splitter import SemanticChunker
+import re
 
 
 class LengthPreservingChunker(SemanticChunker):
