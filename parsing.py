@@ -1,6 +1,5 @@
 import pysbd
 import re
-import requests
 # Regex for inline citations
 
 lastname = r"[A-Z][a-zA-ZÀ-ÖØ-öø-ÿ-]*(?:'[A-Z][a-zA-ZÀ-ÖØ-öø-ÿ-]*)?"
