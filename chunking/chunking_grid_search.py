@@ -16,9 +16,15 @@ BREAKPOINTS = {
 }
 MIN_CHUNK_SIZES = [50, 100]
 
-"""
-LOAD DATA
-"""
+# If chunker_scores.csv doesn't exist, create it with header row
+try:
+    with open("chunker_scores.csv", "r") as f:
+        pass
+except FileNotFoundError:
+    with open("chunker_scores.csv", "w") as f:
+        f.write(
+            "model_name,breakpoint_threshold_type,breakpoint_threshold_amount,min_chunk_size,average_score,scores\n"
+        )
 
 
 def get_truncated_sentences(lst: list[str], max_length: int = 75) -> list:
