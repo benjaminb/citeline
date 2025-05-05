@@ -1,8 +1,27 @@
 # Citeline
 
-The goal of this research project is to provide a tool to researchers to help resolve relevant citations when writing research papers. We are currently building a model that takes a sentence (plus additional context, possibly) as input, and returns the citations needed for that sentence.
+## Project Overview
 
-Primarily the model consists of a vector database implemented in PostgreSQL with the `pgvector` extension, plus a framework for using additional metrics besides vector distance to rerank / fuse ranks.
+Citeline is a research tool designed to help researchers automatically find and resolve relevant citations when writing academic papers. The system analyzes input sentences (and their context) to recommend appropriate citations from a large corpus of research papers.
+
+The project focuses on astrophysics research, using approximately 50,000 research papers from the Astrophysics Data System (ADS) and 3,000 review papers as our dataset. Our approach leverages:
+
+- Vector embeddings to capture semantic relationships between text
+- PostgreSQL with the `pgvector` extension for efficient similarity search
+- Advanced reranking and rank fusion techniques beyond basic vector distance
+- LLM-based citation extraction for improved accuracy
+- Custom text segmentation to optimize document chunking
+
+## How It Works
+
+1. We extract sentences and their citations from review papers as our ground truth
+2. Research papers are chunked into semantically meaningful segments
+3. These chunks are embedded into vector space
+4. When a user inputs a sentence needing citations, we:
+   - Embed the input sentence
+   - Find the most semantically similar chunks using vector similarity
+   - Apply additional metrics to refine the results
+   - Return the most relevant citations
 
 ## Preprocessing
 
@@ -41,6 +60,22 @@ We are currently grid searching over multiple embedders, metrics, and other para
 
 ## Database
 
-One main table, 'library'
+One main table, '`lib`'
 Rows contain id, doi, title, abstract, chunk (of body text)
 This is denormalized a bit, to save on joins during query time
+
+## Current Status and Next Steps
+
+- Completed citation extraction from review papers
+- Optimized chunking strategy for research papers
+- Implementing vector database with PostgreSQL and pgvector
+- Working on advanced reranking strategies
+- Evaluating performance on test sentences from review papers
+
+## Technology Stack
+
+- Python for data processing and model development
+- PostgreSQL with pgvector for vector similarity search
+- Langchain for document processing
+- Open-source LLMs (via Ollama) for citation extraction
+- Custom evaluation metrics for optimizing citation accuracy
