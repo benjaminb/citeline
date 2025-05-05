@@ -14,6 +14,6 @@ echo "which python: $(which python)"
 cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline
 git pull
 cd chunking
-python chunking_grid_search.py --model_name="nasa-impact/nasa-ibm-st.38m"
+python chunking_grid_search.py --model_name="BAAI/bge-small-en"
 timestamp=$(date +"%Y%m%d_%H%M%S")
 echo "ended at: $timestamp"
