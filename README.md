@@ -64,13 +64,17 @@ One main table, '`lib`'
 Rows contain id, doi, title, abstract, chunk (of body text)
 This is denormalized a bit, to save on joins during query time
 
-## Current Status and Next Steps
+## Current Status
 
-- Completed citation extraction from review papers
-- Optimized chunking strategy for research papers
-- Implementing vector database with PostgreSQL and pgvector
+- Preprocessing code complete; loads raw json records and processes them into jsonl with body sentences segmented
+- Implemented vector database with PostgreSQL and pgvector
+
+## Next Steps
+
+- Optimize chunking strategy for research papers
+- Complete citation extraction from review papers
 - Working on advanced reranking strategies
-- Evaluating performance on test sentences from review papers
+- Refactor code to support rank fusion (multiple similarity metrics)
 
 ## Technology Stack
 
