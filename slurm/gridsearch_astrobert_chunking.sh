@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-#SBATCH --job-name=gridsearch_bert_chunking
+#SBATCH --job-name=gridsearch_astrobert_chunking
 #SBATCH -p gpu # partition (queue)
 #SBATCH -c 2 # number of cores
 #SBATCH --gres=gpu:1 # number of GPUs
