@@ -18,8 +18,8 @@ RUN \
     pid=$! && \
     echo "Waiting for Ollama server to start..." && \
     sleep 10 && \
-    echo "Pulling llama3.2:1b model..." && \
-    ollama pull llama3.2:1b && \
+    echo "mistral-nemo model..." && \
+    ollama pull mistral-nemo && \
     echo "Model pull complete. Stopping server..." && \
     kill $pid && \
     # Wait for the process to exit, ignore error if already stopped
