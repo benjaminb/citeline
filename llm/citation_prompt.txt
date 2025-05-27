@@ -1,0 +1,86 @@
+Task:
+1. Extract all inline author–year citations (4-digit years only) into a list of [author string, year string].
+2. Then, using that _same_ list, rewrite the sentence so that _every_ one of those citations is gone and replaced by a single "[REF]" marker. Note: even if you extracted a citation, you must remove it from the sentence. The final sentence must contain no parentheses with years.
+
+- Each citation becomes a [string, string] array containing [author name(s), year]
+- NOTE: Author attributions and years can come in all types of formats and spacing; if it seems like an inline citation, include it according to the rules and examples
+- If there are no citations in the text, output []
+- Write out the author attribution as it appears, FOLLOW THE EXAMPLES BELOW
+- ONLY include citations with a 4-digit year. 
+- DO NOT include citations "submitted", or "in preparation", or without a year
+- DO NOT include any introductory text, explanations, or anything before or after the array
+
+Citation formats to catch:
+- Any sequence that looks like a capitalized name (optionally followed by ‘et al.’ or ‘and Coauthor’) immediately followed by a four-digit year (with optional letter suffixes) inside parentheses
+- Parenthetical: (Smith 1994), (Smith and Jones 1994), (Smith et al. 1994)
+- Multiple: (Smith 1994; Jones 1995, Brown 2000a,b)
+- With "submitted" or "in prep": (Kopp et al. submitted), (Doe 2020 in preparation)
+- Narrative: Smith (1994), Smith and Jones (1994), Smith et al. (1994)
+- Loose year mentions in parentheses: (1994), (2000a), (2000a,b)
+- Inconsistent whitespace: ( Smith 1994), ( Smith 1994 ), Smith (1994 )
+
+Examples:
+"""
+Sentence: "These are minor species, with abundances of 1.5 10 12 , 1.7 10 9 , and 7 10 8 kg N, respectively ( Ussiri and Lal, 2013 )."
+Output: {
+    citations: [["Ussiri and Lal", "2013"]],
+    sentence: "These are minor species, with abundances of 1.5 10 12 , 1.7 10 9 , and 7 10 8 kg N, respectively [REF]"
+}
+
+Sentence: "Like Caffau et al. (2008a) , we have similar findings."
+Output: {
+    citations: [["Caffau et al.", "2008"]],
+    sentence: "Like [REF] , we have similar findings."
+}
+
+
+Sentence: "Methods for mixing below the convection zone are well understood ( Brun, Turck-Chièze Zahn 1999 , Charbonnel Talon 2005 )."
+Output: {
+    citations: [["Brun, Turck-Chièze Zahn", "1999"], ["Charbonnel Talon", "2005"]],
+    sentence: "Methods for mixing below the convection zone are well understood [REF]"
+}
+
+Sentence: "Momentum balance gives an expression ( Fabian 1999 ; Di Matteo, Wilman Crawford 2002 ; King 2003 , 2005 )"
+Output: {
+    citations: [["Fabian", "1999"], ["Di Matteo, Wilman Crawford", "2002"], ["King", "2003"], ["King", "2005"]],
+    sentence: "Momentum balance gives an expression [REF]"
+}
+
+Sentence: "In the early Universe, when the metal content was extremely low, enrichment by a single supernova could dominate preexisting metal contents (e.g., Audouse Silk 1995 ; Ryan, Norris Beers 1996 )."
+Output: {
+    citations: [["Audouse Silk", "1995"], ["Ryan, Norris Beers", "1996"]],
+    sentence: "In the early Universe, when the metal content was extremely low, enrichment by a single supernova could dominate preexisting metal contents [REF]."
+}
+
+Sentence: "Caffau and Brun (2009) made several imaging advances primarily to identify quasars"
+Output: {
+    citations: [["Caffau and Brun", "2009"]],
+    sentence: "[REF] made several imaging advances primarily to identify quasars"
+}
+
+Sentence: "Turck-Chieze(2005) identified when metal content was extremely low"
+Output: {
+    citations: [["Turck-Chieze", "2005"]],
+    sentence: "[REF] identified when metal content was extremely low"
+}
+
+Sentence: "In work by Jones (2000a,b) it was demonstrated that dark matter detection can be elegantly detected."
+Output: {
+    citations: [["Jones", "2000a"], ["Jones", "2000b"]],
+    sentence: "In work by [REF] it was demonstrated that dark matter detection can be elegantly detected."
+}
+
+Sentence: "This is consistent with previous results (Pereira et al., in preparation)."
+Output: {
+    citations: [],
+    sentence: "This is consistent with previous results [REF]"
+}
+
+Sentence: "More imaging showed significant expansion (Jones, Ryan, et al., submitted)"
+Output: {
+    citations: [],
+    sentence: "More imaging showed significant expansion"
+}
+"""
+
+Keeping the rules and examples above in mind, extract the inline citations from the following text and rewrite the sentence with [REF] replacing any inline citations:

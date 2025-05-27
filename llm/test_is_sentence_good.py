@@ -14,7 +14,7 @@ from sklearn.metrics import (
     accuracy_score,
 )
 
-MODEL_NAME = "mistral-nemo:latest"  # Replace with your model name
+MODEL_NAME = "llama3.3:latest"  # Replace with your model name
 
 
 # Define the Pydantic model for sentence validation

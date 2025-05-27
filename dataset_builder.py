@@ -3,7 +3,10 @@ import os
 import pandas as pd
 import re
 from tqdm import tqdm
-from parsing import get_inline_citations, INLINE_CITATION_REGEX
+from langchain_ollama import ChatOllama
+# from parsing import get_inline_citations, INLINE_CITATION_REGEX
+from llm.models import SentenceValidation, CitationList
+
 
 REVIEW_JOURNAL_BIBCODES = {
     "RvGeo",
@@ -17,6 +20,16 @@ REVIEW_JOURNAL_BIBCODES = {
     "A&ARv",
 }
 
+
+sentence_validator_llm = ChatOllama(
+    model="mistral-nemo:latest",
+    temperature=0.0,
+).with_structured_output(SentenceValidation, method="json_schema")
+
+citation_extraction_llm = ChatOllama(
+    model="mistral-nemo:latest",
+    temperature=0.0,
+).with_structured_output(CitationList, method="json_schema")
 
 # Create a function to build a lookup index
 def build_bibcode_index(reference_records):
@@ -142,6 +155,9 @@ def main():
         for example in examples:
             if example is None:
                 continue
+            
+            # Check if the example passes the sentence validator
+
             elif len(example["citation_dois"]) == 0:
                 trivial_examples.append(example)
             else:

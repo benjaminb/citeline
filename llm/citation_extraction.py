@@ -1,71 +1,76 @@
 from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
 import json
-from pydantic import RootModel, Field, BaseModel
+from models import SentenceNoCitation, SentenceValidation, CitationList, CitationExtraction
+from pydantic import BaseModel
 
 # MODEL_NAME = "llama3.3:latest"  # Replace with your model name
-MODEL_NAME = "mistral-nemo:latest"
-
-# LLM_OUTPUT_FORMAT = {
-#     "type": "array",
-#     "items": {"type": "array", "items": {"type": "string"}, "minItems": 2, "maxItems": 2},
-# }
+MODEL_NAME = "mistral-nemo:latest"  # Replace with your model name
+VALID_SENT_PROMPT = "is_sentence_good_prompt.txt"
+CIT_EXTRACT_PROMPT = "citation_prompt.txt"
+SENT_NO_CIT_PROMPT = "sent_prompt.txt"
 
 
-class IsValidSentence(RootModel[bool]):
-    pass
+def get_llm_function(
+    model_name: str = MODEL_NAME, system_prompt_path: str = None, output_model: BaseModel = None
+):
+    """
+    Returns a function that invokes the LLM with the given model name and system prompt.
+    """
+    llm = ChatOllama(
+        model=model_name,
+        temperature=0.0,
+    ).with_structured_output(output_model, method="json_schema")
+
+    # Read in the system prompt
+    with open(system_prompt_path, "r") as f:
+        sys_msg = f.read()
+    sys_msg = SystemMessage(content=sys_msg)
+
+    def llm_function(text: str):
+        try:
+            msg = HumanMessage(content=text)
+            return llm.invoke([sys_msg, msg])
+        except Exception as e:
+            print(f"Exception: {e}")
+            return None
+
+    return llm_function
 
 
-class SentenceValidator(BaseModel):
-    reasoning: str = Field(description="Reasoning for the label")
-    label: bool = Field(description="True if the sentence is usable, False otherwise")
+is_sentence_valid = get_llm_function(
+    model_name=MODEL_NAME, system_prompt_path=VALID_SENT_PROMPT, output_model=SentenceValidation
+)
 
+extract_citations = get_llm_function(
+    model_name=MODEL_NAME,
+    system_prompt_path=CIT_EXTRACT_PROMPT,
+    # output_model=CitationList,
+    output_model=CitationExtraction,
+)
 
-llm = ChatOllama(
-    model=MODEL_NAME,
-    temperature=0.0,
-).with_structured_output(SentenceValidator, method="json_schema")
-
-with open("is_sentence_good_prompt.txt", "r") as f:
-    sys_prompt = f.read()
-system_prompt = SystemMessage(content=sys_prompt)
-
-# with open("citation_extraction_prompt.txt", "r") as f:
-#     sys_prompt = f.read()
-# system_prompt = SystemMessage(content=sys_prompt)
-
-
-def is_sentence_valid(text):
-    msg = HumanMessage(content=text)
-    ai_message = llm.invoke([system_prompt, msg])
-    print(f"AI message: {type(ai_message)}")
-    try:
-        return ai_message.label
-    except json.JSONDecodeError as e:
-        print(f"(is_sentence_valid) Error decoding llm response: {e}")
-        return False
-
-
-def extract_citations(text):
-    msg = HumanMessage(content=text)
-    ai_message = llm.invoke([system_prompt, msg])
-
-    try:
-        citations = json.loads(ai_message.content)
-        return citations
-    except json.JSONDecodeError as e:
-        print(f"Error decoding JSON: {e}")
-        return None
+get_sent_no_citation = get_llm_function(
+    model_name=MODEL_NAME,
+    system_prompt_path=SENT_NO_CIT_PROMPT,
+    output_model=SentenceNoCitation,
+)
 
 
 def main():
     # Example usage
     text = "It also hosts a Compton-thick AGN in the Western component, observed directly in hard X-rays (Della Ceca et al. 2002 ; Ballo et al. 2004 )."
-    # citations = extract_citations(text)
-    # print(f"Extracted citations: {citations}")
-    is_valid = is_sentence_valid(text)
-    print(f"Is the sentence valid? {is_valid}")
-    print(f"Type returned: {type(is_valid)}")
+    result = is_sentence_valid(text)
+    print(f"Is the sentence valid? {result.is_valid}")
+    print(f"Type returned: {type(result.is_valid)}")
+    print(f"Reasoning: {result.reasoning}")
+
+    # Extract citations
+    citations = extract_citations(text)
+    print(f"Extracted citations: {citations.citations}")
+
+    # Get sentence without citations
+    sent_no_cit = get_sent_no_citation(text)
+    print(f"Sentence without citations: {sent_no_cit.sentence}")
 
 
 if __name__ == "__main__":
