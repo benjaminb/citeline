@@ -1,14 +1,13 @@
 from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
-import json
-from models import SentenceNoCitation, SentenceValidation, CitationList, CitationExtraction
+from llm.models import SentenceNoCitation, SentenceValidation, CitationExtraction
 from pydantic import BaseModel
 
-# MODEL_NAME = "llama3.3:latest"  # Replace with your model name
-MODEL_NAME = "mistral-nemo:latest"  # Replace with your model name
-VALID_SENT_PROMPT = "is_sentence_good_prompt.txt"
-CIT_EXTRACT_PROMPT = "citation_prompt.txt"
-SENT_NO_CIT_PROMPT = "sent_prompt.txt"
+MODEL_NAME = "llama3.3:latest"  # Replace with your model name
+# MODEL_NAME = "mistral-nemo:latest"  # Replace with your model name
+VALID_SENT_PROMPT = "llm/is_sentence_good_prompt.txt"
+CIT_EXTRACT_PROMPT = "llm/citation_prompt.txt"
+SENT_NO_CIT_PROMPT = "llm/sent_prompt.txt"
 
 
 def get_llm_function(

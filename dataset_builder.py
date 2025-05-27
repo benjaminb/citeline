@@ -3,9 +3,7 @@ import os
 import pandas as pd
 import re
 from tqdm import tqdm
-from langchain_ollama import ChatOllama
-# from parsing import get_inline_citations, INLINE_CITATION_REGEX
-from llm.models import SentenceValidation, CitationList
+from llm.citation_extraction import extract_citations
 
 
 REVIEW_JOURNAL_BIBCODES = {
@@ -20,16 +18,6 @@ REVIEW_JOURNAL_BIBCODES = {
     "A&ARv",
 }
 
-
-sentence_validator_llm = ChatOllama(
-    model="mistral-nemo:latest",
-    temperature=0.0,
-).with_structured_output(SentenceValidation, method="json_schema")
-
-citation_extraction_llm = ChatOllama(
-    model="mistral-nemo:latest",
-    temperature=0.0,
-).with_structured_output(CitationList, method="json_schema")
 
 # Create a function to build a lookup index
 def build_bibcode_index(reference_records):
@@ -69,11 +57,18 @@ def bibcode_matches(inline_citation: tuple[str, str], references: list[str]) -> 
 
 # Modify examples_from_record to accept the index
 def examples_from_record_with_index(record, bibcode_index):
-    # Use bibcode_index instead of scanning the entire list
+    num_sentences = len(record["body_sentences"])
     return [
         example
-        for i, sentence in enumerate(record["body_sentences"])
+        for i, sentence in enumerate(
+            tqdm(
+                record["body_sentences"],
+                leave=False,
+                desc=f"Processing {record['doi']} (# sentences: {num_sentences})",
+            )
+        )
         if (example := sentence_to_example_with_index(record, sentence, i, bibcode_index))
+        is not None
     ]
 
 
@@ -96,20 +91,25 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
         return None
 
     # Remove inline citations from the sentence, skip if result is too short (chose 63 after some inspection)
-    sent_no_citation = re.sub(INLINE_CITATION_REGEX, "", sentence).strip()
+    # sent_no_citation = re.sub(INLINE_CITATION_REGEX, "", sentence).strip()
+    citation_extraction = extract_citations(sentence)
+    sent_no_citation = citation_extraction.sentence.strip()
     if len(sent_no_citation) < 63:
         return None
 
     # Rest of the function remains the same
-    inline_citations = get_inline_citations(sentence)
+    # inline_citations = get_inline_citations(sentence)
+    inline_citations = [
+        (citation.author, citation.year) for citation in citation_extraction.citation_list.citations
+    ]
     citation_dois, bibcodes = [], []
 
     # If ANY inline citation is not found, return None
     for citation in inline_citations:
-        result = citation_to_doi_and_bibcode(citation)
-        if not result:
+        citation_extraction = citation_to_doi_and_bibcode(citation)
+        if not citation_extraction:
             return None
-        doi, bib = result
+        doi, bib = citation_extraction
         citation_dois.append(doi)
         bibcodes.append(bib)
 
@@ -124,7 +124,6 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
     }
 
 
-# Modify the main function to build the index
 def main():
     # Load data
     research = pd.read_json("data/preprocessed/research.jsonl", lines=True)
@@ -143,37 +142,57 @@ def main():
     del research  # Free memory
     del reviews
 
-    trivial_examples, nontrivial_examples = [], []
-
     """
     0. Check log file to see where we left off
     1. Create a log file logging the index of the review records processed so far
     2. Any errors, write out to an error log
     """
+
+    # Check log file to see where we left off
+    progress_log_path = "data/dataset/progress.json"
+    if not os.path.exists(progress_log_path):
+        print("No progress log found.")
+        progress = {"record_idx": 0, "sent_idx": 0}
+        with open(progress_log_path, "w") as f:
+            json.dump(progress, f)
+
+    progress = json.load(open(progress_log_path, "r"))
+    last_record_index = progress["record_idx"]
+    last_sent_index = progress["sent_idx"]
+    print(f"Starting from record: {last_record_index}, sentence: {last_sent_index}")
+
+    reviews_dicts = reviews_dicts[last_record_index:]
     for record in tqdm(reviews_dicts, total=len(reviews_dicts), desc="Processing records"):
-        examples = examples_from_record_with_index(record, bibcode_index)
-        for example in examples:
-            if example is None:
-                continue
+        for i, sentence in enumerate(
+            tqdm(
+                record["body_sentences"][last_sent_index:],
+                leave=False,
+                desc=f"Processing {record['doi']} (# sentences: {len(record['body_sentences'])})",
+            )
+        ):
             
-            # Check if the example passes the sentence validator
-
-            elif len(example["citation_dois"]) == 0:
-                trivial_examples.append(example)
+            example = sentence_to_example_with_index(record, sentence, i, bibcode_index)
+            
+            # Write results
+            if example is None:
+                pass
+            elif len(example["citation_dois"]) > 0:
+                with open("data/dataset/nontrivial_llm.jsonl", "a") as f:
+                    f.write(json.dumps(example) + "\n")
             else:
-                nontrivial_examples.append(example)
+                with open("data/dataset/trivial_llm.jsonl", "a") as f:
+                    f.write(json.dumps(example) + "\n")
 
-    # Write results
-    print(
-        f"Writing {len(trivial_examples)} trivial and {len(nontrivial_examples)} nontrivial examples..."
-    )
-    os.makedirs("data/dataset", exist_ok=True)
-    with open("data/dataset/trivial.jsonl", "w") as f:
-        for example in trivial_examples:
-            f.write(json.dumps(example) + "\n")
-    with open("data/dataset/nontrivial.jsonl", "w") as f:
-        for example in nontrivial_examples:
-            f.write(json.dumps(example) + "\n")
+            # Update progress log (sentence level)
+            progress["sent_idx"] += 1
+            with open(progress_log_path, "w") as f:
+                json.dump(progress, f)
+
+        # Update progress log (record level)
+        progress["record_idx"] += 1
+        progress["sent_idx"] = 0  # Reset sentence index for the next record
+        with open(progress_log_path, "w") as f:
+            json.dump(progress, f)
 
 
 if __name__ == "__main__":
