@@ -1,13 +1,18 @@
 from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
-from llm.models import SentenceNoCitation, SentenceValidation, CitationExtraction
 from pydantic import BaseModel
+
+try:
+    from llm.models import SentenceValidation, CitationExtraction, CitationSubstring
+except ImportError:
+    from models import SentenceValidation, CitationExtraction, CitationSubstring
 
 MODEL_NAME = "llama3.3:latest"  # Replace with your model name
 # MODEL_NAME = "mistral-nemo:latest"  # Replace with your model name
-VALID_SENT_PROMPT = "llm/is_sentence_good_prompt.txt"
-CIT_EXTRACT_PROMPT = "llm/citation_prompt.txt"
-SENT_NO_CIT_PROMPT = "llm/sent_prompt.txt"
+VALID_SENT_PROMPT = "llm/prompts/is_sentence_good_prompt.txt"
+CIT_EXTRACT_PROMPT = "llm/prompts/citation_prompt.txt"
+SENT_NO_CIT_PROMPT = "llm/prompts/sent_prompt.txt"
+CIT_SUBSTRING_PROMPT = "llm/prompts/substring_prompt.txt"
 
 
 def get_llm_function(
@@ -41,17 +46,16 @@ is_sentence_valid = get_llm_function(
     model_name=MODEL_NAME, system_prompt_path=VALID_SENT_PROMPT, output_model=SentenceValidation
 )
 
+get_citation_substrings = get_llm_function(
+    model_name=MODEL_NAME,
+    system_prompt_path=CIT_SUBSTRING_PROMPT,
+    output_model=CitationSubstring,
+)
+
 extract_citations = get_llm_function(
     model_name=MODEL_NAME,
     system_prompt_path=CIT_EXTRACT_PROMPT,
-    # output_model=CitationList,
     output_model=CitationExtraction,
-)
-
-get_sent_no_citation = get_llm_function(
-    model_name=MODEL_NAME,
-    system_prompt_path=SENT_NO_CIT_PROMPT,
-    output_model=SentenceNoCitation,
 )
 
 
@@ -66,10 +70,6 @@ def main():
     # Extract citations
     citations = extract_citations(text)
     print(f"Extracted citations: {citations.citations}")
-
-    # Get sentence without citations
-    sent_no_cit = get_sent_no_citation(text)
-    print(f"Sentence without citations: {sent_no_cit.sentence}")
 
 
 if __name__ == "__main__":

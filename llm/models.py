@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, RootModel, Field
 
 
 class SentenceValidation(BaseModel):
@@ -10,6 +10,17 @@ class SentenceValidation(BaseModel):
     )
 
 
+class CitationSubstring(RootModel[list[str]]):
+    """
+    A substring of a sentence that contains an inline citation.
+    This is used to identify the part of the sentence that corresponds to a citation.
+    """
+
+    root: list[str] = Field(
+        description="A substring of a sentence that contains an inline citation"
+    )
+
+
 class Citation(BaseModel):
     author: str = Field(description="First author of the cited work")
     year: str = Field(
@@ -17,10 +28,13 @@ class Citation(BaseModel):
     )
 
 
-class CitationList(BaseModel):
-    citations: list[Citation] = Field(
-        description="List of inline citations extracted from the sentence"
-    )
+class CitationList(RootModel[list[Citation]]):
+    """
+    A list of inline citations extracted from the sentence.
+    """
+
+    root: list[Citation] = Field(description="List of inline citations extracted from the sentence")
+
 
 class SentenceNoCitation(BaseModel):
     citations: CitationList = Field(
@@ -32,7 +46,7 @@ class SentenceNoCitation(BaseModel):
 
 
 class CitationExtraction(BaseModel):
-    citation_list: CitationList = Field(
+    citations: CitationList = Field(
         description="List of inline citations extracted from the sentence, if any"
     )
     sentence: str = Field(
