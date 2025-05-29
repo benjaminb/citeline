@@ -3,7 +3,7 @@ import os
 import pandas as pd
 import re
 from tqdm import tqdm
-from llm.citation_extraction import extract_citations
+from llm.citation_extraction import sentence_to_citations
 
 
 REVIEW_JOURNAL_BIBCODES = {
@@ -91,21 +91,14 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
         return None
 
     # Remove inline citations from the sentence, skip if result is too short (chose 63 after some inspection)
-    # sent_no_citation = re.sub(INLINE_CITATION_REGEX, "", sentence).strip()
-    citation_extraction = extract_citations(sentence)
-    sent_no_citation = citation_extraction.sentence.strip()
-    if len(sent_no_citation) < 63:
+    citations, sent_no_cit = sentence_to_citations(sentence)
+    if len(sent_no_cit) < 63:
         return None
 
-    # Rest of the function remains the same
-    # inline_citations = get_inline_citations(sentence)
-    inline_citations = [
-        (citation.author, citation.year) for citation in citation_extraction.citation_list.citations
-    ]
     citation_dois, bibcodes = [], []
 
     # If ANY inline citation is not found, return None
-    for citation in inline_citations:
+    for citation in citations:
         citation_extraction = citation_to_doi_and_bibcode(citation)
         if not citation_extraction:
             return None
@@ -116,7 +109,7 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
     return {
         "source_doi": record["doi"],
         "sent_original": sentence,
-        "sent_no_cit": sent_no_citation,
+        "sent_no_cit": sent_no_cit,
         "sent_idx": index,
         "citation_dois": citation_dois,
         "pubdate": record["pubdate"],
