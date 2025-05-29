@@ -91,9 +91,11 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
         return None
 
     # Remove inline citations from the sentence, skip if result is too short (chose 63 after some inspection)
+    print(f"\033[2K\rWorking on sentence {index}: {sentence[:70]}...", end="")
     citations, sent_no_cit = sentence_to_citations(sentence)
-    if len(sent_no_cit) < 63:
-        return None
+
+    # NOTE: originally we checked sentence length as a signal whether the sentence was usable or not;
+    # however using the LLM to check sentence validity should sufficiently pass through meaningful sentences regardless of length.
 
     citation_dois, bibcodes = [], []
 
@@ -101,6 +103,8 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
     for citation in citations:
         citation_extraction = citation_to_doi_and_bibcode(citation)
         if not citation_extraction:
+            print(f"Did not find a valid unique bibcode for citation: {citation}")
+            print("\033[2K\r", end="")
             return None
         doi, bib = citation_extraction
         citation_dois.append(doi)
@@ -142,7 +146,7 @@ def main():
     """
 
     # Check log file to see where we left off
-    progress_log_path = "data/dataset/progress.json"
+    progress_log_path = "data/dataset/temp_progress.json"
     if not os.path.exists(progress_log_path):
         print("No progress log found.")
         progress = {"record_idx": 0, "sent_idx": 0}
@@ -161,19 +165,20 @@ def main():
                 record["body_sentences"][last_sent_index:],
                 leave=False,
                 desc=f"Processing {record['doi']} (# sentences: {len(record['body_sentences'])})",
-            )
+            ),
+            start=last_sent_index,
         ):
-            
+
             example = sentence_to_example_with_index(record, sentence, i, bibcode_index)
-            
+
             # Write results
             if example is None:
                 pass
             elif len(example["citation_dois"]) > 0:
-                with open("data/dataset/nontrivial_llm.jsonl", "a") as f:
+                with open("data/dataset/temp_nontrivial_llm.jsonl", "a") as f:
                     f.write(json.dumps(example) + "\n")
             else:
-                with open("data/dataset/trivial_llm.jsonl", "a") as f:
+                with open("data/dataset/temp_trivial_llm.jsonl", "a") as f:
                     f.write(json.dumps(example) + "\n")
 
             # Update progress log (sentence level)

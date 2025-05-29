@@ -17,6 +17,7 @@ SENT_NO_CIT_PROMPT = "llm/prompts/sent_prompt.txt"
 
 YEAR_PATTERN = r"^\d{4}"  # Matches a year that starts with 4 digits, e.g., "2023a", "1999", but not "in preparation" or similar
 
+
 def get_llm_function(
     model_name: str = MODEL_NAME, system_prompt_path: str = None, output_model: BaseModel = None
 ):
@@ -70,17 +71,22 @@ def sentence_to_citations(text: str):
     3) Create a list of citation tuples [(author, year), ...] from the substrings
     """
     # Check if the sentence is valid
+    sent_no_cit = text
     is_valid_sentence = True
+    print("{is_valid=", end="", flush=True)
+
     try:
         validity_result = is_sentence_valid(text)
         is_valid_sentence = validity_result.is_valid
     except Exception as e:
         print(f"Error checking sentence validity: {e}")
 
+    print(is_valid_sentence, end=", ")
     if not is_valid_sentence:
-        return []
+        return [], sent_no_cit
 
     # If the sentence is valid, identify citation substrings
+    print("citation_substrings=", end="", flush=True)
     try:
         citation_substrings = get_citation_substrings(text).root
         assert isinstance(
@@ -88,25 +94,33 @@ def sentence_to_citations(text: str):
         ), "Expected a get_citation_substrings(text).root to return a list of citation substrings"
     except Exception as e:
         print(f"Error extracting citation substrings: {e}")
-        return []
+        return [], sent_no_cit
+    print(citation_substrings, end=", ", flush=True)
 
     # Use citation substrings to make structured list of citation tuples
+    print("citations=", end="", flush=True)
     all_citations = []
     for s in citation_substrings:
         try:
             citation_extraction = extract_citations(s)
             citations = [
-                (citation.author, citation.year) for citation in citation_extraction.citations.root
-                if re.match(YEAR_PATTERN, citation.year)  # Ensure year begins with 4 digits, not 'in preparation' or similar
+                (citation.author, citation.year)
+                for citation in citation_extraction.citations.root
+                if re.match(
+                    YEAR_PATTERN, citation.year
+                )  # Ensure year begins with 4 digits, not 'in preparation' or similar
             ]
             all_citations += citations
+
+            # If there are citations, replace their substrings in the original sentence with '[REF]'
+            if citations:
+                sent_no_cit = citation_extraction.sentence
+
         except Exception as e:
             print(f"Error extracting citations from substring '{s}': {e}")
             # If there's an error, we can skip this substring
             continue
-
-    # If there are citations, replace their substrings in the original sentence with '[REF]'
-    sent_no_cit = citation_extraction.sentence
+    print(all_citations, end="}", flush=True)
 
     return all_citations, sent_no_cit
 
@@ -114,9 +128,10 @@ def sentence_to_citations(text: str):
 def main():
     # Example usage
     text = "It also hosts a Compton-thick AGN in the Western component, observed directly in hard X-rays (Della Ceca et al. 2002 ; Ballo et al. 2004 )."
-
-    citations = sentence_to_citations(text)
+    text = "Models to predict ruwe for an arbitrary binary were developed by this work and by Penoyre et al. (2022,"
+    citations, sent_no_cit = sentence_to_citations(text)
     print(f"Extracted citations: {citations}")
+    print(f"Sentence without citations: {sent_no_cit}")
     # result = is_sentence_valid(text)
     # print(f"Is the sentence valid? {result.is_valid}")
     # print(f"Type returned: {type(result.is_valid)}")
