@@ -1,6 +1,7 @@
 # Stage 1: Build stage to download the model
 FROM ollama/ollama:latest AS builder
 
+ARG MODEL_NAME=llama3.3:latest
 # NVIDIA Container Toolkit setup (optional?)
 # RUN curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
 #     | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
@@ -18,8 +19,8 @@ RUN \
     pid=$! && \
     echo "Waiting for Ollama server to start..." && \
     sleep 10 && \
-    echo "mistral-nemo model..." && \
-    ollama pull mistral-nemo && \
+    echo "pulling model ${MODEL_NAME}}" && \
+    ollama pull ${MODEL_NAME} && \
     echo "Model pull complete. Stopping server..." && \
     kill $pid && \
     # Wait for the process to exit, ignore error if already stopped
