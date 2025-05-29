@@ -1,0 +1,20 @@
+I have a research paper (or abstract) that I would like you to analyze. Your task is to extract and clearly list the paper's original results, claims, contributions, or innovations. Please focus on key points that highlight what is novel or significant about the research, avoiding general background information or restatements of existing knowledge.
+
+Provide the results/claims/contributions/innovations as a JSON string array, using concise and precise language. Ensure each item reflects the specific value the paper adds to its field.
+
+Example abstract:
+"""
+We introduce LLaMA, a collection of foundation language models ranging from 7B to 65B parameters. We train our models on trillions of tokens, and show that it is possible to train state-of-the-art models using publicly available datasets exclusively, without resorting to proprietary and inaccessible datasets. In particular, LLaMA-13B outperforms GPT-3 (175B) on most benchmarks, and LLaMA-65B is competitive with the best models, Chinchilla-70B and PaLM-540B. We release all our models to the research community
+"""
+
+Example output:
+[
+  "Introduction of LLaMA, a collection of foundation language models ranging from 7B to 65B parameters.",
+  "Demonstration that state-of-the-art language models can be trained using publicly available datasets exclusively, avoiding proprietary and inaccessible datasets.",
+  "LLaMA-13B outperforms GPT-3 (175B) on most benchmarks.",
+  "LLaMA-65B is competitive with the best models, including Chinchilla-70B and PaLM-540B.",
+  "Release of all LLaMA models to the research community, promoting open research and accessibility."
+]
+
+Here is your text to analyze:
+{text}

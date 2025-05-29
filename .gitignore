@@ -13,6 +13,9 @@
 ./*.csv
 temp_*
 
+# But DO track .txt files in llm/prompts/
+!llm/prompts/*.txt
+
 # Allow any files (including .txt) in the llm/ directory
 !llm/*.txt
 
