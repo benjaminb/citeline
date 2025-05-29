@@ -10,9 +10,9 @@ except ImportError:
 MODEL_NAME = "llama3.3:latest"  # Replace with your model name
 # MODEL_NAME = "mistral-nemo:latest"  # Replace with your model name
 VALID_SENT_PROMPT = "llm/prompts/is_sentence_good_prompt.txt"
+CIT_SUBSTRING_PROMPT = "llm/prompts/substring_prompt.txt"
 CIT_EXTRACT_PROMPT = "llm/prompts/citation_prompt.txt"
 SENT_NO_CIT_PROMPT = "llm/prompts/sent_prompt.txt"
-CIT_SUBSTRING_PROMPT = "llm/prompts/substring_prompt.txt"
 
 
 def get_llm_function(
