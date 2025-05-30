@@ -75,15 +75,17 @@ def examples_from_record_with_index(record, bibcode_index):
 # Modified sentence_to_example function using the index
 def sentence_to_example_with_index(record, sentence, index, bibcode_index):
     def citation_to_doi_and_bibcode(citation):
-        bibcodes = bibcode_matches(citation, record["reference"])
-        if len(bibcodes) != 1:
+        bibcode_candidates = bibcode_matches(citation, record["reference"])
+        if len(bibcode_candidates) == 0:
             return None
 
-        bib = bibcodes[0]
+        # If there is more than one bibcode candidate, look up each one's author
+        candidates_in_dataset = [bibcode for bibcode in bibcode_candidates if bibcode in bibcode_index]
+        if len(candidates_in_dataset) != 1:
+            return None
 
+        bib = candidates_in_dataset[0]
         # Fast O(1) lookup using the index
-        if bib not in bibcode_index or len(bibcode_index[bib]) != 1:
-            return None
         doi = bibcode_index[bib][0]["doi"]
 
         if doi:
@@ -146,7 +148,7 @@ def main():
     """
 
     # Check log file to see where we left off
-    progress_log_path = "data/dataset/temp_progress.json"
+    progress_log_path = "data/dataset/progress.json"
     if not os.path.exists(progress_log_path):
         print("No progress log found.")
         progress = {"record_idx": 0, "sent_idx": 0}
@@ -175,10 +177,10 @@ def main():
             if example is None:
                 pass
             elif len(example["citation_dois"]) > 0:
-                with open("data/dataset/temp_nontrivial_llm.jsonl", "a") as f:
+                with open("data/dataset/nontrivial_llm.jsonl", "a") as f:
                     f.write(json.dumps(example) + "\n")
             else:
-                with open("data/dataset/temp_trivial_llm.jsonl", "a") as f:
+                with open("data/dataset/trivial_llm.jsonl", "a") as f:
                     f.write(json.dumps(example) + "\n")
 
             # Update progress log (sentence level)
