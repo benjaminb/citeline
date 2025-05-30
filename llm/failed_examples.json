@@ -1,0 +1,157 @@
+[
+  {
+    "sentence": "A decade after the first reports ( Pounds et al. 2003 , Reeves et al. 2003 ), high-velocity ( v \u223c 0.1 c ), highly ionized winds are now established as common in low-redshift AGNs.",
+    "reasoning": "Sentence appears to be natural language with clear meaning.",
+    "isValid": true,
+    "citations": [
+      [
+        "Pounds et al.",
+        "2003"
+      ],
+      [
+        "Reeves et al.",
+        "2003"
+      ]
+    ],
+    "sent_no_cit": "A decade after the first reports [REF], high-velocity ( v \u223c 0.1 c ), highly ionized winds are now established as common in low-redshift AGNs.",
+    "citation_substrings": [
+      "Pounds et al. 2003 , Reeves et al. 2003"
+    ],
+    "pred_sent_no_cit": "A decade after the first reports ( [REF] , [REF] ), high-velocity ( v \u223c 0.1 c ), highly ionized winds are now established as common in low-redshift AGNs.",
+    "failure_reasons": [
+      "Sentence no citation mismatch"
+    ]
+  },
+  {
+    "sentence": "On asteroids, boulders and blocks are mainly interpreted as produced by fragmentation of the target or its parent body in high-velocity impact processes ( Melosh, 1984 ; Michikami etal., 2008 , 2019 ).",
+    "reasoning": "Sentence appears to be natural language with clear meaning.",
+    "isValid": true,
+    "citations": [
+      [
+        "Melosh",
+        "1984"
+      ],
+      [
+        "Michikami etal.",
+        "2008"
+      ],
+      [
+        "Michikami etal.",
+        "2019"
+      ]
+    ],
+    "sent_no_cit": "On asteroids, boulders and blocks are mainly interpreted as produced by fragmentation of the target or its parent body in high-velocity impact processes [REF].",
+    "citation_substrings": [
+      "Melosh, 1984 ; Michikami etal., 2008 , 2019"
+    ],
+    "pred_sent_no_cit": "On asteroids, boulders and blocks are mainly interpreted as produced by fragmentation of the target or its parent body in high-velocity impact processes ( [REF] ; [REF], 2019 ).",
+    "failure_reasons": [
+      "Sentence no citation mismatch"
+    ]
+  },
+  {
+    "sentence": "However, the lack of high cadence data that could catch the brightenings/dimmings associated with early reconnection implied that they could not rule out the tether-cutting scenario (see also Sterling and Moore, 2004 ).",
+    "reasoning": "Sentence appears to be natural language with clear meaning.",
+    "isValid": true,
+    "citations": [
+      [
+        "Sterling and Moore",
+        "2004"
+      ]
+    ],
+    "sent_no_cit": "However, the lack of high cadence data that could catch the brightenings/dimmings associated with early reconnection implied that they could not rule out the tether-cutting scenario (see also [REF] ).",
+    "citation_substrings": [
+      "Sterling and Moore, 2004"
+    ],
+    "pred_sent_no_cit": "However, the lack of high cadence data that could catch the brightenings/dimmings associated with early reconnection implied that they could not rule out the tether-cutting scenario (see also Sterling and Moore, 2004 ).",
+    "failure_reasons": [
+      "Sentence no citation mismatch"
+    ]
+  },
+  {
+    "sentence": "3. GLOBAL ASTROMETRY WITH THE HIPPARCOS\u2013<italic toggle=\"yes\">Gaia</italic> CONCEPT The concept for performing global astrometry with Gaia follows the same principles that were used for the Hipparcos mission ( Lindegren 2005 ; see the sidebar titled Gaia in Brief):",
+    "reasoning": "Sentence appears to be natural language with clear meaning.",
+    "isValid": true,
+    "citations": [
+      [
+        "Lindegren",
+        "2005"
+      ]
+    ],
+    "sent_no_cit": "3. GLOBAL ASTROMETRY WITH THE HIPPARCOS\u2013<italic toggle=\"yes\">Gaia</italic> CONCEPT The concept for performing global astrometry with Gaia follows the same principles that were used for the Hipparcos mission [REF]:",
+    "citation_substrings": [
+      "Lindegren 2005"
+    ],
+    "pred_sent_no_cit": "3. GLOBAL ASTROMETRY WITH THE HIPPARCOS\u2013<italic toggle=\"yes\">Gaia</italic> CONCEPT The concept for performing global astrometry with Gaia follows the same principles that were used for the Hipparcos mission ( [REF] ; see the sidebar titled Gaia in Brief):",
+    "failure_reasons": [
+      "Sentence no citation mismatch"
+    ]
+  },
+  {
+    "sentence": "There exists another class of massive objects where rotation might be even more important: the B[e]-supergiants with a well-determined bimodal structure (slow and dense equatorial wind and fast, thin polar wind) (for a recent review, see Zickgraf 1999 ).",
+    "reasoning": "Sentence appears to be natural language with clear meaning.",
+    "isValid": true,
+    "citations": [
+      [
+        "Zickgraf",
+        "1999"
+      ]
+    ],
+    "sent_no_cit": "There exists another class of massive objects where rotation might be even more important: the B[e]-supergiants with a well-determined bimodal structure (slow and dense equatorial wind and fast, thin polar wind) [REF].",
+    "citation_substrings": [
+      "Zickgraf 1999"
+    ],
+    "pred_sent_no_cit": "There exists another class of massive objects where rotation might be even more important: the B[e]-supergiants with a well-determined bimodal structure (slow and dense equatorial wind and fast, thin polar wind) (for a recent review, see [REF] ).",
+    "failure_reasons": [
+      "Sentence no citation mismatch"
+    ]
+  },
+  {
+    "sentence": "The fast rotators span the same range of bulge fractions as spiral galaxies ( Krajnovi\u0107 et al. 2013a ), like S0 galaxies ( Laurikainen et al. 2010 , Kormendy Bender 2012 ), and include some extremely flat disks.",
+    "reasoning": "Sentence appears to be natural language with clear meaning.",
+    "isValid": true,
+    "citations": [
+      [
+        "Krajnovi\u0107 et al.",
+        "2013a"
+      ],
+      [
+        "Laurikainen et al.",
+        "2010"
+      ],
+      [
+        "Kormendy Bender",
+        "2012"
+      ]
+    ],
+    "sent_no_cit": "The fast rotators span the same range of bulge fractions as spiral galaxies [REF], like S0 galaxies [REF], and include some extremely flat disks.",
+    "citation_substrings": [
+      "Krajnovi\u0107 et al. 2013a",
+      "Laurikainen et al. 2010",
+      "Kormendy Bender 2012"
+    ],
+    "pred_sent_no_cit": "The fast rotators span the same range of bulge fractions as spiral galaxies ( [REF] ), like S0 galaxies ( Laurikainen et al. 2010 , Kormendy Bender 2012 ), and include some extremely flat disks.",
+    "failure_reasons": [
+      "Sentence no citation mismatch"
+    ]
+  },
+  {
+    "sentence": "The forecasting, which is considered by Intrieri et al. (2013) the main process of a LEWS, includes the definition of thresholds, models and other elements necessary to issue a warning.",
+    "reasoning": "Sentence appears to be natural language with clear meaning.",
+    "isValid": true,
+    "citations": [
+      [
+        "Intrieri et al.",
+        "2013"
+      ]
+    ],
+    "sent_no_cit": "The forecasting, which is considered [REF] the main process of a LEWS, includes the definition of thresholds, models and other elements necessary to issue a warning.",
+    "citation_substrings": [
+      "Intrieri et al. (2013)"
+    ],
+    "pred_sent_no_cit": "The forecasting, which is considered by [REF] the main process of a LEWS, includes the definition of thresholds, models and other elements necessary to issue a warning.",
+    "failure_reasons": [
+      "Sentence no citation mismatch"
+    ]
+  }
+]

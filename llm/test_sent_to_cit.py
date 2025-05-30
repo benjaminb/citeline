@@ -77,13 +77,15 @@ def main():
         )
         # Get predictions
         print("Predictd: ", end="", flush=True)
+        failed_example = False
+        failure_reasons = []
         try:
-            predicted_citations, predicted_sent_no_cit, predicted_substrings = sentence_to_citations(sentence)
+            predicted_citations, predicted_sent_no_cit = sentence_to_citations(sentence)
         except Exception as e:
             print(f"Error processing sentence: {e}")
             with open("failed_processing.jsonl", "a") as f:
                 record["error"] = str(e)
-                f.write(json.dumps(record) + "\n")
+                failure_reasons.append("Processing error")
             continue
 
         # Compare citations
@@ -99,10 +101,8 @@ def main():
             print(f"  Expected: {expected_citations}")
             print(f"  Predicted: {predicted_citations_set}")
             record["predicted_citations"] = list(predicted_citations_set)
-            failures.append(record)
-            with open("failed_citations.jsonl", "a") as f:
-                record["predicted_citations"] = list(predicted_citations_set)
-                f.write(json.dumps(record) + "\n")
+            failed_example = True
+            failure_reasons.append("Citation mismatch")
 
         # Compare sentences without citations
         expected_sent_no_cit = normalize_sentence(record["sent_no_cit"])
@@ -116,16 +116,16 @@ def main():
             print(f"  Original: {sentence}")
             print(f"  Expected: '{expected_sent_no_cit}'")
             print(f"  Predicted: '{predicted_sent_no_cit_norm}'")
-            with open("failed_sentences.jsonl", "a") as f:
-                record["predicted_sent_no_cit"] = predicted_sent_no_cit
-                record["predicted_sent_no_cit_norm"] = predicted_sent_no_cit_norm
-                f.write(json.dumps(record) + "\n")
+            record["pred_sent_no_cit"] = predicted_sent_no_cit
+            failed_example = True
+            failure_reasons.append("Sentence no citation mismatch")
 
         # Track cases where both succeed
         if citation_match and sentence_match:
             both_successes += 1
-
-        print("}")  # Close the print statement from sentence_to_citations
+        if failed_example:
+            record["failure_reasons"] = failure_reasons
+            failures.append(record)
 
     # Print results
     with open("llm/failed_examples.json", "w") as f:

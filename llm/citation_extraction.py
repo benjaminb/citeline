@@ -14,7 +14,7 @@ MODEL_NAME = "mistral-nemo:latest"  # Replace with your model name
 VALID_SENT_PROMPT = "llm/prompts/is_sentence_good_prompt.txt"
 CIT_SUBSTRING_PROMPT = "llm/prompts/substring_prompt.txt"
 CIT_EXTRACT_PROMPT = "llm/prompts/citation_tuples_prompt.txt"
-SENT_NO_CIT_PROMPT = "llm/prompts/sent_prompt.txt"
+# SENT_NO_CIT_PROMPT = "llm/prompts/sent_prompt.txt"
 
 YEAR_PATTERN = r"^\d{4}"  # Matches a year that starts with 4 digits, e.g., "2023a", "1999", but not "in preparation" or similar
 
@@ -90,7 +90,7 @@ def sentence_to_citations(text: str) -> tuple[list[tuple[str, str]], str]:
     1) Check if the sentence is a valid scientific sentence (not a caption, mangled OCR, etc.)
     2) Identify the substrings of the sentence that comprise inline citations
     3) Create a list of citation tuples [(author, year), ...] from the substrings
-    
+
     Returns a tuple of:
     - A list of citation tuples [(author, year), ...]
     - The sentence with inline citations replaced by '[REF]'
@@ -103,6 +103,8 @@ def sentence_to_citations(text: str) -> tuple[list[tuple[str, str]], str]:
     try:
         validity_result = is_sentence_valid(text)
         is_valid_sentence = validity_result.is_valid
+        if not is_valid_sentence:
+            print(f"Invalid sentence: {validity_result.reasoning}", flush=True)
     except Exception as e:
         print(f"Error checking sentence validity: {e}")
 
@@ -146,14 +148,14 @@ def sentence_to_citations(text: str) -> tuple[list[tuple[str, str]], str]:
     print(f"sent_original={text}")
     sent_no_cit = create_sent_no_cit(text, citation_substrings)
     print(f"sent_no_cite ={sent_no_cit}" + "}", flush=True)
-    return all_citations, sent_no_cit, citation_substrings
+    return all_citations, sent_no_cit
 
 
 def main():
     # Example usage
     text = "It also hosts a Compton-thick AGN in the Western component, observed directly in hard X-rays (Della Ceca et al. 2002 ; Ballo et al. 2004 )."
     # text = "Models to predict ruwe for an arbitrary binary were developed by this work and by Penoyre et al. (2022,"
-    text = "Oelkers et al. (2017) and Oh et al. (2017) presented samples extending to separations of 3 and 10 pc."
+    text = "Here we review on preliminary work by Bekki et al. ( 2019 ), who simulated fully-compressible convection inside a rotating spherical shell"
     citations, sent_no_cit = sentence_to_citations(text)
     print(f"Extracted citations: {citations}")
     print(f"Sentence without citations: {sent_no_cit}")

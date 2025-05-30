@@ -5,7 +5,7 @@ Your task is to read the snippet below, write a reason for if the snippet appear
 ## Rules
 - Write false for snippets that are primarily captions from a figure, table, or image, with no explanatory text.
 - Write false for snippets that look like they have a lot of OCR errors or math gibberish
-- Write true if the snippet contains a complete scientific thought. The snippet may or may not include citations.
+- Write true otherwise, REGARDLESS OF TYPOS or phrasing
 
 ## Examples
 Input: "Fig. 12 shows the K -band number counts from an accumulated exposure of 1.5 h (6 h of data) on a single tile in the ELAIS-N1 field."

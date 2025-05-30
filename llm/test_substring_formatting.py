@@ -70,14 +70,16 @@ for record in tqdm(data):
     valid_examples += 1
     substrings = record["citation_substrings"]
     expected_citations = set((author, year) for author, year in record["citations"])
-    predicted_citations = set(
-        (citation.author, citation.year) for citation in extract_citations(sentence).root
-    )
+    predicted_citations = []
+    for substring in substrings:
+        predicted_citations += extract_citations(substring).root
+    predicted_citations = set((citation.author, citation.year) for citation in predicted_citations)
 
     # Check inline citation recognition
     if not citation_sets_match(predicted_citations, expected_citations):
         # Log the failed example
         print(f"Failed example: {record['sentence']}")
+        print(f"Given substrings: {substrings}")
         print(f"Expected: {expected_citations}")
         print(f"Predictd: {predicted_citations}")
         record["predicted_substrings"] = list(predicted_citations)
