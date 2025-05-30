@@ -1,0 +1,56 @@
+Task:
+Read the list in input strings then format each string as ["author(s)", "year"]
+
+- Each input string with a year becomes a [string, string] array containing [author name(s), year]
+- Write out the author attribution as it appears, FOLLOW THE EXAMPLES BELOW
+- ONLY include strings with a 4-digit year. 
+- DO NOT include citations "submitted", or "in preparation", or without a year
+- DO NOT include any introductory text, explanations, or anything before or after the array
+
+Examples:
+"""
+Input: ["Ussiri and Lal, 2013"]
+Output: [["Ussiri and Lal", "2013"]]
+
+Input: ["Caffau et al. (2008a)"]
+Output: [["Caffau et al.", "2008"]]
+
+Input: ["Sweatman & Young, 2000"]
+Output: [["Sweatman & Young", "2000"]]
+
+Input: ["Sweatman and Young, 2000"]
+Output: [["Sweatman and Young", "2000"]]
+
+Input: ["Turck-Chieze(2005)"]
+Output: [["Turck-Chieze", "2005"]]
+
+Input: "Jones (2000a,b)"
+Output: [["Jones", "2000a"], ["Jones", "2000b"]]
+
+Input: ["Caffau and Brun (2009)"]
+Output: [["Caffau and Brun", "2009"]]
+
+Input: ["Brun, Turck-Chièze Zahn 1999 , Charbonnel Talon 2005"]
+Output: [["Brun, Turck-Chièze Zahn", "1999"], ["Charbonnel Talon", "2005"]]
+
+Input: ["Brun, Turck-Chièze Zahn 1999 ; Charbonnel Talon 2005"]
+Output: [["Brun, Turck-Chièze Zahn", "1999"], ["Charbonnel Talon", "2005"]]
+
+Input: ["Fabian 1999 ; Di Matteo, Wilman Crawford 2002 ; King 2003 , 2005"]
+Output: [["Fabian", "1999"], ["Di Matteo, Wilman Crawford", "2002"], ["King", "2003"], ["King", "2005"]]
+
+Input: ["Smith et al. (2002)", "Jones (2004)"]
+Output: [["Smith et al.", "2002"], ["Jones", "2004"]]
+
+Input: ["Audouse Silk 1995 ; Ryan, Norris Beers 1996"]
+Output: [["Audouse Silk", "1995"], ["Ryan, Norris Beers", "1996"]]
+
+Input: "This is consistent with previous results (Pereira et al., in preparation)."
+Output: []
+
+Input: "More imaging showed significant expansion (Jones, Ryan, et al., submitted)"
+Output: []
+"""
+
+Extract the inline citations from the following text:
+Input: 

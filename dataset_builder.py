@@ -75,17 +75,34 @@ def examples_from_record_with_index(record, bibcode_index):
 # Modified sentence_to_example function using the index
 def sentence_to_example_with_index(record, sentence, index, bibcode_index):
     def citation_to_doi_and_bibcode(citation):
-        bibcode_candidates = bibcode_matches(citation, record["reference"])
-        if len(bibcode_candidates) == 0:
+        """
+        Takes a citation tuple (author, year) and returns a tuple of
+        (doi, bibcode). It first grabs all the matching bibcodes from the 'reference' field
+        of the record, checks which of those bibcodes correspond to records in the bibcode_index,
+        then checks the remaining candidates for author name
+        """
+        matching_ref_bibcodes = bibcode_matches(citation, record["reference"])
+        if len(matching_ref_bibcodes) == 0:
             return None
 
-        # If there is more than one bibcode candidate, look up each one's author
-        candidates_in_dataset = [bibcode for bibcode in bibcode_candidates if bibcode in bibcode_index]
-        if len(candidates_in_dataset) != 1:
+        remaining_candidates = []
+        author_prefix = citation[0][:4].lower()  # Use the first 4 characters of the author name
+        for bibcode in matching_ref_bibcodes:
+            if not bibcode in bibcode_index:
+                continue
+
+            reference_authors = [name.lower() for name in bibcode_index[bibcode][0]["author"]]
+            matching_authors = [
+                name for name in reference_authors if name.startswith(author_prefix)
+            ]
+            if matching_authors:
+                print(matching_authors, end=", ")
+                remaining_candidates.append(bibcode)
+
+        if len(remaining_candidates) != 1:
             return None
 
-        bib = candidates_in_dataset[0]
-        # Fast O(1) lookup using the index
+        bib = remaining_candidates[0]
         doi = bibcode_index[bib][0]["doi"]
 
         if doi:
@@ -148,7 +165,7 @@ def main():
     """
 
     # Check log file to see where we left off
-    progress_log_path = "data/dataset/progress.json"
+    progress_log_path = "data/dataset/temp_progress.json"
     if not os.path.exists(progress_log_path):
         print("No progress log found.")
         progress = {"record_idx": 0, "sent_idx": 0}
@@ -177,10 +194,10 @@ def main():
             if example is None:
                 pass
             elif len(example["citation_dois"]) > 0:
-                with open("data/dataset/nontrivial_llm.jsonl", "a") as f:
+                with open("data/dataset/temp_nontrivial_llm.jsonl", "a") as f:
                     f.write(json.dumps(example) + "\n")
             else:
-                with open("data/dataset/trivial_llm.jsonl", "a") as f:
+                with open("data/dataset/temp_trivial_llm.jsonl", "a") as f:
                     f.write(json.dumps(example) + "\n")
 
             # Update progress log (sentence level)

@@ -32,6 +32,7 @@ def clean_substrings(strings):
 
 valid_examples = 0
 successes = 0
+failed_examples = []
 
 for record in tqdm(data):
     if not record["isValid"]:
@@ -49,12 +50,13 @@ for record in tqdm(data):
         print(f"Failed example: {record['sentence']}")
         print(f"Expected: {expected}")
         print(f"Predictd: {predicted}")
-        with open("failed_substrings.jsonl", "a") as f:
-            # write out the record
-            f.write(json.dumps(record) + "\n")
+        record['predicted_substrings'] = list(predicted)
+        failed_examples.append(record)
     else:
         successes += 1
 
+with open("llm/failed_substrings.json", "w") as f:
+    json.dump(failed_examples, f, indent=2)
 
 print(f"Valid examples: {valid_examples}")
 print(f"--- Substring successes ---")

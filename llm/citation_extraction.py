@@ -4,15 +4,16 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel
 
 try:
-    from llm.models import SentenceValidation, CitationExtraction, CitationSubstring
+    from llm.models import SentenceValidation, CitationExtraction, CitationSubstring, CitationList
 except ImportError:
-    from models import SentenceValidation, CitationExtraction, CitationSubstring
+    from models import SentenceValidation, CitationExtraction, CitationSubstring, CitationList
 
-MODEL_NAME = "llama3.3:latest"  # Replace with your model name
-# MODEL_NAME = "mistral-nemo:latest"  # Replace with your model name
+# MODEL_NAME = "llama3.3:latest"  # Replace with your model name
+# MODEL_NAME = "qwq:latest"
+MODEL_NAME = "mistral-nemo:latest"  # Replace with your model name
 VALID_SENT_PROMPT = "llm/prompts/is_sentence_good_prompt.txt"
 CIT_SUBSTRING_PROMPT = "llm/prompts/substring_prompt.txt"
-CIT_EXTRACT_PROMPT = "llm/prompts/citation_prompt.txt"
+CIT_EXTRACT_PROMPT = "llm/prompts/citation_tuples_prompt.txt"
 SENT_NO_CIT_PROMPT = "llm/prompts/sent_prompt.txt"
 
 YEAR_PATTERN = r"^\d{4}"  # Matches a year that starts with 4 digits, e.g., "2023a", "1999", but not "in preparation" or similar
@@ -58,17 +59,41 @@ get_citation_substrings = get_llm_function(
 extract_citations = get_llm_function(
     model_name=MODEL_NAME,
     system_prompt_path=CIT_EXTRACT_PROMPT,
-    output_model=CitationExtraction,
+    output_model=CitationList,
 )
 
 
-def sentence_to_citations(text: str):
+def create_sent_no_cit(text: str, citation_substrings: list[str]) -> str:
+    """
+    Creates a sentence without inline citations by replacing citation substrings with '[REF]'.
+    """
+    sent_no_cit = text
+    for substring in citation_substrings:
+        # Replace substring in text with '[REF]' if it exists, if not try to slice the substring from the right
+        if substring in sent_no_cit:
+            sent_no_cit = sent_no_cit.replace(substring, "[REF]")
+            continue
+        elif (stripped_substring := substring.strip()) in sent_no_cit:
+            sent_no_cit = sent_no_cit.replace(stripped_substring, "[REF]")
+            continue
+        for i in range(1, 4):
+            if (sliced_substring := stripped_substring[:-i]) in sent_no_cit:
+                sent_no_cit = sent_no_cit.replace(sliced_substring, "[REF]")
+                break
+    return sent_no_cit
+
+
+def sentence_to_citations(text: str) -> tuple[list[tuple[str, str]], str]:
     """
     Converts a sentence to a list of citations.
     This function uses a sequence of LLM calls to
     1) Check if the sentence is a valid scientific sentence (not a caption, mangled OCR, etc.)
     2) Identify the substrings of the sentence that comprise inline citations
     3) Create a list of citation tuples [(author, year), ...] from the substrings
+    
+    Returns a tuple of:
+    - A list of citation tuples [(author, year), ...]
+    - The sentence with inline citations replaced by '[REF]'
     """
     # Check if the sentence is valid
     sent_no_cit = text
@@ -87,6 +112,7 @@ def sentence_to_citations(text: str):
 
     # If the sentence is valid, identify citation substrings
     print("citation_substrings=", end="", flush=True)
+    citation_substrings = []
     try:
         citation_substrings = get_citation_substrings(text).root
         assert isinstance(
@@ -105,30 +131,29 @@ def sentence_to_citations(text: str):
             citation_extraction = extract_citations(s)
             citations = [
                 (citation.author, citation.year)
-                for citation in citation_extraction.citations.root
+                for citation in citation_extraction.root
                 if re.match(
                     YEAR_PATTERN, citation.year
                 )  # Ensure year begins with 4 digits, not 'in preparation' or similar
             ]
             all_citations += citations
 
-            # If there are citations, replace their substrings in the original sentence with '[REF]'
-            if citations:
-                sent_no_cit = citation_extraction.sentence
-
         except Exception as e:
             print(f"Error extracting citations from substring '{s}': {e}")
             # If there's an error, we can skip this substring
             continue
-    print(all_citations, end="}", flush=True)
-
-    return all_citations, sent_no_cit
+    print(all_citations, end="}\n", flush=True)
+    print(f"sent_original={text}")
+    sent_no_cit = create_sent_no_cit(text, citation_substrings)
+    print(f"sent_no_cite ={sent_no_cit}" + "}", flush=True)
+    return all_citations, sent_no_cit, citation_substrings
 
 
 def main():
     # Example usage
     text = "It also hosts a Compton-thick AGN in the Western component, observed directly in hard X-rays (Della Ceca et al. 2002 ; Ballo et al. 2004 )."
-    text = "Models to predict ruwe for an arbitrary binary were developed by this work and by Penoyre et al. (2022,"
+    # text = "Models to predict ruwe for an arbitrary binary were developed by this work and by Penoyre et al. (2022,"
+    text = "Oelkers et al. (2017) and Oh et al. (2017) presented samples extending to separations of 3 and 10 pc."
     citations, sent_no_cit = sentence_to_citations(text)
     print(f"Extracted citations: {citations}")
     print(f"Sentence without citations: {sent_no_cit}")
