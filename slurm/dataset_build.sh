@@ -16,7 +16,20 @@ git pull
 export TMPDIR=/n/holylabs/LABS/protopapas_lab/Lab/bbasseri/tmp
 export OLLAMA_BASE_URL=http://localhost:11434
 podman load -i /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/ollama_llama3.3.tar
-podman run -d --name ollama-server --log-level=debug --rm --device nvidia.com/gpu=all -p 11434:11434 ollamaserve
+
+# Change to neutral dir before running podman; podman automatically tries to mount the current dir as a volume?
+cd /tmp
+podman run -d \
+  --name ollama-server \
+  --log-level=debug \
+  --rm \
+  --device nvidia.com/gpu=all \
+  -p 11434:11434 \
+  --workdir /tmp \
+#   --security-opt label=disable \
+  ollamaserve
+
+cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline
 
 echo "Waiting for Ollama model to load..."
 while true; do
