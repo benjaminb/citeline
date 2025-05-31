@@ -13,12 +13,23 @@ mamba deactivate && mamba activate citeline
 echo "which python: $(which python)"
 cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline
 git pull
-cd llm
 export TMPDIR=/n/holylabs/LABS/protopapas_lab/Lab/bbasseri/tmp
-mkdir -p $TMPDIR
+export OLLAMA_BASE_URL=http://localhost:11434
 podman load -i /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/ollama_llama3.3.tar
-podman run --log-level=debug --rm --device nvidia.com/gpu=all -p 11434:11434 ollamaserve
-cd ..
+podman run -d --name ollama-server --log-level=debug --rm --device nvidia.com/gpu=all -p 11434:11434 ollamaserve
+
+echo "Waiting for Ollama model to load..."
+while true; do
+    # Check if we can exec into the container and if ollama ps shows a loaded model
+    if podman exec ollama-server ollama ps 2>/dev/null | grep -q "llama3.3:latest"; then
+        echo "Model loaded successfully!"
+        break
+    else
+        echo "Model not loaded yet, waiting 30 seconds..."
+        sleep 30
+    fi
+done
+
 python dataset_builder.py
 timestamp=$(date +"%Y%m%d_%H%M%S")
 echo "ended at: $timestamp"
