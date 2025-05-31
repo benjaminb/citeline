@@ -3,6 +3,7 @@
 #SBATCH --job-name=dataset_build
 #SBATCH -p gpu # partition (queue)
 #SBATCH -c 2 # number of cores
+#SBATCH --gres=gpu:1 # number of GPUs
 #SBATCH --mem 64000 # memory pool for all cores
 #SBATCH -t 0-04:00 # time (D-HH:MM)
 #SBATCH -o slurm.%x.%j.log # STDOUT
