@@ -90,7 +90,6 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
         for bibcode in matching_ref_bibcodes:
             if not bibcode in bibcode_index:
                 continue
-
             reference_authors = [name.lower() for name in bibcode_index[bibcode][0]["author"]]
             matching_authors = [
                 name for name in reference_authors if name.startswith(author_prefix)
@@ -122,6 +121,7 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
     # however using the LLM to check sentence validity should sufficiently pass through meaningful sentences regardless of length.
 
     citation_dois, bibcodes = [], []
+    print(f"Citations: {citations}", end=", ")
 
     # If ANY inline citation is not found, return None
     for citation in citations:

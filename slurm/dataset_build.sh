@@ -14,7 +14,9 @@ echo "which python: $(which python)"
 cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline
 git pull
 cd llm
-podman build -t ollamaserve .
+export TMPDIR=/n/holylabs/LABS/protopapas_lab/Lab/bbasseri/tmp
+mkdir -p $TMPDIR
+podman load -i /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/ollama_llama3.3.tar
 podman run --log-level=debug --rm --device nvidia.com/gpu=all -p 11434:11434 ollamaserve
 cd ..
 python database_builder.py
