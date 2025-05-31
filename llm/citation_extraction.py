@@ -8,9 +8,8 @@ try:
 except ImportError:
     from models import SentenceValidation, CitationExtraction, CitationSubstring, CitationList
 
-# MODEL_NAME = "llama3.3:latest"  # Replace with your model name
-# MODEL_NAME = "qwq:latest"
-MODEL_NAME = "mistral-nemo:latest"  # Replace with your model name
+MODEL_NAME = "llama3.3:latest"  # Replace with your model name
+# MODEL_NAME = "mistral-nemo:latest"  # Replace with your model name
 VALID_SENT_PROMPT = "llm/prompts/is_sentence_good_prompt.txt"
 CIT_SUBSTRING_PROMPT = "llm/prompts/substring_prompt.txt"
 CIT_EXTRACT_PROMPT = "llm/prompts/citation_tuples_prompt.txt"
@@ -110,8 +109,8 @@ def sentence_to_citations(text: str) -> tuple[list[tuple[str, str]], str]:
 
     print(is_valid_sentence, end=", ")
     if not is_valid_sentence:
-        return [], sent_no_cit
-
+        return None
+    
     # If the sentence is valid, identify citation substrings
     print("citation_substrings=", end="", flush=True)
     citation_substrings = []

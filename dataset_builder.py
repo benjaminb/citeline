@@ -111,7 +111,12 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
 
     # Remove inline citations from the sentence, skip if result is too short (chose 63 after some inspection)
     print(f"\033[2K\rWorking on sentence {index}: {sentence[:70]}...", end="")
-    citations, sent_no_cit = sentence_to_citations(sentence)
+    result = sentence_to_citations(sentence)
+
+    # If the sentence was not deemed valid by the LLM, sentence_to_citations will return None
+    if not result:
+        return None
+    citations, sent_no_cit = result
 
     # NOTE: originally we checked sentence length as a signal whether the sentence was usable or not;
     # however using the LLM to check sentence validity should sufficiently pass through meaningful sentences regardless of length.
