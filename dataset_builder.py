@@ -165,7 +165,7 @@ def main():
     """
 
     # Check log file to see where we left off
-    progress_log_path = "data/dataset/temp_progress.json"
+    progress_log_path = "data/dataset/progress.json"
     if not os.path.exists(progress_log_path):
         print("No progress log found.")
         progress = {"record_idx": 0, "sent_idx": 0}
@@ -194,10 +194,10 @@ def main():
             if example is None:
                 pass
             elif len(example["citation_dois"]) > 0:
-                with open("data/dataset/temp_nontrivial_llm.jsonl", "a") as f:
+                with open("data/dataset/nontrivial_llm.jsonl", "a") as f:
                     f.write(json.dumps(example) + "\n")
             else:
-                with open("data/dataset/temp_trivial_llm.jsonl", "a") as f:
+                with open("data/dataset/trivial_llm.jsonl", "a") as f:
                     f.write(json.dumps(example) + "\n")
 
             # Update progress log (sentence level)
