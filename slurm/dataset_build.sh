@@ -5,7 +5,7 @@
 #SBATCH -c 2 # number of cores
 #SBATCH --gres=gpu:1 # number of GPUs
 #SBATCH --mem 64000 # memory pool for all cores
-#SBATCH -t 0-04:00 # time (D-HH:MM)
+#SBATCH -t 0-01:00 # time (D-HH:MM)
 #SBATCH -o slurm.%x.%j.log # STDOUT
 #SBATCH -e slurm.%x.%j.log # STDERR
 module load python
@@ -19,6 +19,6 @@ mkdir -p $TMPDIR
 podman load -i /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/ollama_llama3.3.tar
 podman run --log-level=debug --rm --device nvidia.com/gpu=all -p 11434:11434 ollamaserve
 cd ..
-python database_builder.py
+python dataset_builder.py
 timestamp=$(date +"%Y%m%d_%H%M%S")
 echo "ended at: $timestamp"
