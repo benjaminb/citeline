@@ -14,22 +14,17 @@ echo "which python: $(which python)"
 cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline
 git pull
 export TMPDIR=/n/holylabs/LABS/protopapas_lab/Lab/bbasseri/tmp
-export OLLAMA_BASE_URL=http://localhost:11434
+# export OLLAMA_BASE_URL=http://localhost:11434
 podman load -i /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/ollama_llama3.3.tar
-
-# Change to neutral dir before running podman; podman automatically tries to mount the current dir as a volume?
-cd /tmp
-podman run -d \
-  --name ollama-server \
-  --log-level=debug \
-  --rm \
-  --device nvidia.com/gpu=all \
-  -p 11434:11434 \
-  --workdir /tmp \
-#   --security-opt label=disable \
-  ollamaserve
+podman run -d --name ollama-server --log-level=debug --rm --device nvidia.com/gpu=all -p 11434:11434 ollamaserve
 
 cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline
+
+# Trigger the model to load
+curl http://localhost:11434/api/generate -d '{
+  "model": "llama3.3:latest",
+  "prompt": "What is water made of?"
+}'
 
 echo "Waiting for Ollama model to load..."
 while true; do
