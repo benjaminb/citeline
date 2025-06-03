@@ -401,10 +401,10 @@ class Database:
                 SET synchronous_commit = 'off';
                 SET work_mem = '{max(int(0.25 * db_mem), 4)}GB';
                 SET maintenance_work_mem = '{int(0.15 * db_mem)}GB';
-                SET checkpoint_timeout = '30min';
+                -- SET checkpoint_timeout = '30min';
                 SET max_parallel_workers_per_gather = '{db_cpus}';  -- Use all CPUs for query parallelism
                 SET max_parallel_maintenance_workers = '{int(0.75 * db_cpus)}';  -- Use 75% of CPUs for index creation (reduces contention)
-                SET shared_buffers = '{int(0.25 * db_mem)}GB';
+                -- SET shared_buffers = '{int(0.25 * db_mem)}GB';
                 SET effective_cache_size = '{int(0.5 * db_mem)}GB';
             """
 
@@ -435,7 +435,8 @@ class Database:
         Create the base table for chunks and insert records into it.
 
         Args:
-            path (str): Path to the dataset (JSONL file).
+            table_name (str): Name of the table to create.
+            from_path (str): Path to the dataset (JSONL file).
             max_length (int): Maximum length of each chunk.
             overlap (int): Overlap between chunks.
         """
@@ -798,23 +799,24 @@ class Database:
         cursor = self.conn.cursor()
 
         # NOTE: these settings based on how I tend to run the db host on FASRC
-        max_worker_processes = 62
-        max_parallel_workers = 62
-        max_parallel_maintenance_workers = 62
-        maintenance_work_mem = "6GB"
-        print("=" * 48 + "CONFIG" + "=" * 48)
-        print(
-            "max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | maintenance_work_mem"
-        )
-        print(
-            f"{max_worker_processes:^21} {max_parallel_workers:^21} {max_parallel_maintenance_workers:^33} {maintenance_work_mem:^21}"
-        )
-        print("=" * 102)
-        cursor.execute(
-            f"SET maintenance_work_mem='{maintenance_work_mem}';",
-        )
-        cursor.execute(f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
-        cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
+        self.set_session_resources(optimize_for="index", verbose=True)
+        # max_worker_processes = 11
+        # max_parallel_workers = 11
+        # max_parallel_maintenance_workers = 11
+        # maintenance_work_mem = "6GB"
+        # print("=" * 48 + "CONFIG" + "=" * 48)
+        # print(
+        #     "max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | maintenance_work_mem"
+        # )
+        # print(
+        #     f"{max_worker_processes:^21} {max_parallel_workers:^21} {max_parallel_maintenance_workers:^33} {maintenance_work_mem:^21}"
+        # )
+        # print("=" * 102)
+        # cursor.execute(
+        #     f"SET maintenance_work_mem='{maintenance_work_mem}';",
+        # )
+        # cursor.execute(f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
+        # cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
 
         # Resolve index name and parameters
         index_name = f"idx_{target_column}_{index_type}"
@@ -831,6 +833,7 @@ class Database:
 
         # Create index
         query = f"CREATE INDEX {index_name} ON {table_name} USING {index_type} ({target_column} vector_cosine_ops) WITH {parameters}"
+        print(f"Executing query: {query}")
         start = time()
         cursor.execute(query)
         print(f"  Index creation time: {time() - start:.2f} seconds")
@@ -866,7 +869,8 @@ class Database:
         pubdate: str | None = None,
         use_index=True,
         top_k=5,
-        probes=40,
+        probes: int = None,
+        ef_search: int = 40,
         explain=True,
     ) -> list[VectorQueryResult]:
         """
@@ -889,6 +893,7 @@ class Database:
         _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
 
         # Set the session resources
+        self.set_session_resources(optimize_for="query", verbose=False)
 
         # Make sure pubdate set, in YYYY-MM-DD format
         if not pubdate:
@@ -901,7 +906,10 @@ class Database:
                 raise ValueError(f"Invalid pubdate format: {pubdate}. Use YYYY-MM-DD format.")
 
         with self.conn.cursor() as cursor:
-            cursor.execute(f"SET ivfflat.probes = {probes};")
+            if probes:
+                cursor.execute(f"SET ivfflat.probes = {probes};")
+            elif ef_search:
+                cursor.execute(f"SET hnsw.ef_search = {ef_search};")
             cursor.execute(
                 f"""
                 SELECT
@@ -946,7 +954,7 @@ class Database:
         try:
             with self.conn.cursor() as cursor:
                 # Prewarm pubdate index
-                cursor.execute("SELECT pg_prewarm('idx_pubdate');")
+                cursor.execute("SELECT pg_prewarm('idx_lib_pubdate');")
                 results = cursor.fetchall()
                 prewarmed_objects.append(
                     ("idx_pubdate", results[0][0] if results and results[0][0] else 0)

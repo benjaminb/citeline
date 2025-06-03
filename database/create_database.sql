@@ -1,7 +1,7 @@
-CREATE DATABASE citeline_db WITH OWNER bbasseri;
+CREATE USER bbasseri WITH PASSWORD 'citeline';
+CREATE DATABASE citelinedb WITH OWNER bbasseri;
 -- GRANT ALL PRIVILEGES ON DATABASE citeline_db TO bbasseri;
-\c citeline_db
--- GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO bbasseri;
+\c citelinedb -- GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO bbasseri;
 -- GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO bbasseri;
 -- GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO bbasseri;
 -- GRANT USAGE ON SCHEMA public TO bbasseri;
@@ -15,6 +15,6 @@ CREATE TABLE library (
     title TEXT NOT NULL,
     abstract TEXT NOT NULL,
     doi VARCHAR(255) NOT NULL,
-    year INT,
+    pubdate DATE,
     text TEXT NOT NULL
 );

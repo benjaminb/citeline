@@ -1,0 +1,10 @@
+dataset: 'data/dataset/nontrivial_llm.jsonl'
+table: 'lib'
+target_column: 'bge_norm'
+metric: 'vector_cosine_ops'
+embedder: 'BAAI/bge-small-en'
+normalize: True
+enrichment: 'add_prev_7'
+batch_size: 16
+top_k: 10_000
+ef_search: 40

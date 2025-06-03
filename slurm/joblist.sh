@@ -1,1 +1,1 @@
-sacct -u bbasseri --format=JobId%-8,JobName%16,Partition,ReqCPUS%7,ReqTRES,ReqMem,Start,End,State%16 | awk 'NR==1{sub("ReqTRES", "GPUs")}{gsub(/billing=/,"        ")};1'
+sacct -u bbasseri --format=JobId%-8,JobName%16,Partition,ReqCPUS%7,ReqTRES,ReqMem,Start,End,State%16 | awk 'NR==1{sub("ReqTRES", "Resources")}{gsub(/billing=/,"        ")};1'
