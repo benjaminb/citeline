@@ -719,7 +719,6 @@ def main():
             probes=config.get("probes"),
         )
         print(experiment)
-        # experiment.run()
         experiment.run_mp()
 
         return

@@ -2,10 +2,6 @@ from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
 import torch.nn.functional as F
 
-# Load model and tokenizer
-# model_name = "cross-encoder/nli-roberta-base"
-# tokenizer = AutoTokenizer.from_pretrained(model_name)
-# model = AutoModelForSequenceClassification.from_pretrained(model_name)
 
 """
 From documentation: 
