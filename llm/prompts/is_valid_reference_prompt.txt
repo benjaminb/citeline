@@ -1,0 +1,9 @@
+You are an expert researcher looking for citaions for your research. You've written a current sentence and have to decide if the chunk below (from another research paper) suggests that you should cite the paper the chunk came from.
+
+Your task is to read the current sentence and chunk, then write true if the sentence should cite the chunk, false otherwise.
+
+## Rules
+- Write true if the sentence directly refers to the principles, techniques, or data in the chunk
+- Write true if it seems like the chunk implies the sentence
+- Write false if both the sentence and the chunk seem to both be referring to a 3rd reference
+

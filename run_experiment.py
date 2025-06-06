@@ -14,10 +14,24 @@ from tqdm import tqdm
 from database.database import Database, VectorQueryResult
 from TextEnrichers import get_enricher
 from Embedders import get_embedder
+from llm.LLMFunction import LLMFunction
+from llm.models import IsValidReference
 
 from time import time
 
 DISTANCE_THRESHOLDS = np.arange(1.0, 0.0, -0.01)
+
+llm_reference_check = LLMFunction(
+    model_name="mistral-nemo:latest",
+    system_prompt_path="llm/prompts/is_valid_reference_prompt.txt",
+    output_model=IsValidReference,
+)
+
+
+def is_valid_reference(query: str, chunk: str) -> bool:
+    msg = f"Sentence:\n{query}\n\nChunk:\n{chunk}"
+    ref_check = llm_reference_check(msg)
+    return ref_check.root
 
 
 def argument_parser():
@@ -27,11 +41,11 @@ def argument_parser():
     1. Run an experiment with specified configuration:
        python run_experiment.py --run --config experiments/configs/bert_cosine.yaml
 
-    2. Build a dataset by sampling from source:
-       python run_experiment.py --build --num 1000 --source data/dataset/full/nontrivial.jsonl --dest data/dataset/sampled/sample_1000.jsonl --seed 42
+    2. Build a train/test split by sampling from source:
+       python run_experiment.py --build --source data/dataset/full/nontrivial_llm.jsonl --train-dest data/dataset/sampled/train.jsonl --test-dest data/dataset/sample/test.jsonl --split=0.8 --seed 42
 
-    3. Write out train/test split from a dataset:
-       python run_experiment.py --write
+    3. Run an experiment with a top-k scan:
+       python run_experiment.py --run-scan --config experiments/bert_cosine.yaml
 
     4. Generate query plans and analyze database performance:
        python run_experiment.py --query-plan --table-name bert_hnsw --embedder bert-base-uncased --top-k 50
@@ -44,7 +58,12 @@ def argument_parser():
 
     # Create mutually exclusive operation groups
     operation_group = parser.add_mutually_exclusive_group(required=True)
-    operation_group.add_argument("--run", action="store_true", help="run the experiment")
+    operation_group.add_argument(
+        "--run", action="store_true", help="run an experiment with fixed top-k"
+    )
+    operation_group.add_argument(
+        "--run-scan", action="store_true", help="run an experiment with top-k scan"
+    )
     operation_group.add_argument("--build", action="store_true", help="build a dataset")
     operation_group.add_argument(
         "--write", action="store_true", help="write out train/test datasets"
@@ -58,7 +77,11 @@ def argument_parser():
     # Dataset building arguments
     parser.add_argument("--num", type=int, help="number of examples to include")
     parser.add_argument("--source", type=str, help="path to source dataset (jsonl)")
-    parser.add_argument("--dest", type=str, help="path to destination dataset (jsonl)")
+    parser.add_argument("--train-dest", type=str, help="save path for training set (jsonl)")
+    parser.add_argument("--test-dest", type=str, help="save path for test set (jsonl)")
+    parser.add_argument(
+        "--split", type=float, default=0.8, help="train/test split ratio (default: 0.8)"
+    )
     parser.add_argument("--seed", type=int, help="random seed for dataset sampling")
     parser.add_argument(
         "--table-name", type=str, help="name of the database table for query plan generation"
@@ -76,7 +99,7 @@ def argument_parser():
     if args.run and not args.config:
         parser.error("--run requires --config")
 
-    if args.build and (not args.num or not args.source or not args.dest):
+    if args.build and (not args.source or not args.test_dest or not args.train_dest):
         parser.error("--build requires --num, --source, and --dest arguments")
 
     if args.query_plan and (not args.table_name or not args.embedder or not args.top_k):
@@ -89,6 +112,14 @@ def build_training_dataset(num_examples, source_path, dest_path, seed=None):
     examples = pd.read_json(source_path, lines=True)
     examples = examples.sample(num_examples, random_state=seed)
     examples.to_json(dest_path, orient="records", lines=True)
+
+
+def build_train_test_split(source_path, train_save_path, test_save_path, seed=42):
+    examples = pd.read_json(source_path, lines=True)
+    train = examples.sample(frac=0.8, random_state=seed)
+    test = examples.drop(train.index)
+    train.to_json(train_save_path, orient="records", lines=True)
+    test.to_json(test_save_path, orient="records", lines=True)
 
 
 def train_test_split_nontrivial(path, split=0.8):
@@ -124,6 +155,8 @@ class Experiment:
         batch_size: int = 16,
         top_k: int = 100,
         probes: int = 16,
+        ef_search: int = 40,
+        distance_threshold: float = None,
     ):
         # Set up configs
         self.device = device
@@ -151,6 +184,8 @@ class Experiment:
         self.db.test_connection()
         self.top_k = top_k
         self.probes = probes
+        self.ef_search = ef_search
+        self.distance_threshold = distance_threshold
 
         # Prepare attributes for results
         self.jaccard_scores = {threshold: [] for threshold in DISTANCE_THRESHOLDS}
@@ -159,11 +194,15 @@ class Experiment:
         {0.5: 0.1785} means after only keeping query results with distance < 0.5, the average IoU score for
         all examples in the dataset is 0.1785
         """
-        self.average_scores = {}
+        self.average_score = None  # For run method (no scan over top-k)
+        self.average_scores = {}  # For run_and_topk_scan method (scan over top-k)
+
+        # num_results tracks how many records the DB actually returned per query (can be less than top_k based on probes/ef_search)
+        self.num_results = []
         self.best_top_ks = []
         self.best_top_distances = []
 
-    def _closest_neighbors(self, results, threshold: float):
+    def _truncate_results(self, results, threshold: float):
         """
         Assumes that `results` are ordered by distance, lowest to highest.
 
@@ -174,19 +213,6 @@ class Experiment:
                 return results[:i]
         return results
 
-    def __compute_stats(
-        self, target_dois: list[str], results: list[VectorQueryResult]
-    ) -> list[np.longdouble]:
-        """
-        NOTE: this assumes that target_dois is non-empty
-        """
-        target_dois_set = set(target_dois)
-        jaccard_scores = []
-        for i in range(len(results)):
-            predicted_dois = set(result.doi for result in results[: i + 1])
-            score = self.__jaccard_similarity(predicted_dois, target_dois_set)
-            jaccard_scores.append(score)
-
     def _evaluate_prediction(self, example, results):
         unique_predicted_dois = set(result.doi for result in results)
         citation_dois = set(doi for doi in example.citation_dois)
@@ -195,20 +221,34 @@ class Experiment:
 
     def _evaluate_prediction_dict(self, example, results):
         unique_predicted_dois = set(result.doi for result in results)
-
-        # Change this line to use dict access instead of attribute access
-        if isinstance(example, dict):
-            citation_dois = set(doi for doi in example["citation_dois"])
-        else:  # Still a pandas Series
-            citation_dois = set(doi for doi in example.citation_dois)
-
+        citation_dois = set(doi for doi in example["citation_dois"])
         score = self.__jaccard_similarity(unique_predicted_dois, citation_dois)
         return score
 
     def __jaccard_similarity(self, set1, set2):
         intersection = np.longdouble(len(set1.intersection(set2)))
         union = np.longdouble(len(set1.union(set2)))
-        return intersection / union
+        if union == 0:
+            return 0.0
+        return float(intersection / union)
+
+    def __get_optimal_cutoff_distance(self, results, example):
+        """
+        Given a list of results and an example, find the optimal cutoff distance
+        that maximizes the Jaccard score.
+        """
+        best_jaccard_score = 0
+        best_threshold = 0
+
+        for i, result in enumerate(results):
+            # Calculate Jaccard score for the current cutoff distance
+            predicted_chunks = self._truncate_results(results, result.distance)
+            score = self._evaluate_prediction_dict(example, predicted_chunks)
+
+            if score > best_jaccard_score:
+                best_jaccard_score = score
+                best_threshold = result.distance
+        return best_threshold, best_jaccard_score
 
     def _plot_roc_curve(self, filename_base: str):
         outfile = f"experiments/results/{filename_base}/roc_{filename_base}.png"
@@ -273,10 +313,28 @@ class Experiment:
         with open(f"experiments/results/{filename_base}/results_{filename_base}.json", "w") as f:
             json.dump(output, f)
 
-    def _write_results(self):
-        # Prep results and outfile name
-        # metric_str = self.metric_to_str.get(self.metric)
+    def _write_run_results(self):
+        """
+        Writes out the results of a .run() experiment, which only includes the config and the average Jaccard score.
+        """
+        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename_base = f"{self.target_column}_{self.enrichment}_norm{self.normalize}_n{len(self.dataset)}_topk{self.top_k}_{current_time}"
 
+        # Create directory if it doesn't exist
+        if not os.path.exists(f"experiments/results/{filename_base}"):
+            os.makedirs(f"experiments/results/{filename_base}")
+
+        output = {
+            "config": self.get_config_dict(),
+            "average_score": self.average_score,
+            "ef_search": self.ef_search,
+            "average_num_results": sum(self.num_results) / len(self.num_results),
+        }
+
+        with open(f"experiments/results/{filename_base}/results_{filename_base}.json", "w") as f:
+            json.dump(output, f)
+
+    def _write_results(self):
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename_base = f"{self.target_column}_{self.enrichment}_norm{self.normalize}_n{len(self.dataset)}_topk{self.top_k}_{current_time}"
 
@@ -302,30 +360,47 @@ class Experiment:
         }
 
     def run(self):
-        assert (
-            "CPUS" in os.environ
-        ), "CPUS environment variable not set. Please set it to the number of CPU cores available."
+        """
+        Run the experiment with the producer on the main thread and consumer threads:
+        - Producer (embedding generation) runs on the main thread with GPU
+        - Multiple consumer threads for database operations
+
+        This function doesn't compute metrics over various top-k cutoffs; just given the
+        experiment config with a set top k
+        """
         from concurrent.futures import ThreadPoolExecutor
         import queue
+        import threading
 
+        # Make sure we have CPU count available
+        assert "CPUS" in os.environ, "CPUS environment variable not set."
         try:
             num_cpus = int(os.getenv("CPUS"))
         except ValueError:
-            raise ValueError(
-                f"Invalid value for CPUS environment variable (CPUS={num_cpus}). Please set it to an integer."
-            )
+            raise ValueError(f"Invalid value for CPUS environment variable.")
 
-        self.db.set_session_resources(optimize_for="query")
+        # Set up database for efficient queries
+        self.db.set_session_resources(optimize_for="query", verbose=False)
         self.db.prewarm_table(self.table, target_column=self.target_column)
 
-        # Create queues
-        task_queue = queue.Queue()
+        # Create thread-safe queues for tasks and results
+        task_queue = queue.Queue(maxsize=20)
         results_queue = queue.Queue()
-        progress_update_queue = queue.Queue()
-        num_completed = 0
+        progress_lock = threading.Lock()
+        query_bar_lock = threading.Lock()
 
-        # Consumer function to run database queries and statistics
-        def consumer():
+        # For tracking progress
+        dataset_size = len(self.dataset)
+        producer_progress = 0
+        consumer_progress = 0
+
+        # Thread-safe counter for consumers
+        progress_lock = threading.Lock()
+
+        def consumer_thread():
+            """Consumer thread that handles database queries and evaluations"""
+            nonlocal consumer_progress
+
             # Create a dedicated database connection for this thread
             thread_db = Database(path_to_env=".env")
             thread_db.set_session_resources(optimize_for="query", verbose=False)
@@ -333,7 +408,7 @@ class Experiment:
             while True:
                 try:
                     # Get task from queue
-                    task = task_queue.get()
+                    task = task_queue.get(timeout=60)
                     if task is None:  # Sentinel to signal completion
                         task_queue.task_done()
                         break
@@ -346,70 +421,64 @@ class Experiment:
                         table_name=self.table,
                         target_column=self.target_column,
                         metric=self.metric,
-                        pubdate=example["pubdate"],
+                        pubdate=example.get("pubdate"),
                         use_index=True,
                         top_k=self.top_k,
-                        probes=self.probes,
+                        # probes=self.probes,
+                        ef_search=self.ef_search,
                     )
 
-                    # Compute IoU scores for each distance threshold, find best distance cutoff
-                    best_score = 0
-                    best_threshold = 0
-                    threshold_scores = {}
-                    best_top_k = 0
-                    best_distance = 0
+                    # Cutoff logic?
+                    # results = [res for res in results if is_valid_reference(res).root]
+                    filtered_results = []
+                    for result in results:
+                        valid_ref = is_valid_reference(
+                            query=example["sent_no_cit"], chunk=result.chunk
+                        )
+                        if valid_ref:
+                            filtered_results.append(result)
+                    results = filtered_results
+                    print(f"Num results after filtering: {len(results)}")
+                    # TODO: Reranking logic will go here
 
-                    for threshold in DISTANCE_THRESHOLDS:
-                        predicted_chunks = self._closest_neighbors(results, threshold)
-                        score = self._evaluate_prediction(example, predicted_chunks)
-                        threshold_scores[threshold] = score
+                    self.num_results.append(len(results))
 
-                        if score > best_score:
-                            best_score = score
-                            best_threshold = threshold
+                    score = self._evaluate_prediction_dict(example, results)
+                    results_queue.put(score)
 
-                    # Find the top-k corresponding to best threshold
-                    for i in range(len(results)):
-                        if results[i].distance > best_threshold:
-                            best_top_k = i + 1  # i is 0-indexed, top k is 1-indexed
-                            best_distance = best_threshold
-                            break
-                    else:  # No break occurred
-                        best_top_k = len(results)
+                    # Thread-safe update of progress counter
+                    with progress_lock, query_bar_lock:
+                        consumer_progress += 1
+                        query_bar.update(1)  # Update progress bar directly
 
-                    progress_update_queue.put(True)
-
-                    # Put results in results queue
-                    results_queue.put(
-                        {
-                            "threshold_scores": threshold_scores,
-                            "best_top_k": best_top_k,
-                            "best_distance": best_distance,
-                        }
-                    )
                     task_queue.task_done()
 
+                except queue.Empty:
+                    print("Consumer timeout waiting for tasks")
+                    break
                 except Exception as e:
-                    print(f"Consumer thread error: {e}")
-                    progress_update_queue.put(False)
+                    print(f"Consumer thread error: {str(e)}")
                     task_queue.task_done()
 
         # Start consumer threads
-        num_workers = max(1, num_cpus - 1)  # Adjust based on your system
+        num_workers = max(1, num_cpus - 1)  # Leave one core for the main thread
         print(f"Starting {num_workers} database query workers")
 
         start = time()
+        consumer_threads = []
+
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            # Start consumer threads
             for _ in range(num_workers):
-                executor.submit(consumer)
+                thread = executor.submit(consumer_thread)
+                consumer_threads.append(thread)
 
-            # 3) Producer section in the main thread, with two progress bars:
-            dataset_size = len(self.dataset)
-            with tqdm(total=dataset_size, desc="Embedding", position=0) as enqueue_bar, tqdm(
-                total=dataset_size, desc="Querying", position=1
-            ) as process_bar:
+            # Create progress bars
+            with tqdm(total=dataset_size, desc="Embedding (GPU)", position=0) as embed_bar, tqdm(
+                total=dataset_size, desc="DB Queries", position=1
+            ) as query_bar:
 
-                # Producer enqueues tasks
+                # Main thread acts as the producer
                 for i in range(0, dataset_size, self.batch_size):
                     # GPU cache clearing
                     if i % 50 == 0 and self.device == "cuda":
@@ -417,60 +486,52 @@ class Experiment:
                     elif i % 50 == 0 and self.device == "mps":
                         torch.mps.empty_cache()
 
-                    # Enrich + embed
+                    # Get batch and generate embeddings
                     batch = self.dataset.iloc[i : i + self.batch_size]
                     enriched_batch = self.enricher(batch)
                     embeddings = self.embedder(enriched_batch)
 
-                    # Enqueue tasks, update "Queueing tasks" bar
+                    # Add tasks to queue and update producer progress
                     for j in range(len(batch)):
-                        example = batch.iloc[j]
+                        example_dict = batch.iloc[j].to_dict()
                         embedding = embeddings[j]
-                        task_queue.put((example, embedding))
-                        enqueue_bar.update(1)
+                        task_queue.put((example_dict, embedding))
 
-                        while not progress_update_queue.empty():
-                            success = progress_update_queue.get()
-                            if success:
-                                process_bar.update(1)
+                        # Update producer progress
+                        producer_progress += 1
+                        embed_bar.update(1)
 
-                        # Process completed results after EACH example is enqueued
-                        while not results_queue.empty():
-                            result = results_queue.get()
-                            # Update stats
-                            for threshold, score in result["threshold_scores"].items():
-                                self.jaccard_scores[threshold].append(score)
-                            self.best_top_ks.append(result["best_top_k"])
-                            self.best_top_distances.append(result["best_distance"])
-                            num_completed += 1
+                    # Check and update consumer progress
+                    current_consumer = consumer_progress  # Read once to avoid race conditions
+                    if current_consumer > query_bar.n:
+                        query_bar.update(current_consumer - query_bar.n)
 
-                # 4) Signal consumers to stop, then wait for them
+                # Add sentinel values to signal consumer completion
                 for _ in range(num_workers):
                     task_queue.put(None)
+
+                # Wait for all tasks to be processed
                 task_queue.join()
 
-                # Process leftover results
-                while not results_queue.empty():
-                    result = results_queue.get()
-                    for threshold, score in result["threshold_scores"].items():
-                        self.jaccard_scores[threshold].append(score)
-                    self.best_top_ks.append(result["best_top_k"])
-                    self.best_top_distances.append(result["best_distance"])
-                    num_completed += 1
-                    if num_completed <= dataset_size:
-                        process_bar.update(1)
+                # Final consumer progress update
+                if consumer_progress > query_bar.n:
+                    query_bar.update(consumer_progress - query_bar.n)
 
-        # 5) Final stats + writing results (unchanged)
-        self.average_scores = {
-            round(threshold, 2): float(sum(scores) / len(scores))
-            for threshold, scores in self.jaccard_scores.items()
-        }
+        # Process all results
+        jaccard_scores = []
+        while not results_queue.empty():
+            score = results_queue.get()
+            jaccard_scores.append(score)
+
+        # Store results
+        self.jaccard_scores = jaccard_scores
+        self.average_score = sum(jaccard_scores) / len(jaccard_scores)
 
         end = time()
         print(f"Experiment computed in {end - start:.2f} seconds")
-        self._write_results()
+        self._write_run_results()
 
-    def run_mp(self):
+    def run_and_topk_scan(self):
         """
         Run the experiment with the producer on the main thread and consumer threads:
         - Producer (embedding generation) runs on the main thread with GPU
@@ -536,7 +597,6 @@ class Experiment:
                     )
 
                     # Compute IoU scores for each threshold
-                    # [existing evaluation code]
                     best_score = 0
                     best_threshold = 0
                     threshold_scores = {}
@@ -544,7 +604,7 @@ class Experiment:
                     best_distance = 0
 
                     for threshold in DISTANCE_THRESHOLDS:
-                        predicted_chunks = self._closest_neighbors(results, threshold)
+                        predicted_chunks = self._truncate_results(results, threshold)
                         score = self._evaluate_prediction_dict(example, predicted_chunks)
                         threshold_scores[threshold] = score
 
@@ -648,7 +708,7 @@ class Experiment:
 
         while not results_queue.empty():
             result = results_queue.get()
-            # [process result]
+
             for threshold, score in result["threshold_scores"].items():
                 jaccard_scores[threshold].append(score)
             best_top_ks.append(result["best_top_k"])
@@ -693,13 +753,54 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
 
     if args.build:
-        num, source, dest, seed = args.num, args.source, args.dest, args.seed
-        print(f"Building dataset with {num} examples from {source} to {dest}. Using seed: {seed}")
-        build_training_dataset(num_examples=num, source_path=source, dest_path=dest, seed=seed)
-        print("Dataset built.")
+        source, train_dest, test_dest, split, seed = (
+            args.source,
+            args.train_dest,
+            args.test_dest,
+            args.split,
+            args.seed,
+        )
+        print(
+            f"Building dataset from {source}. Split: {split}:{train_dest}, {1 - split}:{test_dest}. Seed: {seed}"
+        )
+        if not os.path.exists(source):
+            raise FileNotFoundError(f"Source dataset {source} does not exist.")
+        build_train_test_split(
+            source_path=source,
+            train_save_path=train_dest,
+            test_save_path=test_dest,
+            seed=seed,
+        )
+        print(f"Train/test split written to {train_dest} and {test_dest}.")
         return
 
     if args.run:
+        # Load experiment configs
+        with open(args.config, "r") as config_file:
+            config = yaml.safe_load(config_file)
+
+        # Set up and run experiment
+        experiment = Experiment(
+            device=device,
+            dataset_path=config["dataset"],
+            table=config.get("table", "lib"),
+            target_column=config.get("target_column", "chunk"),
+            metric=config.get("metric", "vector_cosine_ops"),
+            embedding_model_name=config["embedder"],
+            normalize=config["normalize"],
+            enrichment=config["enrichment"],
+            batch_size=config.get("batch_size", 16),
+            top_k=config.get("top_k", 100),
+            probes=config.get("probes", 16),
+            ef_search=config.get("ef_search", 40),
+            # distance_threshold=config["distance_threshold"],
+        )
+        print(experiment)
+        experiment.run()
+
+        return
+
+    if args.run_scan:
         # Load expermient configs
         with open(args.config, "r") as config_file:
             config = yaml.safe_load(config_file)
@@ -716,10 +817,11 @@ def main():
             enrichment=config["enrichment"],
             batch_size=config.get("batch_size", 16),
             top_k=config.get("top_k"),
-            probes=config.get("probes"),
+            probes=config.get("probes", 40),
+            ef_search=config.get("ef_search", 40),
         )
         print(experiment)
-        experiment.run_mp()
+        experiment.run_and_topk_scan()
 
         return
 

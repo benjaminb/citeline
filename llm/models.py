@@ -52,3 +52,13 @@ class CitationExtraction(BaseModel):
     sentence: str = Field(
         description="A sentence with any inline citations replaced by '[REF]' placeholders"
     )
+
+
+class IsValidReference(RootModel[bool]):
+    """
+    A model to infer if a chunk is a valid reference for an input query.
+    """
+
+    root: bool = Field(
+        description="True if the chunk is a valid reference for the input query, False otherwise"
+    )

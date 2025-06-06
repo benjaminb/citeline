@@ -18,7 +18,7 @@ export TMPDIR=/n/holylabs/LABS/protopapas_lab/Lab/bbasseri/tmp
 podman load -i /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/ollama_llama3.3.tar
 podman run -d --name ollama-server --log-level=debug --rm --device nvidia.com/gpu=all -p 11434:11434 ollamaserve
 
-cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline
+# cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline
 
 # Trigger the model to load
 curl http://localhost:11434/api/generate -d '{

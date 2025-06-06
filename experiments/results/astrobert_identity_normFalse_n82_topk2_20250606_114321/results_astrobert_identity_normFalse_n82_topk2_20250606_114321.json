@@ -1,0 +1,16 @@
+{
+  "config": {
+    "dataset": "data/dataset/split/test.jsonl",
+    "table": "lib",
+    "target_column": "astrobert",
+    "metric": "vector_cosine_ops",
+    "embedder": "adsabs/astroBERT",
+    "normalize": false,
+    "enrichment": "identity",
+    "batch_size": 16,
+    "top_k": 2
+  },
+  "average_score": 0.0,
+  "ef_search": 1000,
+  "average_num_results": 2.0
+}
