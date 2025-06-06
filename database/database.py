@@ -924,22 +924,6 @@ class Database:
             results = cursor.fetchall()
             return [VectorQueryResult(*result) for result in results]
 
-        if len(results) != top_k:
-            print(f"WARNING: Expected {top_k} results, but got {len(results)}.")
-            # print the arguments
-            print(f"table_name: {table_name}")
-            print(f"target_column: {target_column}")
-            print(f"metric: {metric}")
-            print(f"pubdate: {pubdate}")
-            print(f"use_index: {use_index}")
-            print(f"top_k: {top_k}")
-            print(f"probes: {probes}")
-
-        # Close up
-        cursor.close()
-
-        return [VectorQueryResult(*result) for result in results]
-
     def prewarm_table(self, table_name: str, target_column: str = None):
         """
         Prewarms a table and optionally, specific indexes associated with a target column.
