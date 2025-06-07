@@ -51,6 +51,9 @@ def bibcode_matches(inline_citation: tuple[str, str], references: list[str]) -> 
     Given an inline citation and a list of references, return the references
     h the inline citation's bibcode regex pattern
     """
+    author, year = inline_citation
+    if not author or not year:
+        return []
     pattern = bibcode_regex(*inline_citation)
     return [s for s in references if pattern.match(s)]
 

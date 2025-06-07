@@ -1,0 +1,16 @@
+{
+  "config": {
+    "dataset": "data/dataset/split/small_train.jsonl",
+    "table": "lib",
+    "target_column": "bge_norm",
+    "metric": "vector_cosine_ops",
+    "embedder": "BAAI/bge-small-en",
+    "normalize": true,
+    "enrichment": "identity",
+    "batch_size": 16,
+    "top_k": 15
+  },
+  "average_score": 0.0325,
+  "ef_search": 1000,
+  "average_num_results": 9.0
+}

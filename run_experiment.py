@@ -22,7 +22,7 @@ from time import time
 DISTANCE_THRESHOLDS = np.arange(1.0, 0.0, -0.01)
 
 llm_reference_check = LLMFunction(
-    model_name="mistral-nemo:latest",
+    model_name="llama3.3:latest",
     system_prompt_path="llm/prompts/is_valid_reference_prompt.txt",
     output_model=IsValidReference,
 )

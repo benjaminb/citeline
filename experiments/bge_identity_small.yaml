@@ -1,0 +1,10 @@
+dataset: 'data/dataset/split/small_train.jsonl'
+table: 'lib'
+target_column: 'bge_norm'
+metric: 'vector_cosine_ops'
+embedder: 'BAAI/bge-small-en'
+normalize: True
+enrichment: 'identity'
+batch_size: 16
+top_k: 15
+ef_search: 1000
