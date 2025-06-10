@@ -3,8 +3,12 @@ This creates an OpenAI client which also can be used for DeepSeek
 """
 
 from openai import OpenAI
+from langchain_deepseek import ChatDeepSeek
+from langchain_core.messages import SystemMessage
 from dotenv import load_dotenv
 import os
+from pydantic import BaseModel
+from llm.models import IsValidCitation
 
 # Load environment variables from .env file from project root
 load_dotenv("../.env")
@@ -19,9 +23,53 @@ def deepseek_client():
     return client
 
 
-def deepseek_chat(prompt: str, vars: dict = None, response_model=None):
+with open("llm/prompts/deepseek_citation_identification.txt", "r") as f:
+    DEEPSEEK_CITATION_IDENTIFICATION_PROMPT = f.read()
+
+deepseek_llm = ChatDeepSeek(
+    model="deepseek-chat", temperature=0.0, max_tokens=10, max_retries=2
+).with_structured_output(IsValidCitation, method="json_schema")
+
+
+def deepseek_citation_validator_using_openai(query: str, candidates: list[str]) -> list[bool]:
+    """
+    Using the OpenAI client, returns a list of booleans indicating whether each candidate is a valid reference.
+    """
     client = deepseek_client()
-    response = client.responses.parse(model="deepseek-chat", input="")
+    prompts = [
+        DEEPSEEK_CITATION_IDENTIFICATION_PROMPT.format(sentence=query, paper=paper)
+        for paper in candidates
+    ]
+    results = [
+        client.chat.completions.create(
+            model="deepseek-chat",
+            temperature=0.0,
+            messages=[{"role": "system", "content": prompt}],
+            stream=False,
+        )
+        for prompt in prompts
+    ]
+    return results
+
+
+def deepseek_citation_validator(query: str, candidates: list[str]) -> list[bool]:
+    """
+    Returns a list of booleans indicating whether each candidate is a valid reference.
+    """
+    results = []
+    prompts = [
+        DEEPSEEK_CITATION_IDENTIFICATION_PROMPT.format(sentence=query, paper=paper)
+        for paper in candidates
+    ]
+    messages = [[SystemMessage(content=prompt)] for prompt in prompts]
+    try:
+        responses = deepseek_llm.batch(messages)
+        results = [response.is_valid for response in responses]
+    except Exception as e:
+        print(f"Error during citation validation: {e}")
+        # If there's an error, we assume all candidates are invalid
+        results = [False] * len(candidates)
+    return results
 
 
 def main():

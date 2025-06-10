@@ -2,11 +2,13 @@
 name = "citeline"
 version = "0.1.0"
 description = "Citation prediction system"
-authors = ["Benjamin Basseri <bbasseri@fas.harvard.edu>"]
+authors = [
+  {name = "Benjamin Basseri", email = "bbasseri@fas.harvard.edu"}
+]
 dependencies = []
 
 [tool.black]
-line-length = 100
+line-length = 120
 
 [tool.pytest.ini_options]
 pythonpath = [

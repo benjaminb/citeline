@@ -232,25 +232,22 @@ class Experiment:
             return 0.0
         return float(intersection / union)
 
-    def __get_optimal_cutoff_distance(self, results, example):
-        """
-        Given a list of results and an example, find the optimal cutoff distance
-        that maximizes the Jaccard score.
-        """
-        best_jaccard_score = 0
-        best_threshold = 0
+    def __plot_topk_histogram(self, filename_base: str):
+        outfile = f"experiments/results/{filename_base}/topk_histogram_{filename_base}.png"
 
-        for i, result in enumerate(results):
-            # Calculate Jaccard score for the current cutoff distance
-            predicted_chunks = self._truncate_results(results, result.distance)
-            score = self._evaluate_prediction_dict(example, predicted_chunks)
+        plt.figure()
+        plt.hist(self.best_top_ks, bins=30, alpha=0.7, color="blue", edgecolor="black")
+        plt.xlabel("Best Top-k")
+        plt.ylabel("Frequency")
+        plt.title(f"Best Top-k value (n = {len(self.dataset)})")
+        plt.grid(True, which="major", linestyle="-", linewidth=0.8, alpha=0.7)
+        plt.grid(True, which="minor", linestyle=":", linewidth=0.5, alpha=0.4)
+        plt.gca().xaxis.set_minor_locator(MultipleLocator(1))
 
-            if score > best_jaccard_score:
-                best_jaccard_score = score
-                best_threshold = result.distance
-        return best_threshold, best_jaccard_score
+        plt.savefig(outfile)
+        plt.close()
 
-    def _plot_roc_curve(self, filename_base: str):
+    def __plot_roc_curve(self, filename_base: str):
         outfile = f"experiments/results/{filename_base}/roc_{filename_base}.png"
 
         plt.figure()
@@ -295,7 +292,7 @@ class Experiment:
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"{self.table}_{self.enrichment}_norm{self.normalize}_{self.metric_to_str[self.metric]}_n{len(self.dataset)}_{current_time}"
 
-    def _write_json_results(self, filename_base):
+    def __write_json_results(self, filename_base):
         # Prep results and outfile name
         output = {
             "config": self.get_config_dict(),
@@ -303,6 +300,7 @@ class Experiment:
             "avg_best_top_k": sum(self.best_top_ks) / len(self.best_top_ks),
             "avg_best_distance_threshold": sum(self.best_top_distances)
             / len(self.best_top_distances),
+            "best_top_ks": self.best_top_ks,
         }
 
         # Create directory if it doesn't exist
@@ -313,7 +311,7 @@ class Experiment:
         with open(f"experiments/results/{filename_base}/results_{filename_base}.json", "w") as f:
             json.dump(output, f)
 
-    def _write_run_results(self):
+    def __write_run_results(self):
         """
         Writes out the results of a .run() experiment, which only includes the config and the average Jaccard score.
         """
@@ -329,12 +327,13 @@ class Experiment:
             "average_score": self.average_score,
             "ef_search": self.ef_search,
             "average_num_results": sum(self.num_results) / len(self.num_results),
+            "best_top_ks": self.best_top_ks,
         }
 
         with open(f"experiments/results/{filename_base}/results_{filename_base}.json", "w") as f:
             json.dump(output, f)
 
-    def _write_results(self):
+    def __write_results(self):
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename_base = f"{self.target_column}_{self.enrichment}_norm{self.normalize}_n{len(self.dataset)}_topk{self.top_k}_{current_time}"
 
@@ -343,8 +342,9 @@ class Experiment:
             os.makedirs(f"experiments/results/{filename_base}")
 
         # Write and plot results
-        self._write_json_results(filename_base)
-        self._plot_roc_curve(filename_base)
+        self.__write_json_results(filename_base)
+        self.__plot_roc_curve(filename_base)
+        self.__plot_topk_histogram(filename_base)
 
     def get_config_dict(self):
         return {
@@ -529,7 +529,7 @@ class Experiment:
 
         end = time()
         print(f"Experiment computed in {end - start:.2f} seconds")
-        self._write_run_results()
+        self.__write_run_results()
 
     def run_and_topk_scan(self):
         """
@@ -600,7 +600,7 @@ class Experiment:
                     best_score = 0
                     best_threshold = 0
                     threshold_scores = {}
-                    best_top_k = 0
+                    best_top_k = len(results)
                     best_distance = 0
 
                     for threshold in DISTANCE_THRESHOLDS:
@@ -611,15 +611,7 @@ class Experiment:
                         if score > best_score:
                             best_score = score
                             best_threshold = threshold
-
-                    # Find the top-k corresponding to best threshold
-                    for i in range(len(results)):
-                        if results[i].distance > best_threshold:
-                            best_top_k = i + 1  # i is 0-indexed, top k is 1-indexed
-                            best_distance = best_threshold
-                            break
-                    else:  # No break occurred
-                        best_top_k = len(results)
+                            best_top_k = len(predicted_chunks)
 
                     # Put results in results queue
                     results_queue.put(
@@ -727,7 +719,7 @@ class Experiment:
 
         end = time()
         print(f"Experiment computed in {end - start:.2f} seconds")
-        self._write_results()
+        self.__write_results()
 
     def __str__(self):
         return (

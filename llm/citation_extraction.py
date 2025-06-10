@@ -13,7 +13,6 @@ MODEL_NAME = "llama3.3:latest"  # Replace with your model name
 VALID_SENT_PROMPT = "llm/prompts/is_sentence_good_prompt.txt"
 CIT_SUBSTRING_PROMPT = "llm/prompts/substring_prompt.txt"
 CIT_EXTRACT_PROMPT = "llm/prompts/citation_tuples_prompt.txt"
-# SENT_NO_CIT_PROMPT = "llm/prompts/sent_prompt.txt"
 
 YEAR_PATTERN = r"^\d{4}"  # Matches a year that starts with 4 digits, e.g., "2023a", "1999", but not "in preparation" or similar
 

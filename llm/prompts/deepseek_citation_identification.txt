@@ -1,0 +1,14 @@
+You are an expert researcher with a research paper draft. You have a draft sentence and a candidate paper. Your task is to determine if the paper should be cited in the sentence or not.
+
+## Task: 
+- Read the sentence from the draft paper 
+- Read the candidate paper, paying close attention to the candidate's original contributions
+- If the candidate paper should be cited by the sentence, write 'true'. Otherwise write 'false'
+
+### Candidate paper
+{paper}
+
+### Draft sentence
+{sentence}
+
+Responsd ONLY with a JSON object: {{"should_cite": true}} or {{"should_cite": false}}

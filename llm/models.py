@@ -56,9 +56,19 @@ class CitationExtraction(BaseModel):
 
 class IsValidReference(RootModel[bool]):
     """
-    A model to infer if a chunk is a valid reference for an input query.
+    A model to infer if a sentence is a valid scientific sentence.
     """
 
     root: bool = Field(
-        description="True if the chunk is a valid reference for the input query, False otherwise"
+        description="True if the sentence is a 'good' scientific sentence (natural language, clear meaning), False otherwise (e.g., caption, reference, gibberish, OCR error)"
+    )
+
+
+class IsValidCitation(BaseModel):
+    """
+    A model to infer if a paper should be cited by a sentence.
+    """
+
+    is_valid: bool = Field(
+        description="True if the paper should be cited by the input sentence, False otherwise"
     )
