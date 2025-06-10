@@ -32,6 +32,13 @@ def entailment_ranker(model_name: str, device: str = "mps") -> callable:
 
     return entailment_fn
 
+def deepseek_boolean(query, candidates) -> list[bool]:
+    """
+    Given a query and a list of candidates, returns a list of booleans indicating whether each candidate
+    should be cited in the query or not
+    """
+    from apis.openai_client import 
+
 
 def main():
     roberta_entailment_ranker = entailment_ranker("cross-encoder/nli-roberta-base")

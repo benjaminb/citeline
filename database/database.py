@@ -505,6 +505,30 @@ class Database:
             self.__log_error(f"Error during COPY: {e}")
             raise e
 
+    def get_paper_by_doi(self, doi: str) -> str:
+        """
+        Get the full text of a paper by its DOI. Its structure will be:
+        Title: {title}
+
+        Abstract: {abstract}
+
+        {body}
+        """
+
+        with self.conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT title, abstract, body FROM papers WHERE doi = %s;
+                """,
+                (doi,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                raise ValueError(f"No paper found with DOI: {doi}")
+            title, abstract, body = row
+
+        return f"Title: {title}\n\nAbstract: {abstract}\n\n{body}"
+
     def get_chunks_by_doi(
         self, doi: str, table_name: str = "library", vector_column: str = "bge_norm"
     ):
@@ -797,26 +821,7 @@ class Database:
 
         # Set session resources
         cursor = self.conn.cursor()
-
-        # NOTE: these settings based on how I tend to run the db host on FASRC
         self.set_session_resources(optimize_for="index", verbose=True)
-        # max_worker_processes = 11
-        # max_parallel_workers = 11
-        # max_parallel_maintenance_workers = 11
-        # maintenance_work_mem = "6GB"
-        # print("=" * 48 + "CONFIG" + "=" * 48)
-        # print(
-        #     "max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | maintenance_work_mem"
-        # )
-        # print(
-        #     f"{max_worker_processes:^21} {max_parallel_workers:^21} {max_parallel_maintenance_workers:^33} {maintenance_work_mem:^21}"
-        # )
-        # print("=" * 102)
-        # cursor.execute(
-        #     f"SET maintenance_work_mem='{maintenance_work_mem}';",
-        # )
-        # cursor.execute(f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
-        # cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
 
         # Resolve index name and parameters
         index_name = f"idx_{target_column}_{index_type}"
