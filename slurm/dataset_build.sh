@@ -16,9 +16,9 @@ git pull
 
 # Load container for Ollama service
 # export OLLAMA_BASE_URL=http://localhost:11434
-export TMPDIR=/n/holylabs/LABS/protopapas_lab/Lab/bbasseri/tmp
+export TMPDIR=/tmp
 podman load -i /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/ollama_llama3.3.tar
-podman run -d --name ollama-server --log-level=debug --rm --privileged --device nvidia.com/gpu=all -p 11434:11434 ollamaserve
+podman run -d --name ollama-server --log-level=debug --rm  --userns=keep-id --device nvidia.com/gpu=all -p 11434:11434 ollamaserve
 
 
 # Trigger the model to load
