@@ -875,7 +875,7 @@ class Database:
         use_index=True,
         top_k=5,
         probes: int = None,
-        ef_search: int = 40,
+        ef_search: int = 1000,
         explain=True,
     ) -> list[VectorQueryResult]:
         """
@@ -920,7 +920,7 @@ class Database:
                 SELECT
                     id, doi, title, abstract, chunk, pubdate, {target_column} {_operator_} %s AS distance
                 FROM {table_name}
-                WHERE pubdate < '{pubdate}'
+                WHERE pubdate <= '{pubdate}'
                 ORDER BY distance ASC
                 LIMIT {top_k};
                 """,

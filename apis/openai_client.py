@@ -28,7 +28,7 @@ with open("llm/prompts/deepseek_citation_identification.txt", "r") as f:
 
 deepseek_llm = ChatDeepSeek(
     model="deepseek-chat", temperature=0.0, max_tokens=10, max_retries=2
-).with_structured_output(IsValidCitation, method="json_schema")
+).with_structured_output(IsValidCitation, method="json_mode", strict=True)
 
 
 def deepseek_citation_validator_using_openai(query: str, candidates: list[str]) -> list[bool]:

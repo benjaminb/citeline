@@ -155,7 +155,7 @@ class Experiment:
         batch_size: int = 16,
         top_k: int = 100,
         probes: int = 16,
-        ef_search: int = 40,
+        ef_search: int = 1000,
         distance_threshold: float = None,
     ):
         # Set up configs
@@ -202,7 +202,7 @@ class Experiment:
         self.best_top_ks = []
         self.best_top_distances = []
 
-    def _truncate_results(self, results, threshold: float):
+    def __truncate_results(self, results, threshold: float):
         """
         Assumes that `results` are ordered by distance, lowest to highest.
 
@@ -583,6 +583,12 @@ class Experiment:
                         break
 
                     example, embedding = task
+                    log = f"Example pubdate: {example.get('pubdate')}"
+
+                    total_possible_query = thread_db.query(
+                        f"SELECT COUNT(*) FROM lib WHERE pubdate <= '{example['pubdate']}'"
+                    )
+                    log += f" Earlier records: {total_possible_query[0][0]}"
 
                     # Query the database
                     results = thread_db.query_vector_column(
@@ -593,8 +599,10 @@ class Experiment:
                         pubdate=example.get("pubdate"),
                         use_index=True,
                         top_k=self.top_k,
-                        probes=self.probes,
+                        # probes=self.probes,
+                        ef_search=self.ef_search,
                     )
+                    log += f"\nReceived {len(results)} results from the database"
 
                     # Compute IoU scores for each threshold
                     best_score = 0
@@ -604,7 +612,7 @@ class Experiment:
                     best_distance = 0
 
                     for threshold in DISTANCE_THRESHOLDS:
-                        predicted_chunks = self._truncate_results(results, threshold)
+                        predicted_chunks = self.__truncate_results(results, threshold)
                         score = self._evaluate_prediction_dict(example, predicted_chunks)
                         threshold_scores[threshold] = score
 
@@ -614,6 +622,22 @@ class Experiment:
                             best_top_k = len(predicted_chunks)
 
                     # Put results in results queue
+                    if best_score == 0:
+                        log += f"\n  Never found a valid reference for this example {example['source_doi']}/{example['sent_idx']}"
+                        log += f"\n  self.best_top_k: {best_top_k}"
+                        retrieved_dois = set([result.doi for result in results])
+                        for target_doi in example["citation_dois"]:
+                            log += f"\n  Target DOI: {target_doi}"
+                            log += f"\n  Target in results: {target_doi in retrieved_dois}"
+                    else:
+                        log += f"\n  Found best topk: {best_top_k}, sent: {example['sent_no_cit']}"
+                        chunks_at_best_threshold = self.__truncate_results(results, best_threshold)
+                        log += f"\n  Chunks at best threshold: {len(chunks_at_best_threshold)}"
+                        log += f"\n  Best threshold: {best_threshold:.6f}"
+                        predicted_dois = set(result.doi for result in chunks_at_best_threshold)
+                        log += f"\n  IOU: {best_score:.6f}"
+
+                    # print(log, flush=True)
                     results_queue.put(
                         {
                             "threshold_scores": threshold_scores,
@@ -736,6 +760,7 @@ class Experiment:
             f"{'Enrichment':<20}: {self.enrichment}\n"
             f"{'Batch Size':<20}: {self.batch_size}\n"
             f"{'Top k':<20}: {self.top_k}\n"
+            f"{'ef_search':<20}: {self.ef_search}\n"
             f"{'='*40}\n"
         )
 
