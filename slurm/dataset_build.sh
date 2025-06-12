@@ -16,15 +16,15 @@ git pull
 
 # Load container for Ollama service
 # export OLLAMA_BASE_URL=http://localhost:11434
-export TMPDIR=/tmp
+export TMPDIR=/n/holylabs/LABS/protopapas_lab/Lab/bbasseri/tmp
 podman load -i /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/ollama_llama3.3.tar
 podman run -d --name ollama-server --log-level=debug --rm --userns=keep-id --device nvidia.com/gpu=all -p 11434:11434 ollamaserve
 
-
+sleep 60
 # Trigger the model to load
 curl http://localhost:11434/api/generate -d '{
   "model": "llama3.3:latest",
-  "prompt": "What is water made of?"
+  "prompt": "Respond with a single word that is the name of a fruit."
 }'
 
 echo "Waiting for Ollama model to load..."
