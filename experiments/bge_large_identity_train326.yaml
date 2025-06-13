@@ -1,10 +1,10 @@
 dataset: 'data/dataset/split/train.jsonl'
 table: 'lib'
-target_column: 'astrobert'
+target_column: 'bge_large_norm'
 metric: 'vector_cosine_ops'
-embedder: 'adsabs/astroBERT'
-normalize: False
+embedder: 'BAAI/bge-large-en-v1.5'
+normalize: True
 enrichment: 'identity'
 batch_size: 16
-top_k: 50000
-probes: 39
+top_k: 100000
+probes: 68

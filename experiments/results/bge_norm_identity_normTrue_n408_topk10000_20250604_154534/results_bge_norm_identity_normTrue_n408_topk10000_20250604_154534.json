@@ -1,1 +1,0 @@
-{"config": {"dataset": "data/dataset/nontrivial_llm.jsonl", "table": "lib", "target_column": "bge_norm", "metric": "vector_cosine_ops", "embedder": "BAAI/bge-small-en", "normalize": true, "enrichment": "identity", "batch_size": 16, "top_k": 10000}, "average_score": 0.0017996257932989257, "ef_search": 1000, "average_num_results": 882.5490196078431}

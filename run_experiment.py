@@ -236,13 +236,19 @@ class Experiment:
         outfile = f"experiments/results/{filename_base}/topk_histogram_{filename_base}.png"
 
         plt.figure()
-        plt.hist(self.best_top_ks, bins=30, alpha=0.7, color="blue", edgecolor="black")
+        plt.hist(
+            self.best_top_ks,
+            #  bins=30,
+            alpha=0.7,
+            color="blue",
+            edgecolor="black",
+        )
         plt.xlabel("Best Top-k")
         plt.ylabel("Frequency")
         plt.title(f"Best Top-k value (n = {len(self.dataset)})")
         plt.grid(True, which="major", linestyle="-", linewidth=0.8, alpha=0.7)
         plt.grid(True, which="minor", linestyle=":", linewidth=0.5, alpha=0.4)
-        plt.gca().xaxis.set_minor_locator(MultipleLocator(1))
+        # plt.gca().xaxis.set_minor_locator(MultipleLocator(1))
 
         plt.savefig(outfile)
         plt.close()
@@ -599,7 +605,7 @@ class Experiment:
                         pubdate=example.get("pubdate"),
                         use_index=True,
                         top_k=self.top_k,
-                        # probes=self.probes,
+                        probes=self.probes,
                         ef_search=self.ef_search,
                     )
                     log += f"\nReceived {len(results)} results from the database"
