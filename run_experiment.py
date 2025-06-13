@@ -201,6 +201,17 @@ class Experiment:
         self.num_results = []
         self.best_top_ks = []
         self.best_top_distances = []
+        self.hits = []
+
+    def __hit_rate(self, example, results):
+        target_dois = set(example["citation_dois"])
+        retrieved_dois = set(result.doi for result in results)
+        num_hits = len(target_dois.intersection(retrieved_dois))
+        return {
+            "pct": num_hits / len(target_dois),
+            "num_hits": num_hits,
+            "total_targets": len(target_dois),
+        }
 
     def __truncate_results(self, results, threshold: float):
         """
@@ -328,12 +339,22 @@ class Experiment:
         if not os.path.exists(f"experiments/results/{filename_base}"):
             os.makedirs(f"experiments/results/{filename_base}")
 
+        avg_hit_pct = sum(hit["pct"] for hit in self.hits) / len(self.hits) if self.hits else 0
+        avg_pooled_hit_pct = (
+            sum(hit["num_hits"] for hit in self.hits)
+            / sum(hit["total_targets"] for hit in self.hits)
+            if self.hits
+            else 0
+        )
+
         output = {
             "config": self.get_config_dict(),
             "average_score": self.average_score,
             "ef_search": self.ef_search,
             "average_num_results": sum(self.num_results) / len(self.num_results),
             "best_top_ks": self.best_top_ks,
+            "avg_hit_pct": avg_hit_pct,
+            "avg_pooled_hit_pct": avg_pooled_hit_pct,
         }
 
         with open(f"experiments/results/{filename_base}/results_{filename_base}.json", "w") as f:
@@ -430,24 +451,25 @@ class Experiment:
                         pubdate=example.get("pubdate"),
                         use_index=True,
                         top_k=self.top_k,
-                        # probes=self.probes,
+                        probes=self.probes,
                         ef_search=self.ef_search,
                     )
 
                     # Cutoff logic?
                     # results = [res for res in results if is_valid_reference(res).root]
-                    filtered_results = []
-                    for result in results:
-                        valid_ref = is_valid_reference(
-                            query=example["sent_no_cit"], chunk=result.chunk
-                        )
-                        if valid_ref:
-                            filtered_results.append(result)
-                    results = filtered_results
-                    print(f"Num results after filtering: {len(results)}")
+                    # filtered_results = []
+                    # for result in results:
+                    #     valid_ref = is_valid_reference(
+                    #         query=example["sent_no_cit"], chunk=result.chunk
+                    #     )
+                    #     if valid_ref:
+                    #         filtered_results.append(result)
+                    # results = filtered_results
+                    # print(f"Num results after filtering: {len(results)}")
                     # TODO: Reranking logic will go here
 
                     self.num_results.append(len(results))
+                    self.hits.append(self.__hit_rate(example, results))
 
                     score = self._evaluate_prediction_dict(example, results)
                     results_queue.put(score)

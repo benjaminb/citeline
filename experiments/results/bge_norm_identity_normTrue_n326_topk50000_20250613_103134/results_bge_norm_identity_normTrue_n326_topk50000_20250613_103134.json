@@ -1,0 +1,19 @@
+{
+  "config": {
+    "dataset": "data/dataset/split/train.jsonl",
+    "table": "lib",
+    "target_column": "bge_norm",
+    "metric": "vector_cosine_ops",
+    "embedder": "BAAI/bge-small-en",
+    "normalize": true,
+    "enrichment": "identity",
+    "batch_size": 16,
+    "top_k": 50000
+  },
+  "average_score": 0.00010177811809426591,
+  "ef_search": 40,
+  "average_num_results": 45980.524539877304,
+  "best_top_ks": [],
+  "avg_hit_pct": 0.8696319018404908,
+  "avg_pooled_hit_pct": 0.8588807785888077
+}

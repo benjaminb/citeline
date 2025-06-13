@@ -6,5 +6,6 @@ embedder: 'BAAI/bge-large-en-v1.5'
 normalize: True
 enrichment: 'identity'
 batch_size: 16
-top_k: 100000
-probes: 68
+top_k: 100
+probes: 39
+ef_search: 100
