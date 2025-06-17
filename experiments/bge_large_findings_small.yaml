@@ -1,10 +1,9 @@
 dataset: 'data/dataset/split/train.jsonl'
-table: 'lib'
-target_column: 'bge_norm'
+table: 'contributions'
+target_column: 'embedding'
 metric: 'vector_cosine_ops'
-embedder: 'BAAI/bge-small-en'
+embedder: 'BAAI/bge-large-en-v1.5'
 normalize: True
 enrichment: 'identity'
 batch_size: 16
-top_k: 1000
-probes: 1000
+top_k: 20

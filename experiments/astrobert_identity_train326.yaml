@@ -6,5 +6,5 @@ embedder: 'adsabs/astroBERT'
 normalize: False
 enrichment: 'identity'
 batch_size: 16
-top_k: 50
-probes: 39
+top_k: 1000
+probes: 1000

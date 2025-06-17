@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import numpy as np
 import os
 from datetime import datetime
@@ -25,6 +26,9 @@ import pstats
 # Add the parent directory to sys.path so we can import Embedders, Enrichers, etc.
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+
+logger = logging.getLogger(__name__)
+
 """
 USAGE:
 python database.py --test-connection
@@ -38,21 +42,15 @@ def argument_parser():
     parser = argparse.ArgumentParser(description="Database operations")
 
     operation_group = parser.add_mutually_exclusive_group(required=True)
-    operation_group.add_argument(
-        "--test-connection", "-t", action="store_true", help="Test database connection"
-    )
+    operation_group.add_argument("--test-connection", "-t", action="store_true", help="Test database connection")
     operation_group.add_argument(
         "--create-vector-table",
         "-V",
         action="store_true",
         help="Create a new vector table",
     )
-    operation_group.add_argument(
-        "--create-index", "-I", action="store_true", help="Create an index on a table"
-    )
-    operation_group.add_argument(
-        "--add-chunks", "-A", action="store_true", help="Add chunks to the database"
-    )
+    operation_group.add_argument("--create-index", "-I", action="store_true", help="Create an index on a table")
+    operation_group.add_argument("--add-chunks", "-A", action="store_true", help="Add chunks to the database")
     operation_group.add_argument(
         "--create-base-table",
         "-B",
@@ -131,9 +129,7 @@ def argument_parser():
         type=str,
         help="Distance metric to use for the index (default: vector_cosine_ops)",
     )
-    parser.add_argument(
-        "--m", "-M", default=32, type=int, help="M parameter for HNSW (default: 32)"
-    )
+    parser.add_argument("--m", "-M", default=32, type=int, help="M parameter for HNSW (default: 32)")
     parser.add_argument(
         "--ef-construction",
         "-ef",
@@ -159,6 +155,14 @@ def argument_parser():
         help="Maximum length of each chunk",
     )
     parser.add_argument("--overlap", "-o", type=int, default=150, help="Overlap between chunks")
+
+    parser.add_argument(
+        "--log",
+        type=str,
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Set the logging level [default: INFO, DEBUG, WARNING, ERROR]",
+    )
 
     args = parser.parse_args()
 
@@ -190,7 +194,7 @@ def argument_parser():
 DATACLASSES
 """
 
-# TODO: factor these out to models
+# TODO: factor these out to models?
 
 
 @dataclass
@@ -200,6 +204,19 @@ class VectorQueryResult:
     title: str
     abstract: str
     chunk: str
+    pubdate: str
+    distance: float
+
+
+@dataclass
+class VectorSearchResult:
+    """
+    Currently this represents the 'contributions' table, which represents a paper by embedding the original
+    contributions in the paper (as written by an LLM)
+    """
+
+    text: str
+    doi: str
     pubdate: str
     distance: float
 
@@ -234,9 +251,7 @@ These must be outside the class definition to be pickled, which is necessary for
 
 
 # Consumer function
-def consumer_proc(
-    db_params, results_queue, embedder_dim, table_name, vector_column_name, progress_queue
-):
+def consumer_proc(db_params, results_queue, embedder_dim, table_name, vector_column_name, progress_queue):
     # Each process creates its own connection
     conn = psycopg.connect(**db_params)
     register_vector(conn)
@@ -256,9 +271,7 @@ def consumer_proc(
             break
 
         batch_ids, batch_embeddings = item
-        with cur.copy(
-            "COPY temp_embeddings (id, embedding) FROM STDIN WITH (FORMAT BINARY)"
-        ) as copy:
+        with cur.copy("COPY temp_embeddings (id, embedding) FROM STDIN WITH (FORMAT BINARY)") as copy:
             copy.set_types(["int4", "vector"])
             for row_id, embedding in zip(batch_ids, batch_embeddings):
                 copy.write_row([row_id, embedding])
@@ -304,6 +317,7 @@ class Database:
         "bert-base-uncased": "bert",
         "adsabs/astroBERT": "astrobert",
         "nasa-impact/nasa-ibm-st.38m": "nasa",
+        "Qwen/Qwen3-Embedding-0.6B": "qwen",
     }
 
     PGVECTOR_DISTANCE_OPS = {
@@ -345,9 +359,7 @@ class Database:
         self.conn = psycopg.connect(**self.db_params)
         register_vector(self.conn)
 
-        self.device = (
-            "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
-        )
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
         # For text splitting; instantiated in _create_base_table
         self.splitter = None
 
@@ -369,9 +381,7 @@ class Database:
         elif self.device == "mps":
             torch.mps.empty_cache()
 
-    def set_session_resources(
-        self, optimize_for: Literal["query", "index", "insert"], verbose=True
-    ):
+    def set_session_resources(self, optimize_for: Literal["query", "index", "insert"], verbose=True):
         """
         Set session resources for PostgreSQL
 
@@ -460,9 +470,7 @@ class Database:
         df = pd.read_json(from_path, lines=True)
         required_columns = ["doi", "title", "abstract", "pubdate", "keywords", "body"]
         if not all(col in df.columns for col in required_columns):
-            raise ValueError(
-                f"Input JSONL file must contain the following columns: {required_columns}"
-            )
+            raise ValueError(f"Input JSONL file must contain the following columns: {required_columns}")
 
         # Split body into chunks
         records = df.to_dict("records")
@@ -473,8 +481,7 @@ class Database:
         cores = max(1, os.cpu_count() - 1)
         with ProcessPoolExecutor(max_workers=cores) as process_executor:
             futures = [
-                process_executor.submit(record_to_chunked_records, record, max_length, overlap)
-                for record in records
+                process_executor.submit(record_to_chunked_records, record, max_length, overlap) for record in records
             ]
             for future in tqdm(as_completed(futures), total=len(futures), desc="Chunking records"):
                 chunked_records.extend(future.result())  # Collect all chunks
@@ -529,9 +536,7 @@ class Database:
 
         return f"Title: {title}\n\nAbstract: {abstract}\n\n{body}"
 
-    def get_chunks_by_doi(
-        self, doi: str, table_name: str = "library", vector_column: str = "bge_norm"
-    ):
+    def get_chunks_by_doi(self, doi: str, table_name: str = "library", vector_column: str = "bge_norm"):
         cursor = self.conn.cursor()
         cursor.execute(
             f"""
@@ -610,9 +615,7 @@ class Database:
         if enricher_name:
             from TextEnrichers import get_enricher
 
-            enricher = get_enricher(
-                name=enricher_name, path_to_data="../data/preprocessed/research.jsonl"
-            )
+            enricher = get_enricher(name=enricher_name, path_to_data="../data/preprocessed/research.jsonl")
             print(f"Using enricher: {enricher_name}")
 
         # Construct column name
@@ -629,9 +632,7 @@ class Database:
         self.set_session_resources(optimize_for="insert", verbose=True)
 
         # Register vector extension and create column
-        query = (
-            f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
-        )
+        query = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
         print(f"Executing query: {query}")
         with self.conn.cursor() as cursor:
             cursor.execute(query)
@@ -686,9 +687,7 @@ class Database:
                         batch_ids, batch_embeddings = item
 
                         # Use COPY protocol for fast insertion
-                        with cur.copy(
-                            "COPY temp_embeddings (id, embedding) FROM STDIN WITH (FORMAT BINARY)"
-                        ) as copy:
+                        with cur.copy("COPY temp_embeddings (id, embedding) FROM STDIN WITH (FORMAT BINARY)") as copy:
                             copy.set_types(["int4", "vector"])
                             for row_id, embedding in zip(batch_ids, batch_embeddings):
                                 copy.write_row([row_id, embedding])
@@ -720,9 +719,7 @@ class Database:
                 executor.submit(consumer_thread)
             print(f"Started thread pool with {num_workers} workers...")
             # Producer in the main thread (GPU operations)
-            with tqdm(
-                total=total_batches, desc="Embedding and writing to database"
-            ) as progress_bar:
+            with tqdm(total=total_batches, desc="Embedding and writing to database") as progress_bar:
                 processed = 0
 
                 # Process batches
@@ -889,9 +886,7 @@ class Database:
 
         # Cleanup
         end = time()
-        print(
-            f"Created {index_type} index on {table_name}.{table_name} in {end - start:.2f} seconds"
-        )
+        print(f"Created {index_type} index on {table_name}.{table_name} in {end - start:.2f} seconds")
         cursor.close()
 
     def query(self, q: str) -> list[tuple]:
@@ -908,6 +903,67 @@ class Database:
         cursor.close()
         return rows
 
+    def vector_search(
+        self,
+        query_vector: np.array,
+        table_name: str,
+        target_column: str,
+        metric: str = "vector_cosine_ops",
+        pubdate: str | None = None,
+        use_index=True,
+        top_k=10,
+        probes: int = None,
+        ef_search: int = None,
+    ) -> list[VectorSearchResult]:
+        """
+        Query the specified vector column in the database.
+
+        Args:
+            query_vector (np.array): The vector to query.
+            table_name (str): The name of the table to query.
+            target_column (str): The name of the column to query.
+            metric (str): The distance metric to use. Default is 'vector_cosine_ops'.
+            pubdate (str | None): Optional publication date filter in YYYY-MM-DD format.
+            use_index (bool): Whether to use the index for the query. Default is True.
+            top_k (int): Number of nearest neighbors to return. Default is 5.
+            probes (int): Number of probes for IVFFlat index. Default is 40.
+
+        Returns:
+            list[VectorQueryResult]: A list of VectorQueryResult objects containing the results.
+        """
+        # Set up operator string, session resources, and pubdate format
+        _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
+        self.set_session_resources(optimize_for="query", verbose=False)
+        if not pubdate:
+            # Set to today in YYY-MM-DD format
+            pubdate = datetime.now().strftime("%Y-%m-%d")
+        else:
+            try:
+                datetime.strptime(pubdate, "%Y-%m-%d")
+            except ValueError:
+                raise ValueError(f"Invalid pubdate format: {pubdate}. Use YYYY-MM-DD format.")
+
+        with self.conn.cursor() as cursor:
+            # Vector index parameters
+            if probes:
+                cursor.execute(f"SET ivfflat.probes = {probes};")
+            elif ef_search:
+                cursor.execute(f"SET hnsw.ef_search = {ef_search};")
+
+            cursor.execute(
+                f"""
+                SELECT
+                    text, doi, pubdate, {target_column} {_operator_} %s AS distance
+                FROM {table_name}
+                WHERE pubdate <= '{pubdate}'
+                ORDER BY distance ASC
+                LIMIT {top_k};
+                """,
+                (query_vector,),
+            )
+            results = cursor.fetchall()
+            return [VectorSearchResult(*result) for result in results]
+
     def query_vector_column(
         self,
         query_vector: np.array,
@@ -918,8 +974,7 @@ class Database:
         use_index=True,
         top_k=5,
         probes: int = None,
-        ef_search: int = 1000,
-        explain=True,
+        ef_search: int = None,
     ) -> list[VectorQueryResult]:
         """
         Query the specified vector column in the database.
@@ -937,13 +992,9 @@ class Database:
         Returns:
             list[VectorQueryResult]: A list of VectorQueryResult objects containing the results.
         """
-        # Resolve the distance operator
+        # Set up operator string, session resources, and pubdate format
         _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
-
-        # Set the session resources
         self.set_session_resources(optimize_for="query", verbose=False)
-
-        # Make sure pubdate set, in YYYY-MM-DD format
         if not pubdate:
             # Set to today in YYY-MM-DD format
             pubdate = datetime.now().strftime("%Y-%m-%d")
@@ -954,10 +1005,12 @@ class Database:
                 raise ValueError(f"Invalid pubdate format: {pubdate}. Use YYYY-MM-DD format.")
 
         with self.conn.cursor() as cursor:
+            # Vector index parameters
             if probes:
                 cursor.execute(f"SET ivfflat.probes = {probes};")
             elif ef_search:
                 cursor.execute(f"SET hnsw.ef_search = {ef_search};")
+
             cursor.execute(
                 f"""
                 SELECT
@@ -988,16 +1041,12 @@ class Database:
                 # Prewarm pubdate index
                 cursor.execute("SELECT pg_prewarm('idx_lib_pubdate');")
                 results = cursor.fetchall()
-                prewarmed_objects.append(
-                    ("idx_pubdate", results[0][0] if results and results[0][0] else 0)
-                )
+                prewarmed_objects.append(("idx_pubdate", results[0][0] if results and results[0][0] else 0))
 
                 # Prewarm table
                 cursor.execute(f"SELECT pg_prewarm('{table_name}');")
                 results = cursor.fetchall()
-                prewarmed_objects.append(
-                    (table_name, results[0][0] if results and results[0][0] else 0)
-                )
+                prewarmed_objects.append((table_name, results[0][0] if results and results[0][0] else 0))
 
                 # Prewarm index on target column (the vector column)
                 if target_column:
@@ -1017,9 +1066,7 @@ class Database:
                     for index in indexes:
                         cursor.execute(f"SELECT pg_prewarm('{index}');")
                         results = cursor.fetchall()
-                        prewarmed_objects.append(
-                            (index, results[0][0] if results and results[0][0] else 0)
-                        )
+                        prewarmed_objects.append((index, results[0][0] if results and results[0][0] else 0))
 
                     # Get sizes of prewarmed objects
                     cursor.execute(
@@ -1151,6 +1198,13 @@ def get_kwargs(args, values):
 
 def main():
     args = argument_parser()
+    logging.basicConfig(
+        filename="experiments/logs/experiment.log",
+        filemode="w",
+        level=getattr(logging, args.log.upper()),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
     db = Database()
     db.test_connection()
 

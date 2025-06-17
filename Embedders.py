@@ -135,6 +135,7 @@ EMBEDDING_CLASS = {
     "BAAI/bge-large-en-v1.5": SentenceTransformerEmbedder,
     "bert-base-uncased": EncoderEmbedder,
     "nasa-impact/nasa-ibm-st.38m": SentenceTransformerEmbedder,
+    "Qwen/Qwen3-Embedding-0.6B": SentenceTransformerEmbedder,
     # "nvidia/NV-Embed-v2": SentenceTransformerEmbedder
 }
 

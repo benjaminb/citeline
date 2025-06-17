@@ -162,6 +162,7 @@ class Experiment:
         enrichment: str,
         batch_size: int = 16,
         top_k: int = 100,
+        use_index: bool = True,
         probes: int = 16,
         ef_search: int = 1000,
         distance_threshold: float = None,
@@ -191,6 +192,7 @@ class Experiment:
         self.db = Database(path_to_env=".env")
         self.db.test_connection()
         self.top_k = top_k
+        self.use_index = use_index
         self.probes = probes
         self.ef_search = ef_search
         self.distance_threshold = distance_threshold
@@ -351,12 +353,6 @@ class Experiment:
             os.makedirs(f"experiments/results/{filename_base}")
 
         avg_hit_pct = sum(hit["pct"] for hit in self.hits) / len(self.hits) if self.hits else 0
-        avg_pooled_hit_pct = (
-            sum(hit["num_hits"] for hit in self.hits)
-            / sum(hit["total_targets"] for hit in self.hits)
-            if self.hits
-            else 0
-        )
 
         output = {
             "config": self.get_config_dict(),
@@ -365,7 +361,6 @@ class Experiment:
             "average_num_results": sum(self.num_results) / len(self.num_results),
             "best_top_ks": self.best_top_ks,
             "avg_hit_pct": avg_hit_pct,
-            "avg_pooled_hit_pct": avg_pooled_hit_pct,
         }
 
         with open(f"experiments/results/{filename_base}/results_{filename_base}.json", "w") as f:
@@ -395,6 +390,8 @@ class Experiment:
             "enrichment": self.enrichment,
             "batch_size": self.batch_size,
             "top_k": self.top_k,
+            "probes": self.probes,
+            "ef_search": self.ef_search,
         }
 
     def run(self):
@@ -454,17 +451,29 @@ class Experiment:
                     example, embedding = task
 
                     # Query the database
-                    results = thread_db.query_vector_column(
+                    results = thread_db.vector_search(
                         query_vector=embedding,
                         table_name=self.table,
                         target_column=self.target_column,
                         metric=self.metric,
                         pubdate=example.get("pubdate"),
-                        use_index=True,
+                        use_index=self.use_index,
                         top_k=self.top_k,
                         probes=self.probes,
                         ef_search=self.ef_search,
                     )
+                    
+                    # results = thread_db.query_vector_column(
+                    #     query_vector=embedding,
+                    #     table_name=self.table,
+                    #     target_column=self.target_column,
+                    #     metric=self.metric,
+                    #     pubdate=example.get("pubdate"),
+                    #     use_index=self.use_index,
+                    #     top_k=self.top_k,
+                    #     probes=self.probes,
+                    #     ef_search=self.ef_search,
+                    # )
 
                     # Cutoff logic?
                     # results = [res for res in results if is_valid_reference(res).root]
@@ -480,9 +489,7 @@ class Experiment:
                     # TODO: Reranking logic will go here
 
                     self.num_results.append(len(results))
-                    hit_results = self.__hit_rate(example, results)
-                    logger.debug(f"Hit results: {hit_results}")
-                    self.hits.append(hit_results)
+                    self.hits.append(self.__hit_rate(example, results))
 
                     score = self._evaluate_prediction_dict(example, results)
                     results_queue.put(score)
@@ -801,6 +808,7 @@ class Experiment:
             f"{'Enrichment':<20}: {self.enrichment}\n"
             f"{'Batch Size':<20}: {self.batch_size}\n"
             f"{'Top k':<20}: {self.top_k}\n"
+            f"{'Probes':<20}: {self.probes}\n"
             f"{'ef_search':<20}: {self.ef_search}\n"
             f"{'='*40}\n"
         )

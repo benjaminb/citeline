@@ -1,8 +1,8 @@
 dataset: 'data/dataset/split/train.jsonl'
 table: 'lib'
-target_column: 'bge_norm'
+target_column: 'qwen_norm'
 metric: 'vector_cosine_ops'
-embedder: 'BAAI/bge-small-en'
+embedder: 'Qwen/Qwen3-Embedding-0.6B'
 normalize: True
 enrichment: 'identity'
 batch_size: 16

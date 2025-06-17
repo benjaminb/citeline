@@ -8,12 +8,13 @@
     "normalize": true,
     "enrichment": "identity",
     "batch_size": 16,
-    "top_k": 100
+    "top_k": 1000,
+    "probes": 1000,
+    "ef_search": 40
   },
-  "average_score": 0.028046895930631498,
+  "average_score": 0.0019208085352598104,
   "ef_search": 40,
-  "average_num_results": 34.966257668711656,
+  "average_num_results": 1000.0,
   "best_top_ks": [],
-  "avg_hit_pct": 0.4170245398773006,
-  "avg_pooled_hit_pct": 0.39416058394160586
+  "avg_hit_pct": 0.7787832310838445
 }
