@@ -542,6 +542,49 @@ class Database:
         rows = cursor.fetchall()
         return [SingleVectorDoiResult(*row) for row in rows]
 
+    def insert_document_expansions(
+        self,
+        expansions: list[str],
+        doi: str,
+        embedder_name: str,
+        normalize: bool,
+        table: str = "contributions",  # TODO: change this to something more generic?
+        batch_size: int = 16,
+    ):
+        """
+        Insert document expansions into the database. For example, a research paper can be
+        represented by a list of its original findings (the expansions list of strings). The
+        embedder then embeds these into vectors and inserts them into the database.
+
+
+        Args:
+            expansions (list[str]): List of document expansions to insert.
+            doi (str): DOI of the document these expansions belong to.
+            embedder_name (str): Name of the embedder to use for vectorization.
+            target_column (str): Column in the database where the vectors will be stored.
+            batch_size (int): Number of expansions to process in each batch.
+        """
+        from Embedders import get_embedder
+
+        embedder = get_embedder(embedder_name, self.device, normalize)
+        embeddings = embedder(expansions)
+        print(f"Got embeddings ({embeddings.shape})")
+        # Prepare data for insertion
+        data = [(doi, exp, emb.tolist()) for exp, emb in zip(expansions, embeddings)]
+        # Insert into the database
+        with self.conn.cursor() as cursor:
+            # Insert in batches
+            for i in tqdm(range(0, len(data), batch_size), desc="Inserting document expansions"):
+                batch = data[i : i + batch_size]
+                cursor.executemany(
+                    f"""
+                    INSERT INTO {table} (doi, text, embedding)
+                    VALUES (%s, %s, %s)
+                    """,
+                    batch,
+                )
+            self.conn.commit()
+
     def create_vector_column(
         self,
         embedder_name: str,

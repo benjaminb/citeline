@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import os
 import torch
 import yaml
@@ -7,18 +8,16 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
-
 from datetime import datetime
-from dotenv import load_dotenv
 from tqdm import tqdm
-from database.database import Database, VectorQueryResult
+from database.database import Database
 from TextEnrichers import get_enricher
 from Embedders import get_embedder
 from llm.LLMFunction import LLMFunction
 from llm.models import IsValidReference
-
 from time import time
 
+logger = logging.getLogger(__name__)
 DISTANCE_THRESHOLDS = np.arange(1.0, 0.0, -0.01)
 
 llm_reference_check = LLMFunction(
@@ -91,6 +90,15 @@ def argument_parser():
     )
     parser.add_argument(
         "--top-k", type=int, help="number of nearest neighbors to return from the database"
+    )
+
+    # Add a log level argument (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    parser.add_argument(
+        "--log",
+        type=str,
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Set the logging level (default: INFO)",
     )
 
     args = parser.parse_args()
@@ -206,6 +214,9 @@ class Experiment:
     def __hit_rate(self, example, results):
         target_dois = set(example["citation_dois"])
         retrieved_dois = set(result.doi for result in results)
+        logger.debug(
+            f"Example: {example['source_doi']}; # Targets: {len(target_dois)}; # Retrieved: {len(retrieved_dois)}; # Hits: {len(target_dois.intersection(retrieved_dois))}"
+        )
         num_hits = len(target_dois.intersection(retrieved_dois))
         return {
             "pct": num_hits / len(target_dois),
@@ -469,7 +480,9 @@ class Experiment:
                     # TODO: Reranking logic will go here
 
                     self.num_results.append(len(results))
-                    self.hits.append(self.__hit_rate(example, results))
+                    hit_results = self.__hit_rate(example, results)
+                    logger.debug(f"Hit results: {hit_results}")
+                    self.hits.append(hit_results)
 
                     score = self._evaluate_prediction_dict(example, results)
                     results_queue.put(score)
@@ -794,8 +807,17 @@ class Experiment:
 
 
 def main():
+
     args = argument_parser()
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
+
+    # Set up logging
+    logging.basicConfig(
+        filename="experiments/logs/experiment.log",
+        filemode="w",
+        level=getattr(logging, args.log.upper()),
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
 
     if args.build:
         source, train_dest, test_dest, split, seed = (
