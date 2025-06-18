@@ -101,7 +101,7 @@ def argument_parser():
         "--batch-size",
         "-b",
         type=int,
-        default=32,
+        default=16,
         help="Batch size for embedding and insertion operations",
     )
     parser.add_argument(
@@ -608,7 +608,7 @@ class Database:
         import queue
 
         # Initialize the embedder in the main process
-        print(f"Resolving embedder '{embedder_name}'...")
+        logger.info(f"Using embedder: {embedder_name}")
         embedder = get_embedder(embedder_name, self.device)
         dim = embedder.dim
 
@@ -616,7 +616,6 @@ class Database:
             from TextEnrichers import get_enricher
 
             enricher = get_enricher(name=enricher_name, path_to_data="../data/preprocessed/research.jsonl")
-            print(f"Using enricher: {enricher_name}")
 
         # Construct column name
         vector_column_name = Database.EMBEDDER_SHORTNAMES.get(
@@ -627,31 +626,30 @@ class Database:
         if enricher_name:
             vector_column_name += f"_{enricher_name}"
 
-        print(f"Attempting to create column '{vector_column_name}' in table '{table_name}'...")
-
         self.set_session_resources(optimize_for="insert", verbose=True)
 
+        logger.debug(f"Attempting to create column '{vector_column_name}' in table '{table_name}'...")
         # Register vector extension and create column
         query = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
-        print(f"Executing query: {query}")
+        logger.debug(f"Executing query: {query}")
         with self.conn.cursor() as cursor:
             cursor.execute(query)
             self.conn.commit()
-            print("Column created (or it already existed)")
 
             # Get all text chunks to embed
             start = time()
             cursor.execute(f"SELECT id, doi, {target_column} FROM {table_name};")
             rows = cursor.fetchall()
-            print(f"  SELECT execution time: {time() - start:.2f} seconds")
+            logger.debug(
+                f"Fetched {len(rows)} rows from the database. SELECT execution time: {time() - start:.2f} seconds"
+            )
             all_ids, all_dois, all_chunks = zip(*rows)
-            print(f"  Fetched {len(all_ids)} rows from the database")
             del rows
 
         # Enrich chunks if an enricher is provided
-        if enricher_name:
-            texts_with_dois = zip(all_chunks, all_dois)
-            all_chunks = enricher.enrich_batch(texts_with_dois=texts_with_dois)
+        # if enricher_name:
+        #     texts_with_dois = zip(all_chunks, all_dois)
+        #     all_chunks = enricher.enrich_batch(texts_with_dois=texts_with_dois)
 
         # Create thread-safe queues for tasks and progress tracking
         task_queue = queue.Queue()
@@ -659,7 +657,7 @@ class Database:
 
         # Calculate number of batches
         total_batches = (len(all_chunks) + batch_size - 1) // batch_size
-        num_workers = int(os.getenv("CPUS", max(1, os.cpu_count() - 1)))
+        num_workers = int(os.getenv("CPUS", max(1, os.cpu_count()))) - 1
 
         # Thread worker function
         def consumer_thread():
@@ -718,6 +716,7 @@ class Database:
             for _ in range(num_workers):
                 executor.submit(consumer_thread)
             print(f"Started thread pool with {num_workers} workers...")
+            
             # Producer in the main thread (GPU operations)
             with tqdm(total=total_batches, desc="Embedding and writing to database") as progress_bar:
                 processed = 0
@@ -731,7 +730,6 @@ class Database:
                     # Check progress queue for updates
                     try:
                         while not progress_queue.empty():
-                            # print("getting progress from queue", flush=True)
                             progress = progress_queue.get_nowait()
                             processed += progress
                             progress_bar.update(progress)
@@ -1199,7 +1197,7 @@ def get_kwargs(args, values):
 def main():
     args = argument_parser()
     logging.basicConfig(
-        filename="experiments/logs/experiment.log",
+        filename="logs/database.log",
         filemode="w",
         level=getattr(logging, args.log.upper()),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
