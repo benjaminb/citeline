@@ -16,6 +16,7 @@ cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline
 git pull
 
 # Load container for Ollama service
+env > slurm_env.txt
 export OLLAMA_BASE_URL=http://localhost:11434
 export TMPDIR=/n/holylabs/LABS/protopapas_lab/Lab/bbasseri/tmp
 podman load -i /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/ollama_llama3.3.tar
@@ -43,7 +44,6 @@ curl http://localhost:11434/api/generate -d '{
 #     fi
 # done
 
-cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline
 python dataset_builder.py
 timestamp=$(date +"%Y%m%d_%H%M%S")
 echo "ended at: $timestamp"

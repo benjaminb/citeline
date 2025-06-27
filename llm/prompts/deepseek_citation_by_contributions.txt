@@ -11,14 +11,4 @@ You are an expert researcher with a research paper draft. You have a draft text 
 ### Draft text
 {text}
 
-Respond ONLY with a JSON object: 
-{{
-    "reasoning": "<your reasoning here>",
-    "should_cite": true
-}} 
-
-or 
-{{
-    "reasoning": "<your reasoning here>",
-    "should_cite": false
-}}
+Responsd ONLY with a JSON object: {{"should_cite": true}} or {{"should_cite": false}}

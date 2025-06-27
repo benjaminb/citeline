@@ -821,7 +821,7 @@ def main():
 
     # Set up logging
     logging.basicConfig(
-        filename="experiments/logs/experiment.log",
+        filename="logs/experiment.log",
         filemode="w",
         level=getattr(logging, args.log.upper()),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
