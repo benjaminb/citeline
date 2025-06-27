@@ -716,7 +716,7 @@ class Database:
             for _ in range(num_workers):
                 executor.submit(consumer_thread)
             print(f"Started thread pool with {num_workers} workers...")
-            
+
             # Producer in the main thread (GPU operations)
             with tqdm(total=total_batches, desc="Embedding and writing to database") as progress_bar:
                 processed = 0
@@ -1104,6 +1104,17 @@ class Database:
         except Exception as e:
             print(f"Error prewarming table {table_name}: {e}")
             raise e
+
+    def get_reconstructed_paper(self, doi: str) -> str:
+        with self.conn.cursor() as cursor:
+            query = "SELECT title, abstract, body FROM papers WHERE doi = %s"
+            cursor.execute(query, (doi,))
+            result = cursor.fetchone()
+            if result:
+                title, abstract, body = result
+                return f"{title}\n\nAbstract: {abstract}\n\n{body}"
+            else:
+                raise ValueError(f"No paper found for DOI: {doi}")
 
     def explain_analyze(
         self,

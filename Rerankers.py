@@ -47,7 +47,7 @@ def entailment_ranker(model_name: str, device: str = "mps") -> callable:
 
 def get_deepseek_boolean():
     assert 'DEEPSEEK_API_KEY' in os.environ, "Please set the DEEPSEEK_API_KEY environment variable"
-    client = OpenAI(api_key=os.getenv['DEEPSEEK_API_KEY'], base_url="https://api.deepseek.com")
+    client = OpenAI(api_key=os.getenv('DEEPSEEK_API_KEY'), base_url="https://api.deepseek.com")
     PROMPT_FILE = "llm/prompts/deepseek_citation_identification.txt"
     with open(PROMPT_FILE, 'r') as file:
         prompt = file.read()
