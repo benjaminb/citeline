@@ -11,27 +11,16 @@ from time import time
 from matplotlib.ticker import MultipleLocator
 from datetime import datetime
 from tqdm import tqdm
+from pprint import pprint
 
 from database.database import Database, VectorSearchResult
-from TextEnrichers import get_enricher
+from query_expander import get_expander
 from Embedders import get_embedder
-from llm.LLMFunction import LLMFunction
-from llm.models import IsValidReference
 
 logger = logging.getLogger(__name__)
 DISTANCE_THRESHOLDS = np.arange(1.0, 0.0, -0.01)
 
-llm_reference_check = LLMFunction(
-    model_name="llama3.3:latest",
-    system_prompt_path="llm/prompts/is_valid_reference_prompt.txt",
-    output_model=IsValidReference,
-)
-
-
-def is_valid_reference(query: str, chunk: str) -> bool:
-    msg = f"Sentence:\n{query}\n\nChunk:\n{chunk}"
-    ref_check = llm_reference_check(msg)
-    return ref_check.root
+EXPANSION_DATA_PATH = "data/preprocessed/reviews.jsonl"
 
 
 def argument_parser():
@@ -145,12 +134,12 @@ class Experiment:
         self,
         device: str,
         dataset_path: str,
-        table: str,
+        target_table: str,
         target_column: str,
         metric: str,
         embedding_model_name: str,
         normalize: bool,
-        enrichment: str,
+        query_expansion: str = "identity",
         batch_size: int = 16,
         top_k: int = 100,
         use_index: bool = True,
@@ -169,14 +158,14 @@ class Experiment:
         self.dataset = pd.read_json(dataset_path, lines=True)
         self.dataset_path = dataset_path
 
-        self.table = table
+        self.target_table = target_table
         self.target_column = target_column
         self.metric = metric
         self.batch_size = batch_size
-        self.embedder = get_embedder(model_name=embedding_model_name, device=device, normalize=normalize)
         self.normalize = normalize
-        self.enrichment = enrichment
-        self.enricher = get_enricher(enrichment, path_to_data="data/preprocessed/reviews.jsonl")
+        self.embedder = get_embedder(model_name=embedding_model_name, device=device, normalize=normalize)
+        self.query_expansion_name = query_expansion
+        self.query_expander = get_expander(query_expansion, path_to_data=EXPANSION_DATA_PATH)
 
         # Initialize database
         self.db = Database(path_to_env=".env")
@@ -319,7 +308,7 @@ class Experiment:
 
     def _get_output_filename_base(self):
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f"{self.table}_{self.enrichment}_norm{self.normalize}_{self.metric_to_str[self.metric]}_n{len(self.dataset)}_{current_time}"
+        return f"{self.target_table}_{self.query_expansion_name}_norm{self.normalize}_{self.metric_to_str[self.metric]}_n{len(self.dataset)}_{current_time}"
 
     def __write_json_results(self, filename_base):
         # Prep results and outfile name
@@ -344,7 +333,7 @@ class Experiment:
         Writes out the results of a .run() experiment, which only includes the config and the average Jaccard score.
         """
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename_base = f"{self.table}_{self.enrichment}_norm{self.normalize}_n{len(self.dataset)}_topk{self.top_k}_{current_time}"
+        filename_base = f"{self.target_table}_{self.query_expansion_name}_norm{self.normalize}_n{len(self.dataset)}_topk{self.top_k}_{current_time}"
 
         # Create directory if it doesn't exist
         if not os.path.exists(f"experiments/results/{filename_base}"):
@@ -403,7 +392,7 @@ class Experiment:
 
     def __write_results(self):
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename_base = f"{self.target_column}_{self.enrichment}_norm{self.normalize}_n{len(self.dataset)}_topk{self.top_k}_{current_time}"
+        filename_base = f"{self.target_column}_{self.query_expansion_name}_norm{self.normalize}_n{len(self.dataset)}_topk{self.top_k}_{current_time}"
 
         # Create directory if it doesn't exist
         if not os.path.exists(f"experiments/results/{filename_base}"):
@@ -417,12 +406,12 @@ class Experiment:
     def get_config_dict(self):
         return {
             "dataset": self.dataset_path,
-            "table": self.table,
+            "table": self.target_table,
             "target_column": self.target_column,
             "metric": self.metric,
             "embedder": self.embedder.model_name,
             "normalize": self.normalize,
-            "enrichment": self.enrichment,
+            "query_expansion": self.query_expansion_name,
             "batch_size": self.batch_size,
             "top_k": self.top_k,
             "probes": self.probes,
@@ -441,7 +430,8 @@ class Experiment:
         from concurrent.futures import ThreadPoolExecutor
         import queue
         import threading
-        from Rerankers import get_reranker
+
+        # from Rerankers import get_reranker
 
         # deepseek_boolean = get_reranker("deepseek_boolean", db=self.db)
 
@@ -454,7 +444,7 @@ class Experiment:
 
         # Set up database for efficient queries
         self.db.set_session_resources(optimize_for="query", verbose=False)
-        self.db.prewarm_table(self.table, target_column=self.target_column)
+        self.db.prewarm_table(self.target_table, target_column=self.target_column)
 
         # Create thread-safe queues for tasks and results
         task_queue = queue.Queue(maxsize=20)
@@ -488,7 +478,7 @@ class Experiment:
                     # Query the database
                     results = thread_db.vector_search(
                         query_vector=embedding,
-                        table_name=self.table,
+                        table_name=self.target_table,
                         target_column=self.target_column,
                         metric=self.metric,
                         pubdate=example.get("pubdate"),
@@ -499,14 +489,6 @@ class Experiment:
                     )
 
                     # TODO: Reranking logic will go here
-
-                    # Invoke the DeepSeek Boolean reranker
-
-                    # deepseek_bools = deepseek_boolean(query=example["sent_no_cit"], results=results)
-                    # results = [
-                    #     result for result, should_cite in zip(results, deepseek_bools) if should_cite
-                    # ]
-                    # print(f"Original length: {original_length}, after DeepSeek Boolean: {len(results)}")
 
                     if len(results) != self.top_k:
                         logger.warning(f"Expected {self.top_k} results, but got {len(results)}. ")
@@ -569,8 +551,14 @@ class Experiment:
 
                     # Get batch and generate embeddings
                     batch = self.dataset.iloc[i : i + self.batch_size]
-                    enriched_batch = self.enricher(batch)
-                    embeddings = self.embedder(enriched_batch)
+
+                    # Expansion and embeddings
+                    expanded_queries = self.query_expander(batch)
+
+                    for query, expansion in zip(batch["sent_no_cit"], expanded_queries):
+                        pprint(f"Original query: {query}", width=120)
+                        pprint(f"Expanded query: {expansion}", width=120)
+                    embeddings = self.embedder(expanded_queries)
 
                     # Add tasks to queue and update producer progress
                     for j in range(len(batch)):
@@ -598,7 +586,7 @@ class Experiment:
                 if consumer_progress > query_bar.n:
                     query_bar.update(consumer_progress - query_bar.n)
 
-        # Process all results
+
         # jaccard_scores = []
         # while not results_queue.empty():
         #     score = results_queue.get()
@@ -610,9 +598,6 @@ class Experiment:
             avg_hitrate = sum(self.stats_by_topk[k]["hitrates"]) / len(self.stats_by_topk[k]["hitrates"])
             self.stats_by_topk[k]["avg_jaccard"] = avg_jaccard
             self.stats_by_topk[k]["avg_hitrate"] = avg_hitrate
-        # Store results
-        # self.jaccard_scores = jaccard_scores
-        # self.average_score = sum(jaccard_scores) / len(jaccard_scores)
 
         end = time()
         print(f"Experiment computed in {end - start:.2f} seconds")
@@ -626,12 +611,12 @@ class Experiment:
             f"{'Device':<20}: {self.device}\n"
             f"{'Dataset Path':<20}: {self.dataset_path}\n"
             f"{'Dataset Size':<20}: {len(self.dataset)}\n"
-            f"{'Table':<20}: {self.table}\n"
+            f"{'Table':<20}: {self.target_table}\n"
             f"{'Target Column':<20}: {self.target_column}\n"
             f"{'Metric':<20}: {self.metric_to_str.get(self.metric, self.metric)}\n"
             f"{'Embedder':<20}: {self.embedder.model_name}\n"
             f"{'Normalize':<20}: {self.normalize}\n"
-            f"{'Enrichment':<20}: {self.enrichment}\n"
+            f"{'Enrichment':<20}: {self.query_expansion_name}\n"
             f"{'Batch Size':<20}: {self.batch_size}\n"
             f"{'Top k':<20}: {self.top_k}\n"
             f"{'Probes':<20}: {self.probes}\n"
@@ -682,12 +667,12 @@ def main():
         experiment = Experiment(
             device=device,
             dataset_path=config["dataset"],
-            table=config["table"],
+            target_table=config["table"],
             target_column=config["target_column"],
             metric=config.get("metric", "vector_cosine_ops"),
             embedding_model_name=config["embedder"],
             normalize=config["normalize"],
-            enrichment=config["enrichment"],
+            query_expansion=config["query_expansion"],
             batch_size=config.get("batch_size", 16),
             top_k=config.get("top_k", 100),
             probes=config.get("probes", 16),
@@ -710,12 +695,12 @@ def main():
         experiment = Experiment(
             device=device,
             dataset_path=config["dataset"],
-            table=config.get("table", "lib"),
+            target_table=config.get("table", "lib"),
             target_column=config.get("target_column", "chunk"),
             metric=config.get("metric", "vector_cosine_ops"),
             embedding_model_name=config["embedder"],
             normalize=config["normalize"],
-            enrichment=config["enrichment"],
+            query_expansion=config["enrichment"],
             batch_size=config.get("batch_size", 16),
             top_k=config.get("top_k"),
             probes=config.get("probes", 40),

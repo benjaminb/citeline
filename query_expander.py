@@ -76,7 +76,7 @@ class QueryExpander:
         """
         if not expansion_function_name in self.EXPANSION_FN:
             raise KeyError(
-                f"Enrichment function {expansion_function_name} not supported. Available functions: {list(self.EXPANSION_FN.keys())}"
+                f"Expansion function {expansion_function_name} not supported. Available functions: {list(self.EXPANSION_FN.keys())}"
             )
 
         self.name = expansion_function_name
