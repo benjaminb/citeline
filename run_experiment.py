@@ -11,7 +11,6 @@ from time import time
 from matplotlib.ticker import MultipleLocator
 from datetime import datetime
 from tqdm import tqdm
-from pprint import pprint
 
 from database.database import Database, VectorSearchResult
 from query_expander import get_expander
@@ -549,15 +548,9 @@ class Experiment:
                     elif i % 50 == 0 and self.device == "mps":
                         torch.mps.empty_cache()
 
-                    # Get batch and generate embeddings
+                    # Get batch, perform any query expansion & generate embeddings
                     batch = self.dataset.iloc[i : i + self.batch_size]
-
-                    # Expansion and embeddings
                     expanded_queries = self.query_expander(batch)
-
-                    for query, expansion in zip(batch["sent_no_cit"], expanded_queries):
-                        pprint(f"Original query: {query}", width=120)
-                        pprint(f"Expanded query: {expansion}", width=120)
                     embeddings = self.embedder(expanded_queries)
 
                     # Add tasks to queue and update producer progress
