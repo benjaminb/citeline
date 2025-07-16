@@ -18,7 +18,7 @@ import pandas as pd
 # TODO: figure out how to handle these wrt reference chunks
 
 
-def enricher_factory(keys_and_headers: list[tuple[str, str]], prev_n: int = 0):
+def query_expander_factory(keys_and_headers: list[tuple[str, str]], prev_n: int = 0):
     """
     Factory function to create an enrichment function based on the keys and number of previous sentences
     """
@@ -50,19 +50,19 @@ def enricher_factory(keys_and_headers: list[tuple[str, str]], prev_n: int = 0):
 
 class TextEnricher:
     ENRICHMENT_FN = {
-        "identity": enricher_factory([]),
-        "add_abstract": enricher_factory([("abstract", "Abstract:")]),
-        "add_title": enricher_factory([("title", "Title:")]),
-        "add_title_and_abstract": enricher_factory(
+        "identity": query_expander_factory([]),
+        "add_abstract": query_expander_factory([("abstract", "Abstract:")]),
+        "add_title": query_expander_factory([("title", "Title:")]),
+        "add_title_and_abstract": query_expander_factory(
             [("title", "Title:"), ("abstract", "Abstract:")]
         ),
-        "add_prev_3": enricher_factory([], prev_n=3),
-        "add_abstract_prev_3": enricher_factory([("abstract", "Abstract:")], prev_n=3),
-        "add_title_prev_3": enricher_factory([("title", "Title:")], prev_n=3),
-        "add_title_abstract_prev3": enricher_factory(
+        "add_prev_3": query_expander_factory([], prev_n=3),
+        "add_abstract_prev_3": query_expander_factory([("abstract", "Abstract:")], prev_n=3),
+        "add_title_prev_3": query_expander_factory([("title", "Title:")], prev_n=3),
+        "add_title_abstract_prev3": query_expander_factory(
             [("title", "Title:"), ("abstract", "Abstract:")], prev_n=3
         ),
-        "add_prev_7": enricher_factory([], prev_n=7),
+        "add_prev_7": query_expander_factory([], prev_n=7),
     }
 
     def __init__(

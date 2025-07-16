@@ -1,7 +1,0 @@
-dataset: 'dataset/no_reviews'
-table: 'test_bge'
-metric: 'vector_cosine_ops'
-embedder: 'BAAI/bge-small-en'
-normalize: False
-trivial_ratio: 1.0
-enrichment: 'identity'

@@ -16,16 +16,12 @@ class CitationSubstring(RootModel[list[str]]):
     This is used to identify the part of the sentence that corresponds to a citation.
     """
 
-    root: list[str] = Field(
-        description="A substring of a sentence that contains an inline citation"
-    )
+    root: list[str] = Field(description="A substring of a sentence that contains an inline citation")
 
 
 class Citation(BaseModel):
     author: str = Field(description="First author of the cited work")
-    year: str = Field(
-        description="Publication year of the cited work, possibly with letters (e.g., '2023a')"
-    )
+    year: str = Field(description="Publication year of the cited work, possibly with letters (e.g., '2023a')")
 
 
 class CitationList(RootModel[list[Citation]]):
@@ -37,21 +33,13 @@ class CitationList(RootModel[list[Citation]]):
 
 
 class SentenceNoCitation(BaseModel):
-    citations: CitationList = Field(
-        description="List of inline citations extracted from the sentence, if any"
-    )
-    sentence: str = Field(
-        description="A sentence with any inline citations replaced by '[REF]' placeholders"
-    )
+    citations: CitationList = Field(description="List of inline citations extracted from the sentence, if any")
+    sentence: str = Field(description="A sentence with any inline citations replaced by '[REF]' placeholders")
 
 
 class CitationExtraction(BaseModel):
-    citations: CitationList = Field(
-        description="List of inline citations extracted from the sentence, if any"
-    )
-    sentence: str = Field(
-        description="A sentence with any inline citations replaced by '[REF]' placeholders"
-    )
+    citations: CitationList = Field(description="List of inline citations extracted from the sentence, if any")
+    sentence: str = Field(description="A sentence with any inline citations replaced by '[REF]' placeholders")
 
 
 class IsValidReference(RootModel[bool]):
@@ -69,6 +57,11 @@ class IsValidCitation(BaseModel):
     A model to infer if a paper should be cited by a sentence.
     """
 
-    is_valid: bool = Field(
-        description="True if the paper should be cited by the input sentence, False otherwise"
-    )
+    is_valid: bool = Field(description="True if the paper should be cited by the input sentence, False otherwise")
+
+class Findings(BaseModel):
+    """
+    A model to represent findings extracted from a scientific paper.
+    """
+
+    findings: list[str] = Field(description="List of original findings extracted from a scientific paper")

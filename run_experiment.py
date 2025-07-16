@@ -7,15 +7,16 @@ import yaml
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from time import time
 from matplotlib.ticker import MultipleLocator
 from datetime import datetime
 from tqdm import tqdm
-from database.database import Database
+
+from database.database import Database, VectorSearchResult
 from TextEnrichers import get_enricher
 from Embedders import get_embedder
 from llm.LLMFunction import LLMFunction
 from llm.models import IsValidReference
-from time import time
 
 logger = logging.getLogger(__name__)
 DISTANCE_THRESHOLDS = np.arange(1.0, 0.0, -0.01)
@@ -51,22 +52,14 @@ def argument_parser():
 
     """
     # Set up argument parser
-    parser = argparse.ArgumentParser(
-        description="Run an experiment with specified configuration or build a dataset."
-    )
+    parser = argparse.ArgumentParser(description="Run an experiment with specified configuration or build a dataset.")
 
     # Create mutually exclusive operation groups
     operation_group = parser.add_mutually_exclusive_group(required=True)
-    operation_group.add_argument(
-        "--run", action="store_true", help="run an experiment with fixed top-k"
-    )
-    operation_group.add_argument(
-        "--run-scan", action="store_true", help="run an experiment with top-k scan"
-    )
+    operation_group.add_argument("--run", action="store_true", help="run an experiment with fixed top-k")
+    operation_group.add_argument("--run-scan", action="store_true", help="run an experiment with top-k scan")
     operation_group.add_argument("--build", action="store_true", help="build a dataset")
-    operation_group.add_argument(
-        "--write", action="store_true", help="write out train/test datasets"
-    )
+    operation_group.add_argument("--write", action="store_true", help="write out train/test datasets")
     operation_group.add_argument(
         "--query-plan", action="store_true", help="generate EXPLAIN/ANALYZE query plan for database"
     )
@@ -78,18 +71,16 @@ def argument_parser():
     parser.add_argument("--source", type=str, help="path to source dataset (jsonl)")
     parser.add_argument("--train-dest", type=str, help="save path for training set (jsonl)")
     parser.add_argument("--test-dest", type=str, help="save path for test set (jsonl)")
-    parser.add_argument(
-        "--split", type=float, default=0.8, help="train/test split ratio (default: 0.8)"
-    )
+    parser.add_argument("--split", type=float, default=0.8, help="train/test split ratio (default: 0.8)")
     parser.add_argument("--seed", type=int, help="random seed for dataset sampling")
+    parser.add_argument("--table-name", type=str, help="name of the database table for query plan generation")
+    parser.add_argument("--embedder", type=str, help='embedding model name (e.g., "bert-base-uncased")')
+    parser.add_argument("--top-k", type=int, help="number of nearest neighbors to return from the database")
     parser.add_argument(
-        "--table-name", type=str, help="name of the database table for query plan generation"
-    )
-    parser.add_argument(
-        "--embedder", type=str, help='embedding model name (e.g., "bert-base-uncased")'
-    )
-    parser.add_argument(
-        "--top-k", type=int, help="number of nearest neighbors to return from the database"
+        "--rerankers",
+        nargs="+",
+        type=str,
+        help="List of reranker names to use (e.g., --rerankers deepseek_boolean entailment)",
     )
 
     # Add a log level argument (DEBUG, INFO, WARNING, ERROR, CRITICAL)
@@ -165,6 +156,7 @@ class Experiment:
         use_index: bool = True,
         probes: int = 16,
         ef_search: int = 1000,
+        rerankers_to_use=[],
         distance_threshold: float = None,
     ):
         # Set up configs
@@ -181,9 +173,7 @@ class Experiment:
         self.target_column = target_column
         self.metric = metric
         self.batch_size = batch_size
-        self.embedder = get_embedder(
-            model_name=embedding_model_name, device=device, normalize=normalize
-        )
+        self.embedder = get_embedder(model_name=embedding_model_name, device=device, normalize=normalize)
         self.normalize = normalize
         self.enrichment = enrichment
         self.enricher = get_enricher(enrichment, path_to_data="data/preprocessed/reviews.jsonl")
@@ -195,9 +185,11 @@ class Experiment:
         self.use_index = use_index
         self.probes = probes
         self.ef_search = ef_search
+        self.rerankers_to_use = rerankers_to_use
         self.distance_threshold = distance_threshold
 
         # Prepare attributes for results
+        self.stats_by_topk = {k: {"hitrates": [], "jaccards": []} for k in range(1, top_k + 1)}
         self.jaccard_scores = {threshold: [] for threshold in DISTANCE_THRESHOLDS}
         """
         Dictionary of average Jaccard scores for each distance threshold
@@ -212,6 +204,7 @@ class Experiment:
         self.best_top_ks = []
         self.best_top_distances = []
         self.hits = []
+        self.recall_scores = []  # proportion of target DOIs that were retrieved in the top-k results
 
     def __hit_rate(self, example, results):
         target_dois = set(example["citation_dois"])
@@ -240,21 +233,32 @@ class Experiment:
     def _evaluate_prediction(self, example, results):
         unique_predicted_dois = set(result.doi for result in results)
         citation_dois = set(doi for doi in example.citation_dois)
-        score = self.__jaccard_similarity(unique_predicted_dois, citation_dois)
+        score = self.__jaccard_score(unique_predicted_dois, citation_dois)
         return score
 
     def _evaluate_prediction_dict(self, example, results):
         unique_predicted_dois = set(result.doi for result in results)
         citation_dois = set(doi for doi in example["citation_dois"])
-        score = self.__jaccard_similarity(unique_predicted_dois, citation_dois)
+        score = self.__jaccard_score(unique_predicted_dois, citation_dois)
         return score
 
-    def __jaccard_similarity(self, set1, set2):
+    def __jaccard_score(self, set1, set2):
         intersection = np.longdouble(len(set1.intersection(set2)))
         union = np.longdouble(len(set1.union(set2)))
         if union == 0:
             return 0.0
         return float(intersection / union)
+
+    def __jaccard(self, example: pd.Series, results: list[VectorSearchResult]):
+        """
+        Takes an 'example' (a pd.Series representing a row from the input dataset) and a list of
+        'results' (VectorSearchResult objects) and computes the Jaccard score between the predicted DOIs
+        and the ground truth DOIs.
+        """
+        predicted_dois = set(result.doi for result in results)
+        citation_dois = set(example["citation_dois"])
+        score = self.__jaccard_score(predicted_dois, citation_dois)
+        return score
 
     def __plot_topk_histogram(self, filename_base: str):
         outfile = f"experiments/results/{filename_base}/topk_histogram_{filename_base}.png"
@@ -272,7 +276,6 @@ class Experiment:
         plt.title(f"Best Top-k value (n = {len(self.dataset)})")
         plt.grid(True, which="major", linestyle="-", linewidth=0.8, alpha=0.7)
         plt.grid(True, which="minor", linestyle=":", linewidth=0.5, alpha=0.4)
-        # plt.gca().xaxis.set_minor_locator(MultipleLocator(1))
 
         plt.savefig(outfile)
         plt.close()
@@ -288,16 +291,12 @@ class Experiment:
 
         # Calculate average values
         avg_best_distance = (
-            sum(self.best_top_distances) / len(self.best_top_distances)
-            if self.best_top_distances
-            else 0
+            sum(self.best_top_distances) / len(self.best_top_distances) if self.best_top_distances else 0
         )
         avg_best_top_k = sum(self.best_top_ks) / len(self.best_top_ks) if self.best_top_ks else 0
 
         # Add a text box with metrics in the top-right corner
-        textstr = (
-            f"Avg Best Distance: {avg_best_distance:.4f}\nAvg Best Top-k: {int(avg_best_top_k)}"
-        )
+        textstr = f"Avg Best Distance: {avg_best_distance:.4f}\nAvg Best Top-k: {int(avg_best_top_k)}"
         props = dict(boxstyle="round", facecolor="white", alpha=0.8, edgecolor="gray")
 
         # Place the text box in the top right (coordinates are in axes space: 0,0 is bottom left, 1,1 is top right)
@@ -328,8 +327,7 @@ class Experiment:
             "config": self.get_config_dict(),
             "averages": self.average_scores,
             "avg_best_top_k": sum(self.best_top_ks) / len(self.best_top_ks),
-            "avg_best_distance_threshold": sum(self.best_top_distances)
-            / len(self.best_top_distances),
+            "avg_best_distance_threshold": sum(self.best_top_distances) / len(self.best_top_distances),
             "best_top_ks": self.best_top_ks,
         }
 
@@ -346,13 +344,18 @@ class Experiment:
         Writes out the results of a .run() experiment, which only includes the config and the average Jaccard score.
         """
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename_base = f"{self.target_column}_{self.enrichment}_norm{self.normalize}_n{len(self.dataset)}_topk{self.top_k}_{current_time}"
+        filename_base = f"{self.table}_{self.enrichment}_norm{self.normalize}_n{len(self.dataset)}_topk{self.top_k}_{current_time}"
 
         # Create directory if it doesn't exist
         if not os.path.exists(f"experiments/results/{filename_base}"):
             os.makedirs(f"experiments/results/{filename_base}")
 
-        avg_hit_pct = sum(hit["pct"] for hit in self.hits) / len(self.hits) if self.hits else 0
+        # avg_hit_pct = sum(hit["pct"] for hit in self.hits) / len(self.hits) if self.hits else 0
+        # Note that k here are keys from 1 to top_k, so the list index = k - 1
+        avg_jaccards = [
+            sum(self.stats_by_topk[k]["jaccards"]) / len(self.stats_by_topk[k]["jaccards"]) for k in self.stats_by_topk
+        ]
+        average_hit_rates = [self.stats_by_topk[k]["avg_hitrate"] for k in self.stats_by_topk]
 
         output = {
             "config": self.get_config_dict(),
@@ -360,11 +363,43 @@ class Experiment:
             "ef_search": self.ef_search,
             "average_num_results": sum(self.num_results) / len(self.num_results),
             "best_top_ks": self.best_top_ks,
-            "avg_hit_pct": avg_hit_pct,
+            # "avg_hit_pct": avg_hit_pct,
+            "average_hit_rates": average_hit_rates,
+            "average_jaccards": avg_jaccards,
         }
 
         with open(f"experiments/results/{filename_base}/results_{filename_base}.json", "w") as f:
             json.dump(output, f)
+
+        self.__plot_results(filename_base, output)
+
+    def __plot_results(self, filename_base, output):
+        import matplotlib.pyplot as plt
+
+        k_values = [k for k in range(1, self.top_k + 1)]
+
+        # Make a plot of the average hit rates (y-axis) and IoU (Jaccard) vs. top-k (x-axis)
+        plt.figure(figsize=(10, 6))
+        plt.plot(k_values, output["average_hit_rates"], marker="o", label="Average Hit Rate")
+        plt.plot(k_values, output["average_jaccards"], marker="o", label="Average Jaccard")
+        plt.xlabel("Top-k")
+        plt.ylabel("Score")
+        plt.title("Average Hit Rates and IoU vs. Top-k")
+        plt.legend()
+        plt.grid()
+        plt.savefig(f"experiments/results/{filename_base}/hitrate_vs_k_{filename_base}.png")
+        plt.close()
+
+        # Make a plot of the average Jaccard scores (y-axis) vs. top-k (x-axis)
+        plt.figure(figsize=(10, 6))
+        plt.plot(k_values, output["average_jaccards"], marker="o", label="Average Jaccard")
+        plt.xlabel("Top-k")
+        plt.ylabel("Score")
+        plt.title("Average Jaccard Scores vs. Top-k")
+        plt.legend()
+        plt.grid()
+        plt.savefig(f"experiments/results/{filename_base}/jaccard_vs_k_{filename_base}.png")
+        plt.close()
 
     def __write_results(self):
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -406,6 +441,9 @@ class Experiment:
         from concurrent.futures import ThreadPoolExecutor
         import queue
         import threading
+        from Rerankers import get_reranker
+
+        # deepseek_boolean = get_reranker("deepseek_boolean", db=self.db)
 
         # Make sure we have CPU count available
         assert "CPUS" in os.environ, "CPUS environment variable not set."
@@ -428,9 +466,6 @@ class Experiment:
         dataset_size = len(self.dataset)
         producer_progress = 0
         consumer_progress = 0
-
-        # Thread-safe counter for consumers
-        progress_lock = threading.Lock()
 
         def consumer_thread():
             """Consumer thread that handles database queries and evaluations"""
@@ -462,37 +497,35 @@ class Experiment:
                         probes=self.probes,
                         ef_search=self.ef_search,
                     )
-                    
-                    # results = thread_db.query_vector_column(
-                    #     query_vector=embedding,
-                    #     table_name=self.table,
-                    #     target_column=self.target_column,
-                    #     metric=self.metric,
-                    #     pubdate=example.get("pubdate"),
-                    #     use_index=self.use_index,
-                    #     top_k=self.top_k,
-                    #     probes=self.probes,
-                    #     ef_search=self.ef_search,
-                    # )
 
-                    # Cutoff logic?
-                    # results = [res for res in results if is_valid_reference(res).root]
-                    # filtered_results = []
-                    # for result in results:
-                    #     valid_ref = is_valid_reference(
-                    #         query=example["sent_no_cit"], chunk=result.chunk
-                    #     )
-                    #     if valid_ref:
-                    #         filtered_results.append(result)
-                    # results = filtered_results
-                    # print(f"Num results after filtering: {len(results)}")
                     # TODO: Reranking logic will go here
 
+                    # Invoke the DeepSeek Boolean reranker
+
+                    # deepseek_bools = deepseek_boolean(query=example["sent_no_cit"], results=results)
+                    # results = [
+                    #     result for result, should_cite in zip(results, deepseek_bools) if should_cite
+                    # ]
+                    # print(f"Original length: {original_length}, after DeepSeek Boolean: {len(results)}")
+
+                    if len(results) != self.top_k:
+                        logger.warning(f"Expected {self.top_k} results, but got {len(results)}. ")
                     self.num_results.append(len(results))
-                    self.hits.append(self.__hit_rate(example, results))
 
-                    score = self._evaluate_prediction_dict(example, results)
-                    results_queue.put(score)
+                    # Compute hit rate and IoU for each k from 1 to top_k
+                    # for i in range(len(results)):
+                    for i in range(self.top_k):
+                        k_idx = i + 1
+                        # Get the hitrate percent for this example at this k
+                        hitrate = self.__hit_rate(example, results[:k_idx])
+                        self.stats_by_topk[k_idx]["hitrates"].append(hitrate["pct"])
+
+                        # Get the Jaccard score for this example at this k
+                        jaccard_score = self.__jaccard(example, results[:k_idx])
+                        self.stats_by_topk[k_idx]["jaccards"].append(jaccard_score)
+
+                    # score = self._evaluate_prediction_dict(example, results)
+                    # results_queue.put(score)
 
                     # Thread-safe update of progress counter
                     with progress_lock, query_bar_lock:
@@ -566,232 +599,25 @@ class Experiment:
                     query_bar.update(consumer_progress - query_bar.n)
 
         # Process all results
-        jaccard_scores = []
-        while not results_queue.empty():
-            score = results_queue.get()
-            jaccard_scores.append(score)
+        # jaccard_scores = []
+        # while not results_queue.empty():
+        #     score = results_queue.get()
+        #     jaccard_scores.append(score)
 
+        # Compute stats
+        for k in self.stats_by_topk:
+            avg_jaccard = sum(self.stats_by_topk[k]["jaccards"]) / len(self.stats_by_topk[k]["jaccards"])
+            avg_hitrate = sum(self.stats_by_topk[k]["hitrates"]) / len(self.stats_by_topk[k]["hitrates"])
+            self.stats_by_topk[k]["avg_jaccard"] = avg_jaccard
+            self.stats_by_topk[k]["avg_hitrate"] = avg_hitrate
         # Store results
-        self.jaccard_scores = jaccard_scores
-        self.average_score = sum(jaccard_scores) / len(jaccard_scores)
+        # self.jaccard_scores = jaccard_scores
+        # self.average_score = sum(jaccard_scores) / len(jaccard_scores)
 
         end = time()
         print(f"Experiment computed in {end - start:.2f} seconds")
+
         self.__write_run_results()
-
-    def run_and_topk_scan(self):
-        """
-        Run the experiment with the producer on the main thread and consumer threads:
-        - Producer (embedding generation) runs on the main thread with GPU
-        - Multiple consumer threads for database operations
-        """
-        from concurrent.futures import ThreadPoolExecutor
-        import queue
-        import threading
-
-        # Make sure we have CPU count available
-        assert "CPUS" in os.environ, "CPUS environment variable not set."
-        try:
-            num_cpus = int(os.getenv("CPUS"))
-        except ValueError:
-            raise ValueError(f"Invalid value for CPUS environment variable.")
-
-        # Set up database for efficient queries
-        self.db.set_session_resources(optimize_for="query", verbose=False)
-        self.db.prewarm_table(self.table, target_column=self.target_column)
-
-        # Create thread-safe queues for tasks and results
-        task_queue = queue.Queue(maxsize=20)
-        results_queue = queue.Queue()
-        progress_lock = threading.Lock()
-        query_bar_lock = threading.Lock()
-
-        # For tracking progress
-        dataset_size = len(self.dataset)
-        producer_progress = 0
-        consumer_progress = 0
-
-        # Thread-safe counter for consumers
-        progress_lock = threading.Lock()
-
-        def consumer_thread():
-            """Consumer thread that handles database queries and evaluations"""
-            nonlocal consumer_progress
-
-            # Create a dedicated database connection for this thread
-            thread_db = Database(path_to_env=".env")
-            thread_db.set_session_resources(optimize_for="query", verbose=False)
-
-            while True:
-                try:
-                    # Get task from queue
-                    task = task_queue.get(timeout=60)
-                    if task is None:  # Sentinel to signal completion
-                        task_queue.task_done()
-                        break
-
-                    example, embedding = task
-                    log = f"Example pubdate: {example.get('pubdate')}"
-
-                    total_possible_query = thread_db.query(
-                        f"SELECT COUNT(*) FROM lib WHERE pubdate <= '{example['pubdate']}'"
-                    )
-                    log += f" Earlier records: {total_possible_query[0][0]}"
-
-                    # Query the database
-                    results = thread_db.query_vector_column(
-                        query_vector=embedding,
-                        table_name=self.table,
-                        target_column=self.target_column,
-                        metric=self.metric,
-                        pubdate=example.get("pubdate"),
-                        use_index=True,
-                        top_k=self.top_k,
-                        probes=self.probes,
-                        ef_search=self.ef_search,
-                    )
-                    log += f"\nReceived {len(results)} results from the database"
-
-                    # Compute IoU scores for each threshold
-                    best_score = 0
-                    best_threshold = 0
-                    threshold_scores = {}
-                    best_top_k = len(results)
-                    best_distance = 0
-
-                    for threshold in DISTANCE_THRESHOLDS:
-                        predicted_chunks = self.__truncate_results(results, threshold)
-                        score = self._evaluate_prediction_dict(example, predicted_chunks)
-                        threshold_scores[threshold] = score
-
-                        if score > best_score:
-                            best_score = score
-                            best_threshold = threshold
-                            best_top_k = len(predicted_chunks)
-
-                    # Put results in results queue
-                    if best_score == 0:
-                        log += f"\n  Never found a valid reference for this example {example['source_doi']}/{example['sent_idx']}"
-                        log += f"\n  self.best_top_k: {best_top_k}"
-                        retrieved_dois = set([result.doi for result in results])
-                        for target_doi in example["citation_dois"]:
-                            log += f"\n  Target DOI: {target_doi}"
-                            log += f"\n  Target in results: {target_doi in retrieved_dois}"
-                    else:
-                        log += f"\n  Found best topk: {best_top_k}, sent: {example['sent_no_cit']}"
-                        chunks_at_best_threshold = self.__truncate_results(results, best_threshold)
-                        log += f"\n  Chunks at best threshold: {len(chunks_at_best_threshold)}"
-                        log += f"\n  Best threshold: {best_threshold:.6f}"
-                        predicted_dois = set(result.doi for result in chunks_at_best_threshold)
-                        log += f"\n  IOU: {best_score:.6f}"
-
-                    # print(log, flush=True)
-                    results_queue.put(
-                        {
-                            "threshold_scores": threshold_scores,
-                            "best_top_k": best_top_k,
-                            "best_distance": best_distance,
-                        }
-                    )
-
-                    # Thread-safe update of progress counter
-                    with progress_lock, query_bar_lock:
-                        consumer_progress += 1
-                        query_bar.update(1)  # Update progress bar directly
-
-                    task_queue.task_done()
-
-                except queue.Empty:
-                    print("Consumer timeout waiting for tasks")
-                    break
-                except Exception as e:
-                    print(f"Consumer thread error: {str(e)}")
-                    task_queue.task_done()
-
-        # Start consumer threads
-        num_workers = max(1, num_cpus - 1)  # Leave one core for the main thread
-        print(f"Starting {num_workers} database query workers")
-
-        start = time()
-        consumer_threads = []
-
-        with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            # Start consumer threads
-            for _ in range(num_workers):
-                thread = executor.submit(consumer_thread)
-                consumer_threads.append(thread)
-
-            # Create progress bars
-            with tqdm(total=dataset_size, desc="Embedding (GPU)", position=0) as embed_bar, tqdm(
-                total=dataset_size, desc="DB Queries", position=1
-            ) as query_bar:
-
-                # Main thread acts as the producer
-                for i in range(0, dataset_size, self.batch_size):
-                    # GPU cache clearing
-                    if i % 50 == 0 and self.device == "cuda":
-                        torch.cuda.empty_cache()
-                    elif i % 50 == 0 and self.device == "mps":
-                        torch.mps.empty_cache()
-
-                    # Get batch and generate embeddings
-                    batch = self.dataset.iloc[i : i + self.batch_size]
-                    enriched_batch = self.enricher(batch)
-                    embeddings = self.embedder(enriched_batch)
-
-                    # Add tasks to queue and update producer progress
-                    for j in range(len(batch)):
-                        example_dict = batch.iloc[j].to_dict()
-                        embedding = embeddings[j]
-                        task_queue.put((example_dict, embedding))
-
-                        # Update producer progress
-                        producer_progress += 1
-                        embed_bar.update(1)
-
-                    # Check and update consumer progress
-                    current_consumer = consumer_progress  # Read once to avoid race conditions
-                    if current_consumer > query_bar.n:
-                        query_bar.update(current_consumer - query_bar.n)
-
-                # Add sentinel values to signal consumer completion
-                for _ in range(num_workers):
-                    task_queue.put(None)
-
-                # Wait for all tasks to be processed
-                task_queue.join()
-
-                # Final consumer progress update
-                if consumer_progress > query_bar.n:
-                    query_bar.update(consumer_progress - query_bar.n)
-
-        # Process all results
-        jaccard_scores = {threshold: [] for threshold in DISTANCE_THRESHOLDS}
-        best_top_ks = []
-        best_top_distances = []
-
-        while not results_queue.empty():
-            result = results_queue.get()
-
-            for threshold, score in result["threshold_scores"].items():
-                jaccard_scores[threshold].append(score)
-            best_top_ks.append(result["best_top_k"])
-            best_top_distances.append(result["best_distance"])
-
-        # Store results
-        self.jaccard_scores = jaccard_scores
-        self.best_top_ks = best_top_ks
-        self.best_top_distances = best_top_distances
-
-        # Calculate final statistics
-        self.average_scores = {
-            round(threshold, 2): float(sum(scores) / len(scores))
-            for threshold, scores in self.jaccard_scores.items()
-        }
-
-        end = time()
-        print(f"Experiment computed in {end - start:.2f} seconds")
-        self.__write_results()
 
     def __str__(self):
         return (
@@ -835,9 +661,7 @@ def main():
             args.split,
             args.seed,
         )
-        print(
-            f"Building dataset from {source}. Split: {split}:{train_dest}, {1 - split}:{test_dest}. Seed: {seed}"
-        )
+        print(f"Building dataset from {source}. Split: {split}:{train_dest}, {1 - split}:{test_dest}. Seed: {seed}")
         if not os.path.exists(source):
             raise FileNotFoundError(f"Source dataset {source} does not exist.")
         build_train_test_split(
@@ -858,8 +682,8 @@ def main():
         experiment = Experiment(
             device=device,
             dataset_path=config["dataset"],
-            table=config.get("table", "lib"),
-            target_column=config.get("target_column", "chunk"),
+            table=config["table"],
+            target_column=config["target_column"],
             metric=config.get("metric", "vector_cosine_ops"),
             embedding_model_name=config["embedder"],
             normalize=config["normalize"],
@@ -868,6 +692,8 @@ def main():
             top_k=config.get("top_k", 100),
             probes=config.get("probes", 16),
             ef_search=config.get("ef_search", 40),
+            use_index=config.get("use_index", False),
+            # rerankers=config.get("rerankers", []),
             # distance_threshold=config["distance_threshold"],
         )
         print(experiment)
