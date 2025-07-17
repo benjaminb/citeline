@@ -167,17 +167,17 @@ def argument_parser():
     args = parser.parse_args()
 
     # Validate args
-    if args.create_base_table and not all([args.from_path, args.table_name]):
+    if args.create_base_table and not all([args.from_path, args.target_table]):
         parser.error("--create-base-table requires --table-name and --from-path")
 
-    elif args.create_vector_column and not all([args.table_name, args.embedder_name]):
+    elif args.create_vector_column and not all([args.target_table, args.embedder_name]):
         parser.error("--create-vector-column requires --table-name and --embedder")
 
-    elif args.create_vector_table and not all([args.table_name, args.embedder_name]):
+    elif args.create_vector_table and not all([args.target_table, args.embedder_name]):
         parser.error("--create-vector-table requires --table-name and --embedder")
 
     elif args.create_index:
-        if not all([args.table_name, args.target_column, args.index_type]):
+        if not all([args.target_table, args.target_column, args.index_type]):
             parser.error("--create-index requires --index-type and --table-name")
         if args.index_type == "ivfflat" and not all([args.num_lists]):
             parser.error("ivfflat index requires --num-lists")
@@ -251,7 +251,7 @@ These must be outside the class definition to be pickled, which is necessary for
 
 
 # Consumer function
-def consumer_proc(db_params, results_queue, embedder_dim, table_name, vector_column_name, progress_queue):
+def consumer_proc(db_params, results_queue, embedder_dim, target_table, vector_column_name, progress_queue):
     # Each process creates its own connection
     conn = psycopg.connect(**db_params)
     register_vector(conn)
@@ -277,8 +277,8 @@ def consumer_proc(db_params, results_queue, embedder_dim, table_name, vector_col
                 copy.write_row([row_id, embedding])
 
         cur.execute(
-            f"UPDATE {table_name} SET {vector_column_name} = temp.embedding "
-            f"FROM temp_embeddings temp WHERE {table_name}.id = temp.id"
+            f"UPDATE {target_table} SET {vector_column_name} = temp.embedding "
+            f"FROM temp_embeddings temp WHERE {target_table}.id = temp.id"
         )
         cur.execute("TRUNCATE temp_embeddings")
         conn.commit()
@@ -436,7 +436,7 @@ class Database:
 
     def _create_base_table(
         self,
-        table_name: str,
+        target_table: str,
         from_path: str,
         max_length: int = 1500,
         overlap: int = 150,
@@ -445,7 +445,7 @@ class Database:
         Create the base table for chunks and insert records into it.
 
         Args:
-            table_name (str): Name of the table to create.
+            target_table (str): Name of the table to create.
             from_path (str): Path to the dataset (JSONL file).
             max_length (int): Maximum length of each chunk.
             overlap (int): Overlap between chunks.
@@ -453,7 +453,7 @@ class Database:
         # First, create table so we immediately error if it already exists
         cursor = self.conn.cursor()
         cursor.execute(
-            f"""CREATE TABLE {table_name} (
+            f"""CREATE TABLE {target_table} (
                 id SERIAL PRIMARY KEY,
                 doi TEXT NOT NULL,
                 title TEXT NOT NULL,
@@ -488,7 +488,7 @@ class Database:
 
         try:
             with cursor.copy(
-                f"COPY {table_name} (doi, title, abstract, pubdate, keywords, chunk) FROM STDIN WITH (FORMAT TEXT)"
+                f"COPY {target_table} (doi, title, abstract, pubdate, keywords, chunk) FROM STDIN WITH (FORMAT TEXT)"
             ) as copy:
                 copy.set_types(["text", "text", "text", "text", "text[]", "text"])
                 for record in tqdm(chunked_records, desc="Copying chunks"):
@@ -536,11 +536,11 @@ class Database:
 
         return f"Title: {title}\n\nAbstract: {abstract}\n\n{body}"
 
-    def get_chunks_by_doi(self, doi: str, table_name: str = "library", vector_column: str = "bge_norm"):
+    def get_chunks_by_doi(self, doi: str, target_table: str = "library", vector_column: str = "bge_norm"):
         cursor = self.conn.cursor()
         cursor.execute(
             f"""
-            SELECT id, doi, title, abstract, chunk, {vector_column} FROM {table_name}
+            SELECT id, doi, title, abstract, chunk, {vector_column} FROM {target_table}
             WHERE doi = '{doi}';
             """
         )
@@ -595,7 +595,7 @@ class Database:
         embedder_name: str,
         normalize: bool = False,
         enricher_name: str = None,
-        table_name: str = "lib",
+        target_table: str = "lib",
         target_column: str = "chunk",
         batch_size: int = 16,
     ):
@@ -628,9 +628,9 @@ class Database:
 
         self.set_session_resources(optimize_for="insert", verbose=True)
 
-        logger.debug(f"Attempting to create column '{vector_column_name}' in table '{table_name}'...")
+        logger.debug(f"Attempting to create column '{vector_column_name}' in table '{target_table}'...")
         # Register vector extension and create column
-        query = f"ALTER TABLE {table_name} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
+        query = f"ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
         logger.debug(f"Executing query: {query}")
         with self.conn.cursor() as cursor:
             cursor.execute(query)
@@ -638,7 +638,7 @@ class Database:
 
             # Get all text chunks to embed
             start = time()
-            cursor.execute(f"SELECT id, doi, {target_column} FROM {table_name};")
+            cursor.execute(f"SELECT id, doi, {target_column} FROM {target_table};")
             rows = cursor.fetchall()
             logger.debug(
                 f"Fetched {len(rows)} rows from the database. SELECT execution time: {time() - start:.2f} seconds"
@@ -692,8 +692,8 @@ class Database:
 
                         # Update the main table from the temp table
                         cur.execute(
-                            f"UPDATE {table_name} SET {vector_column_name} = temp.embedding "
-                            f"FROM temp_embeddings temp WHERE {table_name}.id = temp.id"
+                            f"UPDATE {target_table} SET {vector_column_name} = temp.embedding "
+                            f"FROM temp_embeddings temp WHERE {target_table}.id = temp.id"
                         )
                         cur.execute("TRUNCATE temp_embeddings")
                         conn.commit()
@@ -752,97 +752,97 @@ class Database:
 
         print(f"Successfully created and populated vector column: {vector_column_name}")
 
-    def create_vector_table_enriched(
-        self,
-        table_name: str,
-        dim: int,
-        embedder,
-        enricher,
-        work_mem="2048MB",
-        maintenance_work_mem="2048MB",
-        batch_size=32,
-    ):
-        """
-        1. Creates a vector table
-        2. Creates indexes for all distance metrics
-        3. Batch embeds all records in the `chunks` table using the given embedder
+    # def create_vector_table_enriched(
+    #     self,
+    #     target_table: str,
+    #     dim: int,
+    #     embedder,
+    #     enricher,
+    #     work_mem="2048MB",
+    #     maintenance_work_mem="2048MB",
+    #     batch_size=32,
+    # ):
+    #     """
+    #     1. Creates a vector table
+    #     2. Creates indexes for all distance metrics
+    #     3. Batch embeds all records in the `chunks` table using the given embedder
 
-        available distance metrics:
-        vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
-        """
+    #     available distance metrics:
+    #     vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
+    #     """
 
-        # Set session resources
-        cursor = self.conn.cursor()
-        cores = os.cpu_count()
-        cursor.execute("SHOW max_worker_processes;")
-        max_worker_processes = int(cursor.fetchone()[0])
-        max_parallel_workers = max(1, cores - 2)
-        max_parallel_maintenance_workers = int(0.2 * max_worker_processes)
-        print("=" * 33 + "CONFIG" + "=" * 33)
-        print(
-            "max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | work_mem | maintenance_work_mem"
-        )
-        print(
-            f"{max_worker_processes:^21} {max_parallel_workers:^22} {max_parallel_maintenance_workers:^34} {work_mem:^10} {maintenance_work_mem:^21}"
-        )
-        print("=" * 72)
-        cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-        cursor.execute(f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
-        cursor.execute(f"SET work_mem='{work_mem}';")
-        cursor.execute(
-            f"SET maintenance_work_mem='{maintenance_work_mem}';",
-        )
+    #     # Set session resources
+    #     cursor = self.conn.cursor()
+    #     cores = os.cpu_count()
+    #     cursor.execute("SHOW max_worker_processes;")
+    #     max_worker_processes = int(cursor.fetchone()[0])
+    #     max_parallel_workers = max(1, cores - 2)
+    #     max_parallel_maintenance_workers = int(0.2 * max_worker_processes)
+    #     print("=" * 33 + "CONFIG" + "=" * 33)
+    #     print(
+    #         "max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | work_mem | maintenance_work_mem"
+    #     )
+    #     print(
+    #         f"{max_worker_processes:^21} {max_parallel_workers:^22} {max_parallel_maintenance_workers:^34} {work_mem:^10} {maintenance_work_mem:^21}"
+    #     )
+    #     print("=" * 72)
+    #     cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
+    #     cursor.execute(f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
+    #     cursor.execute(f"SET work_mem='{work_mem}';")
+    #     cursor.execute(
+    #         f"SET maintenance_work_mem='{maintenance_work_mem}';",
+    #     )
 
-        # Create table
-        cursor.execute(
-            f"""CREATE TABLE {table_name} (
-                id SERIAL PRIMARY KEY,
-                embedding VECTOR({dim}),
-                chunk_id INTEGER REFERENCES chunks(id)
-                );
-            """
-        )
-        self.conn.commit()
-        print(f"Created table {table_name}")
+    #     # Create table
+    #     cursor.execute(
+    #         f"""CREATE TABLE {target_table} (
+    #             id SERIAL PRIMARY KEY,
+    #             embedding VECTOR({dim}),
+    #             chunk_id INTEGER REFERENCES chunks(id)
+    #             );
+    #         """
+    #     )
+    #     self.conn.commit()
+    #     print(f"Created table {target_table}")
 
-        # Get all chunks for embedding
-        enricher = get_enricher(enricher)
-        ids_and_chunks = self._get_all_chunks(cursor)
-        print(f"Embedding and enriching {len(ids_and_chunks)} chunks...")
+    #     # Get all chunks for embedding
+    #     enricher = get_enricher(enricher)
+    #     ids_and_chunks = self._get_all_chunks(cursor)
+    #     print(f"Embedding and enriching {len(ids_and_chunks)} chunks...")
 
-        # Embed an insert in batches
-        for i in tqdm(
-            range(0, len(ids_and_chunks), batch_size),
-            desc="Inserting embeddings",
-            leave=False,
-        ):
-            # Clear GPU memory every 50 batches
-            if i % 50 == 0:
-                self.__clear_gpu_memory()
+    #     # Embed an insert in batches
+    #     for i in tqdm(
+    #         range(0, len(ids_and_chunks), batch_size),
+    #         desc="Inserting embeddings",
+    #         leave=False,
+    #     ):
+    #         # Clear GPU memory every 50 batches
+    #         if i % 50 == 0:
+    #             self.__clear_gpu_memory()
 
-            # Prepare batch
-            batch = ids_and_chunks[i : i + batch_size]
-            ids, texts = list(zip(*batch))
-            start = time()
-            embeddings = embedder(texts)
-            print(f"Embedding time: {time() - start:.2f} seconds for {len(texts)} chunks")
-            data_batch = [(embedding, id_num) for embedding, id_num in zip(embeddings, ids)]
+    #         # Prepare batch
+    #         batch = ids_and_chunks[i : i + batch_size]
+    #         ids, texts = list(zip(*batch))
+    #         start = time()
+    #         embeddings = embedder(texts)
+    #         print(f"Embedding time: {time() - start:.2f} seconds for {len(texts)} chunks")
+    #         data_batch = [(embedding, id_num) for embedding, id_num in zip(embeddings, ids)]
 
-            # Insert
-            start_insert = time()
-            execute_values(
-                cursor,
-                f"INSERT INTO {table_name} (embedding, chunk_id) VALUES %s;",
-                data_batch,
-            )
-            print(f"Insert time: {time() - start_insert}")
-            self.conn.commit()
+    #         # Insert
+    #         start_insert = time()
+    #         execute_values(
+    #             cursor,
+    #             f"INSERT INTO {target_table} (embedding, chunk_id) VALUES %s;",
+    #             data_batch,
+    #         )
+    #         print(f"Insert time: {time() - start_insert}")
+    #         self.conn.commit()
 
-        cursor.close()
+    #     cursor.close()
 
     def create_index(
         self,
-        table_name: str,
+        target_table: str,
         target_column: str,
         index_type: str,  # 'ivfflat' or 'hnsw'
         #  metric: str,
@@ -875,7 +875,7 @@ class Database:
             return
 
         # Create index
-        query = f"CREATE INDEX {index_name} ON {table_name} USING {index_type} ({target_column} vector_cosine_ops) WITH {parameters}"
+        query = f"CREATE INDEX {index_name} ON {target_table} USING {index_type} ({target_column} vector_cosine_ops) WITH {parameters}"
         print(f"Executing query: {query}")
         start = time()
         cursor.execute(query)
@@ -884,7 +884,7 @@ class Database:
 
         # Cleanup
         end = time()
-        print(f"Created {index_type} index on {table_name}.{table_name} in {end - start:.2f} seconds")
+        print(f"Created {index_type} index on {target_table}.{target_table} in {end - start:.2f} seconds")
         cursor.close()
 
     def query(self, q: str) -> list[tuple]:
@@ -904,21 +904,21 @@ class Database:
     def vector_search(
         self,
         query_vector: np.array,
-        table_name: str,
+        target_table: str,
         target_column: str,
         metric: str = "vector_cosine_ops",
         pubdate: str | None = None,
-        use_index=True,
         top_k=10,
+        use_index=True,
         probes: int = None,
         ef_search: int = None,
-    ) -> list[VectorSearchResult]:
+    ) -> pd.DataFrame:
         """
         Query the specified vector column in the database.
 
         Args:
             query_vector (np.array): The vector to query.
-            table_name (str): The name of the table to query.
+            target_table (str): The name of the table to query.
             target_column (str): The name of the column to query.
             metric (str): The distance metric to use. Default is 'vector_cosine_ops'.
             pubdate (str | None): Optional publication date filter in YYYY-MM-DD format.
@@ -952,7 +952,7 @@ class Database:
                 f"""
                 SELECT
                     text, doi, pubdate, {target_column} {_operator_} %s AS distance
-                FROM {table_name}
+                FROM {target_table}
                 WHERE pubdate <= '{pubdate}'
                 ORDER BY distance ASC
                 LIMIT {top_k};
@@ -960,12 +960,13 @@ class Database:
                 (query_vector,),
             )
             results = cursor.fetchall()
-            return [VectorSearchResult(*result) for result in results]
+            return pd.DataFrame(results, columns=["text", "doi", "pubdate", "distance"])
+            # return [VectorSearchResult(*result) for result in results]
 
     def query_vector_column(
         self,
         query_vector: np.array,
-        table_name: str,
+        target_table: str,
         target_column: str,
         metric: str = "vector_cosine_ops",
         pubdate: str | None = None,
@@ -979,7 +980,7 @@ class Database:
 
         Args:
             query_vector (np.array): The vector to query.
-            table_name (str): The name of the table to query.
+            target_table (str): The name of the table to query.
             target_column (str): The name of the column to query.
             metric (str): The distance metric to use. Default is 'vector_cosine_ops'.
             pubdate (str | None): Optional publication date filter in YYYY-MM-DD format.
@@ -1013,7 +1014,7 @@ class Database:
                 f"""
                 SELECT
                     id, doi, title, abstract, chunk, pubdate, {target_column} {_operator_} %s AS distance
-                FROM {table_name}
+                FROM {target_table}
                 WHERE pubdate <= '{pubdate}'
                 ORDER BY distance ASC
                 LIMIT {top_k};
@@ -1023,12 +1024,12 @@ class Database:
             results = cursor.fetchall()
             return [VectorQueryResult(*result) for result in results]
 
-    def prewarm_table(self, table_name: str, target_column: str = None):
+    def prewarm_table(self, target_table: str, target_column: str = None):
         """
         Prewarms a table and optionally, specific indexes associated with a target column.
 
         Args:
-            table_name (str): The name of the table to prewarm.
+            target_table (str): The name of the table to prewarm.
             target_column (str, optional): The name of the column whose indexes should be prewarmed.
                                            If None, all indexes on the table are prewarmed. Defaults to None.
         """
@@ -1042,9 +1043,9 @@ class Database:
                 prewarmed_objects.append(("idx_pubdate", results[0][0] if results and results[0][0] else 0))
 
                 # Prewarm table
-                cursor.execute(f"SELECT pg_prewarm('{table_name}');")
+                cursor.execute(f"SELECT pg_prewarm('{target_table}');")
                 results = cursor.fetchall()
-                prewarmed_objects.append((table_name, results[0][0] if results and results[0][0] else 0))
+                prewarmed_objects.append((target_table, results[0][0] if results and results[0][0] else 0))
 
                 # Prewarm index on target column (the vector column)
                 if target_column:
@@ -1055,7 +1056,7 @@ class Database:
                         JOIN pg_class i ON i.oid = ix.indexrelid
                         JOIN pg_class t ON t.oid = ix.indrelid
                         JOIN pg_attribute a ON a.attrelid = ix.indrelid
-                        WHERE t.relname = '{table_name}'
+                        WHERE t.relname = '{target_table}'
                         AND a.attname = '{target_column}'
                         AND a.attnum = ANY(ix.indkey);
                         """
@@ -1071,7 +1072,7 @@ class Database:
                         f"""
                         SELECT relname, pg_relation_size(oid) AS bytes
                         FROM pg_class
-                        WHERE relname = '{table_name}'
+                        WHERE relname = '{target_table}'
                         OR relname = ANY(%s);
                         """,
                         (indexes,),
@@ -1102,7 +1103,7 @@ class Database:
             print("=" * 70 + "\n")
 
         except Exception as e:
-            print(f"Error prewarming table {table_name}: {e}")
+            print(f"Error prewarming table {target_table}: {e}")
             raise e
 
     def get_reconstructed_paper(self, doi: str) -> str:
@@ -1119,7 +1120,7 @@ class Database:
     def explain_analyze(
         self,
         query_vector: str,
-        table_name: str,
+        target_table: str,
         metric: str = "vector_cosine_ops",
         top_k: int = 50,
         outdir: str = "tests/db/",
@@ -1148,17 +1149,17 @@ class Database:
         cursor.execute(f"SET hnsw.ef_search = {ef_search};")
         cursor.execute("SET enable_seqscan = off;")
 
-        self.prewarm_table(table_name)
+        self.prewarm_table(target_table)
 
         # Prepare and execute query (format everything but the vector first, so it can be printed compactly)
         query = """EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON)
-            SELECT {table_name}.chunk_id, chunks.doi, chunks.text, {table_name}.embedding {operator} '{query_vector}' AS distance
-            FROM {table_name}
-            JOIN chunks ON {table_name}.chunk_id = chunks.id
-            ORDER BY {table_name}.embedding {operator} '{query_vector}' ASC
+            SELECT {target_table}.chunk_id, chunks.doi, chunks.text, {target_table}.embedding {operator} '{query_vector}' AS distance
+            FROM {target_table}
+            JOIN chunks ON {target_table}.chunk_id = chunks.id
+            ORDER BY {target_table}.embedding {operator} '{query_vector}' ASC
             LIMIT {top_k};
             """.format(
-            table_name=table_name,
+            target_table=target_table,
             operator=operator,
             top_k=top_k,
             query_vector="{query_vector}",
@@ -1169,7 +1170,7 @@ class Database:
         # Report
         query_plan = cursor.fetchall()
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"explain_analyze_{table_name}_topk{top_k}_{current_time}.json"
+        filename = f"explain_analyze_{target_table}_topk{top_k}_{current_time}.json"
         with open(outdir + filename, "w") as f:
             json.dump(query_plan, f, indent=4)
         print(f"Query plan saved to {outdir+filename}")
@@ -1194,9 +1195,9 @@ class Database:
         cursor.close()
 
 
-def profile_create_vector_table(db, table_name, embedder):
+def profile_create_vector_table(db, target_table, embedder):
     with cProfile.Profile() as pr:
-        db.create_vector_table(table_name=table_name, dim=768, embedder=embedder)
+        db.create_vector_table(target_table=target_table, dim=768, embedder=embedder)
     stats = pstats.Stats(pr)
     stats.strip_dirs().sort_stats("cumulative").print_stats(40)
 
@@ -1219,13 +1220,13 @@ def main():
 
     dispatch_table = {
         "create_base_table": lambda: db._create_base_table(
-            **get_kwargs(args, ["table_name", "from_path", "max_length", "overlap"])
+            **get_kwargs(args, ["target_table", "from_path", "max_length", "overlap"])
         ),
         "create_vector_column": lambda: db.create_vector_column(
             **get_kwargs(
                 args,
                 [
-                    "table_name",
+                    "target_table",
                     "embedder_name",
                     "normalize",
                     "enricher_name",
@@ -1238,7 +1239,7 @@ def main():
             **get_kwargs(
                 args,
                 [
-                    "table_name",
+                    "target_table",
                     "embedder_name",
                     "normalize",
                     "enricher_name",
@@ -1251,7 +1252,7 @@ def main():
             **get_kwargs(
                 args,
                 [
-                    "table_name",
+                    "target_table",
                     "target_column",
                     "index_type",
                     "m",

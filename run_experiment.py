@@ -95,7 +95,7 @@ def argument_parser():
     if args.build and (not args.source or not args.test_dest or not args.train_dest):
         parser.error("--build requires --num, --source, and --dest arguments")
 
-    if args.query_plan and (not args.table_name or not args.embedder or not args.top_k):
+    if args.query_plan and (not args.target_table or not args.embedder or not args.top_k):
         parser.error("--query-plan requires --table-name, --embeder, and --top-k arguments")
 
     return args
@@ -160,8 +160,10 @@ class Experiment:
         NOTE: nontrivial_train.index.tolist() will give the line numbers of the original example
         so we can look up the original sentence, etc.
         """
+        # Dataset and results
         self.dataset = pd.read_json(dataset_path, lines=True)
         self.dataset_path = dataset_path
+        self.query_results: list[dict] = []
 
         self.target_table = target_table
         self.target_column = target_column
@@ -200,29 +202,17 @@ class Experiment:
         self.hits = []
         self.recall_scores = []  # proportion of target DOIs that were retrieved in the top-k results
 
-    def __hit_rate(self, example, results):
+    def __hit_rate(self, example, results: pd.DataFrame):
         target_dois = set(example["citation_dois"])
-        retrieved_dois = set(result.doi for result in results)
-        logger.debug(
-            f"Example: {example['source_doi']}; # Targets: {len(target_dois)}; # Retrieved: {len(retrieved_dois)}; # Hits: {len(target_dois.intersection(retrieved_dois))}"
-        )
+        retrieved_dois = set(results["doi"])
+
         num_hits = len(target_dois.intersection(retrieved_dois))
-        return {
-            "pct": num_hits / len(target_dois),
-            "num_hits": num_hits,
-            "total_targets": len(target_dois),
-        }
-
-    def __truncate_results(self, results, threshold: float):
-        """
-        Assumes that `results` are ordered by distance, lowest to highest.
-
-        Returns only the results that have distance below the threshold
-        """
-        for i in range(len(results)):
-            if results[i].distance > threshold:
-                return results[:i]
-        return results
+        return num_hits / len(target_dois)
+        # return {
+        #     "pct": num_hits / len(target_dois),
+        #     "num_hits": num_hits,
+        #     "total_targets": len(target_dois),
+        # }
 
     def _evaluate_prediction(self, example, results):
         unique_predicted_dois = set(result.doi for result in results)
@@ -243,13 +233,13 @@ class Experiment:
             return 0.0
         return float(intersection / union)
 
-    def __jaccard(self, example: pd.Series, results: list[VectorSearchResult]):
+    def __jaccard(self, example: pd.Series, results: pd.DataFrame):
         """
         Takes an 'example' (a pd.Series representing a row from the input dataset) and a list of
         'results' (VectorSearchResult objects) and computes the Jaccard score between the predicted DOIs
         and the ground truth DOIs.
         """
-        predicted_dois = set(result.doi for result in results)
+        predicted_dois = set(results["doi"])
         citation_dois = set(example["citation_dois"])
         score = self.__jaccard_score(predicted_dois, citation_dois)
         return score
@@ -315,23 +305,23 @@ class Experiment:
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"{self.target_table}_{self.query_expansion_name}_norm{self.normalize}_{self.metric_to_str[self.metric]}_n{len(self.dataset)}_{current_time}"
 
-    def __write_json_results(self, filename_base):
-        # Prep results and outfile name
-        output = {
-            "config": self.get_config_dict(),
-            "averages": self.average_scores,
-            "avg_best_top_k": sum(self.best_top_ks) / len(self.best_top_ks),
-            "avg_best_distance_threshold": sum(self.best_top_distances) / len(self.best_top_distances),
-            "best_top_ks": self.best_top_ks,
-        }
+    # def __write_json_results(self, filename_base):
+    #     # Prep results and outfile name
+    #     output = {
+    #         "config": self.get_config_dict(),
+    #         "averages": self.average_scores,
+    #         "avg_best_top_k": sum(self.best_top_ks) / len(self.best_top_ks),
+    #         "avg_best_distance_threshold": sum(self.best_top_distances) / len(self.best_top_distances),
+    #         "best_top_ks": self.best_top_ks,
+    #     }
 
-        # Create directory if it doesn't exist
-        if not os.path.exists(f"experiments/results/{filename_base}"):
-            os.makedirs(f"experiments/results/{filename_base}")
+    #     # Create directory if it doesn't exist
+    #     if not os.path.exists(f"experiments/results/{filename_base}"):
+    #         os.makedirs(f"experiments/results/{filename_base}")
 
-        # Write and plot results
-        with open(f"experiments/results/{filename_base}/results_{filename_base}.json", "w") as f:
-            json.dump(output, f)
+    #     # Write and plot results
+    #     with open(f"experiments/results/{filename_base}/results_{filename_base}.json", "w") as f:
+    #         json.dump(output, f)
 
     def __write_run_results(self):
         """
@@ -344,6 +334,15 @@ class Experiment:
         if not os.path.exists(f"experiments/results/{filename_base}"):
             os.makedirs(f"experiments/results/{filename_base}")
 
+        query_results_json = []
+        for example, results in self.query_results:
+            results_dict = results.to_dict(orient="records")
+            for result in results_dict:
+                result["pubdate"] = result["pubdate"].strftime("%Y-%m-%d")
+            query_results_json.append([example, results_dict])
+        with open(f"experiments/results/{filename_base}/query_results_{filename_base}.json", "w") as f:
+            json.dump(query_results_json, f)
+
         # avg_hit_pct = sum(hit["pct"] for hit in self.hits) / len(self.hits) if self.hits else 0
         # Note that k here are keys from 1 to top_k, so the list index = k - 1
         avg_jaccards = [
@@ -355,9 +354,7 @@ class Experiment:
             "config": self.get_config_dict(),
             "average_score": self.average_score,
             "ef_search": self.ef_search,
-            "average_num_results": sum(self.num_results) / len(self.num_results),
             "best_top_ks": self.best_top_ks,
-            # "avg_hit_pct": avg_hit_pct,
             "average_hit_rates": average_hit_rates,
             "average_jaccards": avg_jaccards,
         }
@@ -385,28 +382,28 @@ class Experiment:
         plt.close()
 
         # Make a plot of the average Jaccard scores (y-axis) vs. top-k (x-axis)
-        plt.figure(figsize=(10, 6))
-        plt.plot(k_values, output["average_jaccards"], marker="o", label="Average Jaccard")
-        plt.xlabel("Top-k")
-        plt.ylabel("Score")
-        plt.title("Average Jaccard Scores vs. Top-k")
-        plt.legend()
-        plt.grid()
-        plt.savefig(f"experiments/results/{filename_base}/jaccard_vs_k_{filename_base}.png")
-        plt.close()
+        # plt.figure(figsize=(10, 6))
+        # plt.plot(k_values, output["average_jaccards"], marker="o", label="Average Jaccard")
+        # plt.xlabel("Top-k")
+        # plt.ylabel("Score")
+        # plt.title("Average Jaccard Scores vs. Top-k")
+        # plt.legend()
+        # plt.grid()
+        # plt.savefig(f"experiments/results/{filename_base}/jaccard_vs_k_{filename_base}.png")
+        # plt.close()
 
-    def __write_results(self):
-        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename_base = f"{self.target_column}_{self.query_expansion_name}_norm{self.normalize}_n{len(self.dataset)}_topk{self.top_k}_{current_time}"
+    # def __write_results(self):
+    #     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+    #     filename_base = f"{self.target_column}_{self.query_expansion_name}_norm{self.normalize}_n{len(self.dataset)}_topk{self.top_k}_{current_time}"
 
-        # Create directory if it doesn't exist
-        if not os.path.exists(f"experiments/results/{filename_base}"):
-            os.makedirs(f"experiments/results/{filename_base}")
+    #     # Create directory if it doesn't exist
+    #     if not os.path.exists(f"experiments/results/{filename_base}"):
+    #         os.makedirs(f"experiments/results/{filename_base}")
 
-        # Write and plot results
-        self.__write_json_results(filename_base)
-        self.__plot_roc_curve(filename_base)
-        self.__plot_topk_histogram(filename_base)
+    #     # Write and plot results
+    #     self.__write_json_results(filename_base)
+    #     self.__plot_roc_curve(filename_base)
+    #     self.__plot_topk_histogram(filename_base)
 
     def get_config_dict(self):
         return {
@@ -435,10 +432,6 @@ class Experiment:
         from concurrent.futures import ThreadPoolExecutor
         import queue
         import threading
-
-        # from Rerankers import get_reranker
-
-        # deepseek_boolean = get_reranker("deepseek_boolean", db=self.db)
 
         # Make sure we have CPU count available
         assert "CPUS" in os.environ, "CPUS environment variable not set."
@@ -483,7 +476,7 @@ class Experiment:
                     # Query the database
                     results = thread_db.vector_search(
                         query_vector=embedding,
-                        table_name=self.target_table,
+                        target_table=self.target_table,
                         target_column=self.target_column,
                         metric=self.metric,
                         pubdate=example.get("pubdate"),
@@ -497,22 +490,10 @@ class Experiment:
 
                     if len(results) != self.top_k:
                         logger.warning(f"Expected {self.top_k} results, but got {len(results)}. ")
-                    self.num_results.append(len(results))
+                    results_queue.put((example, results))
 
                     # Compute hit rate and IoU for each k from 1 to top_k
-                    # for i in range(len(results)):
-                    for i in range(self.top_k):
-                        k_idx = i + 1
-                        # Get the hitrate percent for this example at this k
-                        hitrate = self.__hit_rate(example, results[:k_idx])
-                        self.stats_by_topk[k_idx]["hitrates"].append(hitrate["pct"])
-
-                        # Get the Jaccard score for this example at this k
-                        jaccard_score = self.__jaccard(example, results[:k_idx])
-                        self.stats_by_topk[k_idx]["jaccards"].append(jaccard_score)
-
-                    # score = self._evaluate_prediction_dict(example, results)
-                    # results_queue.put(score)
+                    # TODO: Move all stats computation to a separate method and put it at the end
 
                     # Thread-safe update of progress counter
                     with progress_lock, query_bar_lock:
@@ -585,10 +566,37 @@ class Experiment:
                 if consumer_progress > query_bar.n:
                     query_bar.update(consumer_progress - query_bar.n)
 
-        # jaccard_scores = []
-        # while not results_queue.empty():
-        #     score = results_queue.get()
-        #     jaccard_scores.append(score)
+        # Append the (example dict, results list[dict]) pairs
+        while not results_queue.empty():
+            self.query_results.append(results_queue.get())
+
+        print(f"Experiment computed in {time() - start:.2f} seconds")
+        start = time()
+
+        # Compute stats
+        for example, results in tqdm(
+            self.query_results, desc="Computing Stats", position=2, total=len(self.query_results)
+        ):
+            # Compute stats for each example
+            # self.num_results.append(len(results))
+            # self.best_top_ks.append(min(self.top_k, len(results)))
+            # self.best_top_distances.append(results[self.best_top_ks[-1] - 1].distance if results else float("inf"))
+            # self.hits.append(self.__hit_rate(example, results))
+
+            # # Compute Jaccard score for this example
+            # jaccard_score = self.__jaccard(example, results)
+            # self.jaccard_scores[jaccard_score].append(jaccard_score)
+
+            for i in range(self.top_k):
+                k_idx = i + 1
+
+                # Get the hitrate percent for this example at this k
+                hitrate = self.__hit_rate(example, results[:k_idx])
+                self.stats_by_topk[k_idx]["hitrates"].append(hitrate)
+
+                # Get the Jaccard score for this example at this k
+                jaccard_score = self.__jaccard(example, results[:k_idx])
+                self.stats_by_topk[k_idx]["jaccards"].append(jaccard_score)
 
         # Compute stats
         for k in self.stats_by_topk:
@@ -597,8 +605,7 @@ class Experiment:
             self.stats_by_topk[k]["avg_jaccard"] = avg_jaccard
             self.stats_by_topk[k]["avg_hitrate"] = avg_hitrate
 
-        end = time()
-        print(f"Experiment computed in {end - start:.2f} seconds")
+        print(f"Stats computed in {time() - start:.2f} seconds")
 
         self.__write_run_results()
 
@@ -733,17 +740,17 @@ def main():
         print("-" * 60)
         print(f"{'Embedder':<15} {args.embedder:<40}")
         print(f"{'Device':<15} {device:<40}")
-        print(f"{'Table Name':<15} {args.table_name:<40}")
+        print(f"{'Table Name':<15} {args.target_table:<40}")
         print(f"{'Metric':<15} {'vector_cosine_ops':<40}")
         print(f"{'Top K':<15} {args.top_k:<40}")
         print(f"{'Probes':<15} {args.probes:<40}")
         print(f"{'Batch Size':<15} {args.batch_size:<40}")
         print("=" * 60 + "\n")
 
-        db.prewarm_table(args.table_name)
+        db.prewarm_table(args.target_table)
         db.explain_analyze(
             query_vector=embedding,
-            table_name=args.table_name,
+            target_table=args.target_table,
             metric="vector_cosine_ops",
             top_k=args.top_k,
         )
