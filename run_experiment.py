@@ -162,8 +162,11 @@ class Experiment:
         """
         # Dataset and results
         self.dataset = pd.read_json(dataset_path, lines=True)
+        self.dataset['expanded_query'] = None  # Placeholder for expanded queries
         self.dataset_path = dataset_path
         self.query_results: list[dict] = []
+        self.first_rank: int | None = None  # The rank of the first target doi to appear in the results
+        self.last_rank: int | None = None  # Rank at which all target DOIs appear in the results
 
         self.target_table = target_table
         self.target_column = target_column
@@ -202,9 +205,9 @@ class Experiment:
         self.hits = []
         self.recall_scores = []  # proportion of target DOIs that were retrieved in the top-k results
 
-    def __hit_rate(self, example, results: pd.DataFrame):
+    def __hit_rate(self, example, results: list[dict]):
         target_dois = set(example["citation_dois"])
-        retrieved_dois = set(results["doi"])
+        retrieved_dois = {result["doi"] for result in results}
 
         num_hits = len(target_dois.intersection(retrieved_dois))
         return num_hits / len(target_dois)
@@ -233,16 +236,76 @@ class Experiment:
             return 0.0
         return float(intersection / union)
 
-    def __jaccard(self, example: pd.Series, results: pd.DataFrame):
+    def __jaccard(self, example: dict, results: list[dict]):
         """
-        Takes an 'example' (a pd.Series representing a row from the input dataset) and a list of
-        'results' (VectorSearchResult objects) and computes the Jaccard score between the predicted DOIs
-        and the ground truth DOIs.
+        Takes an 'example' (a dict representing a row from the input dataset) and a list of
+        'results' (dicts representing VectorSearchResult objects) and computes the Jaccard score 
+        between the predicted DOIs and the ground truth DOIs.
         """
-        predicted_dois = set(results["doi"])
+        predicted_dois = {result["doi"] for result in results}
         citation_dois = set(example["citation_dois"])
-        score = self.__jaccard_score(predicted_dois, citation_dois)
-        return score
+        return self.__jaccard_score(predicted_dois, citation_dois)
+
+    def __compute_stats(self):
+        for example, results in tqdm(
+            self.query_results, desc="Computing Stats", position=2, total=len(self.query_results)
+        ):
+            # Compute stats by top k
+            for i in range(self.top_k):
+                k_idx = i + 1
+
+                # Get the hitrate percent for this example at this k
+                hitrate = self.__hit_rate(example, results[:k_idx])
+                self.stats_by_topk[k_idx]["hitrates"].append(hitrate)
+
+                # Get the Jaccard score for this example at this k
+                jaccard_score = self.__jaccard(example, results[:k_idx])
+                self.stats_by_topk[k_idx]["jaccards"].append(jaccard_score)
+
+                # Compute first and last ranks
+                example['first_rank'] = None
+                example['last_rank'] = None
+
+                target_dois = set(example["citation_dois"])
+                # Skip examples with no target DOIs
+                if not target_dois:
+                    continue
+
+                # Find the first rank
+                for i, result in enumerate(results):
+                    if result['doi'] in target_dois:
+                        example['first_rank'] = i + 1  # +1 because ranks are 1-indexed
+                        break
+
+                # If no first rank found, there won't be a last rank either
+                if example['first_rank'] is None:
+                    continue
+
+                # Special case: only 1 target DOI then first rank is also last rank
+                if len(set(example['citation_dois'])) == 1:
+                    example['last_rank'] = example['first_rank']
+                    continue
+
+                # Find the last rank: first check the full results if all target DOIs are present
+                all_retrieved_dois = {result['doi'] for result in results}
+                if not target_dois.issubset(all_retrieved_dois):
+                    continue
+
+                retrieved_dois = set()
+                for i, result in enumerate(results):
+                    retrieved_dois.add(result['doi'])
+                    if target_dois.issubset(retrieved_dois):
+                        example['last_rank'] = i + 1
+                        break
+
+        # Compute summary stats by top k
+        for k in self.stats_by_topk:
+            avg_jaccard = sum(self.stats_by_topk[k]["jaccards"]) / len(self.stats_by_topk[k]["jaccards"])
+            avg_hitrate = sum(self.stats_by_topk[k]["hitrates"]) / len(self.stats_by_topk[k]["hitrates"])
+            self.stats_by_topk[k]["avg_jaccard"] = avg_jaccard
+            self.stats_by_topk[k]["avg_hitrate"] = avg_hitrate
+
+        # Compute other summary stats?
 
     def __plot_topk_histogram(self, filename_base: str):
         outfile = f"experiments/results/{filename_base}/topk_histogram_{filename_base}.png"
@@ -305,24 +368,6 @@ class Experiment:
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         return f"{self.target_table}_{self.query_expansion_name}_norm{self.normalize}_{self.metric_to_str[self.metric]}_n{len(self.dataset)}_{current_time}"
 
-    # def __write_json_results(self, filename_base):
-    #     # Prep results and outfile name
-    #     output = {
-    #         "config": self.get_config_dict(),
-    #         "averages": self.average_scores,
-    #         "avg_best_top_k": sum(self.best_top_ks) / len(self.best_top_ks),
-    #         "avg_best_distance_threshold": sum(self.best_top_distances) / len(self.best_top_distances),
-    #         "best_top_ks": self.best_top_ks,
-    #     }
-
-    #     # Create directory if it doesn't exist
-    #     if not os.path.exists(f"experiments/results/{filename_base}"):
-    #         os.makedirs(f"experiments/results/{filename_base}")
-
-    #     # Write and plot results
-    #     with open(f"experiments/results/{filename_base}/results_{filename_base}.json", "w") as f:
-    #         json.dump(output, f)
-
     def __write_run_results(self):
         """
         Writes out the results of a .run() experiment, which only includes the config and the average Jaccard score.
@@ -334,16 +379,15 @@ class Experiment:
         if not os.path.exists(f"experiments/results/{filename_base}"):
             os.makedirs(f"experiments/results/{filename_base}")
 
+        # Iterate over query results to convert pubdate to string format
         query_results_json = []
         for example, results in self.query_results:
-            results_dict = results.to_dict(orient="records")
-            for result in results_dict:
+            for result in results:
                 result["pubdate"] = result["pubdate"].strftime("%Y-%m-%d")
-            query_results_json.append([example, results_dict])
+            query_results_json.append([example, results])
         with open(f"experiments/results/{filename_base}/query_results_{filename_base}.json", "w") as f:
             json.dump(query_results_json, f)
 
-        # avg_hit_pct = sum(hit["pct"] for hit in self.hits) / len(self.hits) if self.hits else 0
         # Note that k here are keys from 1 to top_k, so the list index = k - 1
         avg_jaccards = [
             sum(self.stats_by_topk[k]["jaccards"]) / len(self.stats_by_topk[k]["jaccards"]) for k in self.stats_by_topk
@@ -357,6 +401,8 @@ class Experiment:
             "best_top_ks": self.best_top_ks,
             "average_hit_rates": average_hit_rates,
             "average_jaccards": avg_jaccards,
+            "first_rank": self.first_rank,
+            "last_rank": self.last_rank,
         }
 
         with open(f"experiments/results/{filename_base}/results_{filename_base}.json", "w") as f:
@@ -391,19 +437,6 @@ class Experiment:
         # plt.grid()
         # plt.savefig(f"experiments/results/{filename_base}/jaccard_vs_k_{filename_base}.png")
         # plt.close()
-
-    # def __write_results(self):
-    #     current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-    #     filename_base = f"{self.target_column}_{self.query_expansion_name}_norm{self.normalize}_n{len(self.dataset)}_topk{self.top_k}_{current_time}"
-
-    #     # Create directory if it doesn't exist
-    #     if not os.path.exists(f"experiments/results/{filename_base}"):
-    #         os.makedirs(f"experiments/results/{filename_base}")
-
-    #     # Write and plot results
-    #     self.__write_json_results(filename_base)
-    #     self.__plot_roc_curve(filename_base)
-    #     self.__plot_topk_histogram(filename_base)
 
     def get_config_dict(self):
         return {
@@ -490,10 +523,10 @@ class Experiment:
 
                     if len(results) != self.top_k:
                         logger.warning(f"Expected {self.top_k} results, but got {len(results)}. ")
-                    results_queue.put((example, results))
 
-                    # Compute hit rate and IoU for each k from 1 to top_k
-                    # TODO: Move all stats computation to a separate method and put it at the end
+                    # Convert results DataFrame to list[dict], lower overhead for serialization
+                    results_list = results.to_dict(orient="records")
+                    results_queue.put((example, results_list))
 
                     # Thread-safe update of progress counter
                     with progress_lock, query_bar_lock:
@@ -536,9 +569,13 @@ class Experiment:
                         torch.mps.empty_cache()
 
                     # Get batch, perform any query expansion & generate embeddings
-                    batch = self.dataset.iloc[i : i + self.batch_size]
+                    batch_indices = slice(i, i + self.batch_size)
+                    batch = self.dataset.iloc[batch_indices]
+
                     expanded_queries = self.query_expander(batch)
                     embeddings = self.embedder(expanded_queries)
+                    
+                    self.dataset.loc[batch.index, 'expanded_query'] = expanded_queries
 
                     # Add tasks to queue and update producer progress
                     for j in range(len(batch)):
@@ -572,41 +609,8 @@ class Experiment:
 
         print(f"Experiment computed in {time() - start:.2f} seconds")
         start = time()
-
-        # Compute stats
-        for example, results in tqdm(
-            self.query_results, desc="Computing Stats", position=2, total=len(self.query_results)
-        ):
-            # Compute stats for each example
-            # self.num_results.append(len(results))
-            # self.best_top_ks.append(min(self.top_k, len(results)))
-            # self.best_top_distances.append(results[self.best_top_ks[-1] - 1].distance if results else float("inf"))
-            # self.hits.append(self.__hit_rate(example, results))
-
-            # # Compute Jaccard score for this example
-            # jaccard_score = self.__jaccard(example, results)
-            # self.jaccard_scores[jaccard_score].append(jaccard_score)
-
-            for i in range(self.top_k):
-                k_idx = i + 1
-
-                # Get the hitrate percent for this example at this k
-                hitrate = self.__hit_rate(example, results[:k_idx])
-                self.stats_by_topk[k_idx]["hitrates"].append(hitrate)
-
-                # Get the Jaccard score for this example at this k
-                jaccard_score = self.__jaccard(example, results[:k_idx])
-                self.stats_by_topk[k_idx]["jaccards"].append(jaccard_score)
-
-        # Compute stats
-        for k in self.stats_by_topk:
-            avg_jaccard = sum(self.stats_by_topk[k]["jaccards"]) / len(self.stats_by_topk[k]["jaccards"])
-            avg_hitrate = sum(self.stats_by_topk[k]["hitrates"]) / len(self.stats_by_topk[k]["hitrates"])
-            self.stats_by_topk[k]["avg_jaccard"] = avg_jaccard
-            self.stats_by_topk[k]["avg_hitrate"] = avg_hitrate
-
+        self.__compute_stats()
         print(f"Stats computed in {time() - start:.2f} seconds")
-
         self.__write_run_results()
 
     def __str__(self):
@@ -688,31 +692,6 @@ def main():
         )
         print(experiment)
         experiment.run()
-
-        return
-
-    if args.run_scan:
-        # Load expermient configs
-        with open(args.run_scan, "r") as config_file:
-            config = yaml.safe_load(config_file)
-
-        # Set up and run experiment
-        experiment = Experiment(
-            device=device,
-            dataset_path=config["dataset"],
-            target_table=config.get("table", "lib"),
-            target_column=config.get("target_column", "chunk"),
-            metric=config.get("metric", "vector_cosine_ops"),
-            embedding_model_name=config["embedder"],
-            normalize=config["normalize"],
-            query_expansion=config["enrichment"],
-            batch_size=config.get("batch_size", 16),
-            top_k=config.get("top_k"),
-            probes=config.get("probes", 40),
-            ef_search=config.get("ef_search", 40),
-        )
-        print(experiment)
-        experiment.run_and_topk_scan()
 
         return
 
