@@ -7,6 +7,7 @@ import yaml
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from dataclasses import asdict
 from time import time
 from matplotlib.ticker import MultipleLocator
 from datetime import datetime
@@ -27,13 +28,13 @@ def argument_parser():
     Example usage:
 
     1. Run an experiment with specified configuration:
-       python run_experiment.py --run --config experiments/configs/bert_cosine.yaml
+       python run_experiment.py --run experiments/configs/bert_cosine.yaml
 
     2. Build a train/test split by sampling from source:
        python run_experiment.py --build --source data/dataset/full/nontrivial_llm.jsonl --train-dest data/dataset/sampled/train.jsonl --test-dest data/dataset/sample/test.jsonl --split=0.8 --seed 42
 
     3. Run an experiment with a top-k scan:
-       python run_experiment.py --run-scan --config experiments/bert_cosine.yaml
+       python run_experiment.py --run-scan experiments/bert_cosine.yaml
 
     4. Generate query plans and analyze database performance:
        python run_experiment.py --query-plan --table-name bert_hnsw --embedder bert-base-uncased --top-k 50
@@ -44,15 +45,23 @@ def argument_parser():
 
     # Create mutually exclusive operation groups
     operation_group = parser.add_mutually_exclusive_group(required=True)
-    operation_group.add_argument("--run", action="store_true", help="run an experiment with fixed top-k")
-    operation_group.add_argument("--run-scan", action="store_true", help="run an experiment with top-k scan")
+    operation_group.add_argument(
+        "--run",
+        type=str,
+        metavar="CONFIG_PATH",
+        help="run an experiment with fixed top-k using the specified config file",
+    )
+    operation_group.add_argument(
+        "--run-scan",
+        type=str,
+        metavar="CONFIG_PATH",
+        help="run an experiment with top-k scan using the specified config file",
+    )
     operation_group.add_argument("--build", action="store_true", help="build a dataset")
     operation_group.add_argument("--write", action="store_true", help="write out train/test datasets")
     operation_group.add_argument(
         "--query-plan", action="store_true", help="generate EXPLAIN/ANALYZE query plan for database"
     )
-
-    parser.add_argument("--config", type=str, help="Path to the YAML configuration file.")
 
     # Dataset building arguments
     parser.add_argument("--num", type=int, help="number of examples to include")
@@ -83,9 +92,6 @@ def argument_parser():
     args = parser.parse_args()
 
     # Apply custom validation
-    if args.run and not args.config:
-        parser.error("--run requires --config")
-
     if args.build and (not args.source or not args.test_dest or not args.train_dest):
         parser.error("--build requires --num, --source, and --dest arguments")
 
@@ -579,7 +585,6 @@ class Experiment:
                 if consumer_progress > query_bar.n:
                     query_bar.update(consumer_progress - query_bar.n)
 
-
         # jaccard_scores = []
         # while not results_queue.empty():
         #     score = results_queue.get()
@@ -653,7 +658,7 @@ def main():
 
     if args.run:
         # Load experiment configs
-        with open(args.config, "r") as config_file:
+        with open(args.run, "r") as config_file:
             config = yaml.safe_load(config_file)
 
         # Set up and run experiment
@@ -681,7 +686,7 @@ def main():
 
     if args.run_scan:
         # Load expermient configs
-        with open(args.config, "r") as config_file:
+        with open(args.run_scan, "r") as config_file:
             config = yaml.safe_load(config_file)
 
         # Set up and run experiment

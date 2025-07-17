@@ -4,6 +4,6 @@ target_column: 'embedding'
 metric: 'vector_cosine_ops'
 embedder: 'BAAI/bge-large-en-v1.5'
 normalize: True
-enrichment: 'identity'
+query_expansion: 'identity'
 batch_size: 16
 top_k: 1000
