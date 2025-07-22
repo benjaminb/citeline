@@ -1,4 +1,4 @@
-dataset: 'data/dataset/split/small_train.jsonl'
+dataset: 'data/dataset/nontrivial_filtered.jsonl'
 table: 'contributions'
 target_column: 'embedding'
 metric: 'vector_cosine_ops'
@@ -7,3 +7,4 @@ normalize: True
 query_expansion: 'add_prev_3'
 batch_size: 16
 top_k: 1000
+strategy: '50/50'

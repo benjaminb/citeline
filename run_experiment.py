@@ -16,6 +16,7 @@ from tqdm import tqdm
 from database.database import Database, VectorSearchResult
 from query_expander import get_expander
 from Embedders import get_embedder
+from Rerankers import get_reranker
 
 logger = logging.getLogger(__name__)
 DISTANCE_THRESHOLDS = np.arange(1.0, 0.0, -0.01)
@@ -129,10 +130,6 @@ def write_train_test_to_file(train: pd.DataFrame, test: pd.DataFrame, path: str)
 
 
 class Experiment:
-
-    # @classmethod
-    # def create_all_experiments(model_name, dataset, top_k, probes):
-
     metric_to_str = {"vector_l2_ops": "L2", "vector_cosine_ops": "cosine", "vector_ip_ops": "ip"}
 
     def __init__(
@@ -147,10 +144,11 @@ class Experiment:
         query_expansion: str = "identity",
         batch_size: int = 16,
         top_k: int = 100,
+        strategy: str = None,
         use_index: bool = True,
         probes: int = 16,
         ef_search: int = 1000,
-        rerankers_to_use=[],
+        reranker_to_use: str = None,
         distance_threshold: float = None,
     ):
         # Set up configs
@@ -166,12 +164,21 @@ class Experiment:
         except Exception as e:
             raise ValueError(f"Error reading dataset from path '{dataset_path}': {e}")
 
+        # Initialize database
+        self.db = Database(path_to_env=".env")
+        self.db.test_connection()
+        self.top_k = top_k
+        self.use_index = use_index
+        self.probes = probes
+        self.ef_search = ef_search
+        self.distance_threshold = distance_threshold
+
+        # Experiment configuration
         self.dataset["expanded_query"] = None  # Placeholder for expanded queries
         self.dataset_path = dataset_path
         self.query_results: list[dict] = []
         self.first_rank: int | None = None  # The rank of the first target doi to appear in the results
         self.last_rank: int | None = None  # Rank at which all target DOIs appear in the results
-
         self.target_table = target_table
         self.target_column = target_column
         self.metric = metric
@@ -180,16 +187,18 @@ class Experiment:
         self.embedder = get_embedder(model_name=embedding_model_name, device=device, normalize=normalize)
         self.query_expansion_name = query_expansion
         self.query_expander = get_expander(query_expansion, path_to_data=EXPANSION_DATA_PATH)
+        self.reranker_to_use = reranker_to_use
+        self.reranker = get_reranker(reranker_name=reranker_to_use, db=self.db) if reranker_to_use is not None else None
 
-        # Initialize database
-        self.db = Database(path_to_env=".env")
-        self.db.test_connection()
-        self.top_k = top_k
-        self.use_index = use_index
-        self.probes = probes
-        self.ef_search = ef_search
-        self.rerankers_to_use = rerankers_to_use
-        self.distance_threshold = distance_threshold
+        # Strategy for using multiple document / query expansions
+        supported_strategies = {"50/50": self.__fifty_fifty_search, "basic": self.__basic_search}
+        if strategy in supported_strategies:
+            self.strategy = strategy
+        else:
+            raise ValueError(
+                f"'{strategy}' is not a supported strategy. Supported strategies: {[k for k in supported_strategies.keys()]}"
+            )
+        self.search = supported_strategies[strategy]  # Search function to use in .run()
 
         # Prepare attributes for results
         self.stats_by_topk = {k: {"hitrates": [], "jaccards": []} for k in range(1, top_k + 1)}
@@ -209,17 +218,68 @@ class Experiment:
         self.hits = []
         self.recall_scores = []  # proportion of target DOIs that were retrieved in the top-k results
 
+    def __basic_search(self, db, embedding, example) -> pd.DataFrame:
+        return db.vector_search(
+            query_vector=embedding,
+            target_table=self.target_table,
+            target_column=self.target_column,
+            metric=self.metric,
+            pubdate=example.get("pubdate"),
+            use_index=self.use_index,
+            top_k=self.top_k,
+            probes=self.probes,
+            ef_search=self.ef_search,
+        )
+
+    def __fifty_fifty_search(self, db, embedding, example) -> pd.DataFrame:
+        """
+        This function retrieves half the top-k from chunks, and half from contributions,
+        then returns the interleaved results
+        """
+        half_k = self.top_k // 2
+
+        chunk_results = db.vector_search(
+            query_vector=embedding,
+            target_table="chunks",
+            target_column="embedding",
+            metric=self.metric,
+            pubdate=example.get("pubdate"),
+            use_index=self.use_index,
+            top_k=half_k,
+            probes=self.probes,
+            ef_search=self.ef_search,
+        )
+
+        contribution_results = db.vector_search(
+            query_vector=embedding,
+            target_table="contributions",
+            target_column="embedding",
+            metric=self.metric,
+            pubdate=example.get("pubdate"),
+            use_index=self.use_index,
+            top_k=half_k,
+            probes=self.probes,
+            ef_search=self.ef_search,
+        )
+
+        # Combine and sort
+        interleaved = []
+        for i in range(half_k):
+            interleaved.append(chunk_results.iloc[i])
+            interleaved.append(contribution_results.iloc[i])
+
+        return pd.DataFrame(interleaved).reset_index(drop=True)
+        # results = pd.concat([chunk_results, contribution_results], ignore_index=True)
+        # results = results.sort_values(by="distance", ascending=True).reset_index(drop=True)
+
+        # return results
+
     def __hit_rate(self, example, results: list[dict]):
         target_dois = set(example["citation_dois"])
         retrieved_dois = {result["doi"] for result in results}
 
         num_hits = len(target_dois.intersection(retrieved_dois))
         return num_hits / len(target_dois)
-        # return {
-        #     "pct": num_hits / len(target_dois),
-        #     "num_hits": num_hits,
-        #     "total_targets": len(target_dois),
-        # }
 
     def _evaluate_prediction(self, example, results):
         unique_predicted_dois = set(result.doi for result in results)
@@ -311,66 +371,10 @@ class Experiment:
 
         # Compute other summary stats?
 
-    def __plot_topk_histogram(self, filename_base: str):
-        outfile = f"experiments/results/{filename_base}/topk_histogram_{filename_base}.png"
-
-        plt.figure()
-        plt.hist(
-            self.best_top_ks,
-            #  bins=30,
-            alpha=0.7,
-            color="blue",
-            edgecolor="black",
-        )
-        plt.xlabel("Best Top-k")
-        plt.ylabel("Frequency")
-        plt.title(f"Best Top-k value (n = {len(self.dataset)})")
-        plt.grid(True, which="major", linestyle="-", linewidth=0.8, alpha=0.7)
-        plt.grid(True, which="minor", linestyle=":", linewidth=0.5, alpha=0.4)
-
-        plt.savefig(outfile)
-        plt.close()
-
-    def __plot_roc_curve(self, filename_base: str):
-        outfile = f"experiments/results/{filename_base}/roc_{filename_base}.png"
-
-        plt.figure()
-        thresholds = sorted(self.average_scores.keys())
-        avg_scores = [self.average_scores[threshold] for threshold in thresholds]
-        plt.plot(thresholds, avg_scores, marker=".", linestyle="-", label="Average Jaccard Score")
-        plt.xlabel(f"Distance Threshold (n = {len(self.dataset)})")
-
-        # Calculate average values
-        avg_best_distance = (
-            sum(self.best_top_distances) / len(self.best_top_distances) if self.best_top_distances else 0
-        )
-        avg_best_top_k = sum(self.best_top_ks) / len(self.best_top_ks) if self.best_top_ks else 0
-
-        # Add a text box with metrics in the top-right corner
-        textstr = f"Avg Best Distance: {avg_best_distance:.4f}\nAvg Best Top-k: {int(avg_best_top_k)}"
-        props = dict(boxstyle="round", facecolor="white", alpha=0.8, edgecolor="gray")
-
-        # Place the text box in the top right (coordinates are in axes space: 0,0 is bottom left, 1,1 is top right)
-        plt.text(
-            0.95,
-            0.95,
-            textstr,
-            transform=plt.gca().transAxes,
-            verticalalignment="top",
-            horizontalalignment="right",
-            bbox=props,
-        )
-
-        plt.grid(True, which="major", linestyle="-", linewidth=0.8, alpha=0.7)
-        plt.grid(True, which="minor", linestyle=":", linewidth=0.5, alpha=0.4)
-        plt.gca().xaxis.set_minor_locator(MultipleLocator(0.05))
-
-        plt.savefig(outfile)
-        plt.close()
-
     def _get_output_filename_base(self):
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f"{self.target_table}_{self.query_expansion_name}_norm{self.normalize}_{self.metric_to_str[self.metric]}_n{len(self.dataset)}_{current_time}"
+        reranker_str = f"_{self.reranker_to_use}" if self.reranker_to_use else ""
+        return f"{self.strategy}_{self.target_table}_{self.query_expansion_name}{reranker_str}_norm{self.normalize}_{self.metric_to_str[self.metric]}_n{len(self.dataset)}_{current_time}"
 
     def __write_run_results(self):
         """
@@ -431,17 +435,6 @@ class Experiment:
         plt.savefig(f"experiments/results/{filename_base}/hitrate_vs_k_{filename_base}.png")
         plt.close()
 
-        # Make a plot of the average Jaccard scores (y-axis) vs. top-k (x-axis)
-        # plt.figure(figsize=(10, 6))
-        # plt.plot(k_values, output["average_jaccards"], marker="o", label="Average Jaccard")
-        # plt.xlabel("Top-k")
-        # plt.ylabel("Score")
-        # plt.title("Average Jaccard Scores vs. Top-k")
-        # plt.legend()
-        # plt.grid()
-        # plt.savefig(f"experiments/results/{filename_base}/jaccard_vs_k_{filename_base}.png")
-        # plt.close()
-
     def get_config_dict(self):
         return {
             "dataset": self.dataset_path,
@@ -451,6 +444,9 @@ class Experiment:
             "embedder": self.embedder.model_name,
             "normalize": self.normalize,
             "query_expansion": self.query_expansion_name,
+            "strategy": self.strategy,
+            "use_index": self.use_index,
+            "rerankers": self.reranker_to_use,
             "batch_size": self.batch_size,
             "top_k": self.top_k,
             "probes": self.probes,
@@ -511,19 +507,15 @@ class Experiment:
                     example, embedding = task
 
                     # Query the database
-                    results = thread_db.vector_search(
-                        query_vector=embedding,
-                        target_table=self.target_table,
-                        target_column=self.target_column,
-                        metric=self.metric,
-                        pubdate=example.get("pubdate"),
-                        use_index=self.use_index,
-                        top_k=self.top_k,
-                        probes=self.probes,
-                        ef_search=self.ef_search,
+                    results = self.search(
+                        db=thread_db,
+                        embedding=embedding,
+                        example=example,
                     )
 
                     # TODO: Reranking logic will go here
+                    if self.reranker is not None:
+                        results = self.reranker(query=example["expanded_query"], results=results)
 
                     if len(results) != self.top_k:
                         logger.warning(f"Expected {self.top_k} results, but got {len(results)}. ")
@@ -567,10 +559,11 @@ class Experiment:
                 # Main thread acts as the producer
                 for i in range(0, dataset_size, self.batch_size):
                     # GPU cache clearing
-                    if i % 50 == 0 and self.device == "cuda":
-                        torch.cuda.empty_cache()
-                    elif i % 50 == 0 and self.device == "mps":
-                        torch.mps.empty_cache()
+                    if i % 50 == 0:
+                        if self.device == "cuda":
+                            torch.cuda.empty_cache()
+                        elif self.device == "mps":
+                            torch.mps.empty_cache()
 
                     # Get batch, perform any query expansion & generate embeddings
                     batch_indices = slice(i, i + self.batch_size)
@@ -630,6 +623,7 @@ class Experiment:
             f"{'Embedder':<20}: {self.embedder.model_name}\n"
             f"{'Normalize':<20}: {self.normalize}\n"
             f"{'Enrichment':<20}: {self.query_expansion_name}\n"
+            f"{'Search Strategy':<20}: {self.strategy}\n"
             f"{'Batch Size':<20}: {self.batch_size}\n"
             f"{'Top k':<20}: {self.top_k}\n"
             f"{'Probes':<20}: {self.probes}\n"
@@ -691,7 +685,8 @@ def main():
             probes=config.get("probes", 16),
             ef_search=config.get("ef_search", 40),
             use_index=config.get("use_index", False),
-            # rerankers=config.get("rerankers", []),
+            strategy=config.get("strategy", "basic"),
+            reranker_to_use=config.get("reranker", None),
             # distance_threshold=config["distance_threshold"],
         )
         print(experiment)
