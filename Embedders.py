@@ -136,6 +136,8 @@ EMBEDDING_CLASS = {
     "bert-base-uncased": EncoderEmbedder,
     "nasa-impact/nasa-ibm-st.38m": SentenceTransformerEmbedder,
     "Qwen/Qwen3-Embedding-0.6B": SentenceTransformerEmbedder,
+    # astroLlama
+    # astrosage
     # "nvidia/NV-Embed-v2": SentenceTransformerEmbedder
 }
 

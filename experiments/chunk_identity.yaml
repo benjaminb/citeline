@@ -1,4 +1,4 @@
-dataset: 'data/dataset/nontrivial_no_longpapers.jsonl'
+dataset: 'data/dataset/nontrivial_filtered.jsonl'
 table: 'chunks'
 target_column: 'embedding'
 metric: 'vector_cosine_ops'

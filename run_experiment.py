@@ -161,8 +161,12 @@ class Experiment:
         so we can look up the original sentence, etc.
         """
         # Dataset and results
-        self.dataset = pd.read_json(dataset_path, lines=True)
-        self.dataset['expanded_query'] = None  # Placeholder for expanded queries
+        try:
+            self.dataset = pd.read_json(dataset_path, lines=True)
+        except Exception as e:
+            raise ValueError(f"Error reading dataset from path '{dataset_path}': {e}")
+
+        self.dataset["expanded_query"] = None  # Placeholder for expanded queries
         self.dataset_path = dataset_path
         self.query_results: list[dict] = []
         self.first_rank: int | None = None  # The rank of the first target doi to appear in the results
@@ -239,7 +243,7 @@ class Experiment:
     def __jaccard(self, example: dict, results: list[dict]):
         """
         Takes an 'example' (a dict representing a row from the input dataset) and a list of
-        'results' (dicts representing VectorSearchResult objects) and computes the Jaccard score 
+        'results' (dicts representing VectorSearchResult objects) and computes the Jaccard score
         between the predicted DOIs and the ground truth DOIs.
         """
         predicted_dois = {result["doi"] for result in results}
@@ -263,8 +267,8 @@ class Experiment:
                 self.stats_by_topk[k_idx]["jaccards"].append(jaccard_score)
 
                 # Compute first and last ranks
-                example['first_rank'] = None
-                example['last_rank'] = None
+                example["first_rank"] = None
+                example["last_rank"] = None
 
                 target_dois = set(example["citation_dois"])
                 # Skip examples with no target DOIs
@@ -273,29 +277,29 @@ class Experiment:
 
                 # Find the first rank
                 for i, result in enumerate(results):
-                    if result['doi'] in target_dois:
-                        example['first_rank'] = i + 1  # +1 because ranks are 1-indexed
+                    if result["doi"] in target_dois:
+                        example["first_rank"] = i + 1  # +1 because ranks are 1-indexed
                         break
 
                 # If no first rank found, there won't be a last rank either
-                if example['first_rank'] is None:
+                if example["first_rank"] is None:
                     continue
 
                 # Special case: only 1 target DOI then first rank is also last rank
-                if len(set(example['citation_dois'])) == 1:
-                    example['last_rank'] = example['first_rank']
+                if len(set(example["citation_dois"])) == 1:
+                    example["last_rank"] = example["first_rank"]
                     continue
 
                 # Find the last rank: first check the full results if all target DOIs are present
-                all_retrieved_dois = {result['doi'] for result in results}
+                all_retrieved_dois = {result["doi"] for result in results}
                 if not target_dois.issubset(all_retrieved_dois):
                     continue
 
                 retrieved_dois = set()
                 for i, result in enumerate(results):
-                    retrieved_dois.add(result['doi'])
+                    retrieved_dois.add(result["doi"])
                     if target_dois.issubset(retrieved_dois):
-                        example['last_rank'] = i + 1
+                        example["last_rank"] = i + 1
                         break
 
         # Compute summary stats by top k
@@ -417,8 +421,8 @@ class Experiment:
 
         # Make a plot of the average hit rates (y-axis) and IoU (Jaccard) vs. top-k (x-axis)
         plt.figure(figsize=(10, 6))
-        plt.plot(k_values, output["average_hit_rates"], marker="o", label="Average Hit Rate")
-        plt.plot(k_values, output["average_jaccards"], marker="o", label="Average Jaccard")
+        plt.plot(k_values, output["average_hit_rates"], linestyle="-", label="Average Hit Rate", color="blue")
+        plt.plot(k_values, output["average_jaccards"], linestyle="-", label="Average Jaccard", color="orange")
         plt.xlabel("Top-k")
         plt.ylabel("Score")
         plt.title("Average Hit Rates and IoU vs. Top-k")
@@ -574,8 +578,8 @@ class Experiment:
 
                     expanded_queries = self.query_expander(batch)
                     embeddings = self.embedder(expanded_queries)
-                    
-                    self.dataset.loc[batch.index, 'expanded_query'] = expanded_queries
+
+                    self.dataset.loc[batch.index, "expanded_query"] = expanded_queries
 
                     # Add tasks to queue and update producer progress
                     for j in range(len(batch)):
