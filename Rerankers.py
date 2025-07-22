@@ -6,7 +6,9 @@ from openai import OpenAI
 import os
 from dotenv import load_dotenv
 import logging
+import numpy as np
 import pandas as pd
+from tqdm import tqdm
 from database.database import VectorSearchResult
 
 # Set up logging
@@ -57,10 +59,10 @@ def get_deberta_nli_ranker(db: None, use_contradiction=False) -> callable:
     def entailment_ranker(query: str, results: pd.DataFrame) -> pd.DataFrame:
         results_copy = results.copy()
         premises = results_copy["text"].tolist()
+        scores = np.zeros(len(premises), dtype=np.float32)
 
-        scores = []
-        batch_size = 8
-        for i in range(0, len(results_copy), batch_size):
+        batch_size = 16
+        for i in tqdm(range(0, len(results_copy), batch_size), desc="Processing NLI scores", leave=False):
             batch_premises = premises[i : i + batch_size]
             batch_queries = [query] * len(batch_premises)
             inputs = tokenizer(
@@ -73,11 +75,15 @@ def get_deberta_nli_ranker(db: None, use_contradiction=False) -> callable:
             inputs = {key: value.to(device) for key, value in inputs.items()}
             with torch.no_grad():
                 output = model(**inputs)
+            batch_outputs = torch.softmax(output.logits, dim=-1)
 
-            entailment_score, neutral_score, contradiction_score = torch.softmax(output["logits"][0], -1).tolist()
+            entailment_scores, neutral_scores, contradiction_scores = torch.unbind(batch_outputs, dim=-1)
             # TODO use just entailment?
-            score = max(entailment_score, neutral_score, contradiction_score) if use_contradiction else entailment_score
-            scores.append(score)
+            if use_contradiction:
+                batch_scores = torch.maximum(entailment_scores, contradiction_scores)
+            else:
+                batch_scores = entailment_scores
+            scores[i : i + len(batch_scores)] = batch_scores.cpu().numpy()
 
         results_copy["deberta_nli_score"] = scores
         return results_copy.sort_values("deberta_nli_score", ascending=False).reset_index(drop=True)

@@ -503,7 +503,6 @@ class Experiment:
                     if task is None:  # Sentinel to signal completion
                         task_queue.task_done()
                         break
-
                     example, embedding = task
 
                     # Query the database
@@ -512,10 +511,12 @@ class Experiment:
                         embedding=embedding,
                         example=example,
                     )
+                    print(f"Got {len(results)} results for example {example['sent_no_cit'][:40]}", flush=True)
 
                     # TODO: Reranking logic will go here
                     if self.reranker is not None:
                         results = self.reranker(query=example["expanded_query"], results=results)
+                    print(f"Reranked {len(results)}", flush=True)
 
                     if len(results) != self.top_k:
                         logger.warning(f"Expected {self.top_k} results, but got {len(results)}. ")
@@ -540,6 +541,11 @@ class Experiment:
 
         # Start consumer threads
         num_workers = max(1, num_cpus - 1)  # Leave one core for the main thread
+
+        if self.reranker_to_use == "deberta_nli":
+            num_workers = min(
+                num_workers, 4
+            )  # Limit to 4 workers for DeBERTa reranker, which must host another model and process on GPU
         print(f"Starting {num_workers} database query workers")
 
         start = time()
