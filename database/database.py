@@ -839,7 +839,7 @@ class Database:
             probes (int): Number of probes for IVFFlat index. Default is 40.
 
         Returns:
-            list[VectorQueryResult]: A list of VectorQueryResult objects containing the results.
+            pd.DataFrame: A DataFrame containing the results. Columns=["text", "doi", "pubdate", "distance"]
         """
         # Set up operator string, session resources, and pubdate format
         _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
@@ -873,7 +873,6 @@ class Database:
             )
             results = cursor.fetchall()
             return pd.DataFrame(results, columns=["text", "doi", "pubdate", "distance"])
-
 
     # def query_vector_column(
     #     self,

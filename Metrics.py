@@ -15,6 +15,7 @@ def get_cosine_similarity_metric(db=None) -> callable:
 
     return cosine_similarity
 
+
 def get_recency_metric(db=None) -> callable:
     """
     Returns a metric that computes a score based on the recency of a result publication to the
@@ -31,10 +32,14 @@ def get_recency_metric(db=None) -> callable:
             raise ValueError("Results DataFrame must contain 'pubdate' column")
 
         # Calculate years since publication
-        years_since_pub = (query['pubdate'] - results["pubdate"]).dt.days / 365.25
-        assert (years_since_pub >= 0).all(), f"Found negative years_since_pub values: {years_since_pub[years_since_pub < 0].tolist()}"
+        years_since_pub = (query["pubdate"] - results["pubdate"]).dt.days / 365.25
+        assert (
+            years_since_pub >= 0
+        ).all(), f"Found negative years_since_pub values: {years_since_pub[years_since_pub < 0].tolist()}"
         return -np.log(years_since_pub + 1)
+
     return log_recency
+
 
 def get_log_citations_metric(db=None) -> callable:
     """
@@ -56,11 +61,31 @@ def get_log_citations_metric(db=None) -> callable:
     return log_citations_metric
 
 
+def get_modernbert_crossencoder(db=None) -> callable:
+    """
+    Returns a reranker that uses a pre-trained ModernBERT model to score results.
+    """
+    from sentence_transformers import CrossEncoder
+
+    model = CrossEncoder("tomaarsen/reranker-ModernBERT-large-gooaq-bce")
+
+    def modernbert_crossencoder(query: pd.Series, results: pd.DataFrame) -> pd.Series:
+        """
+        Reranks results using the ModernBERT model.
+        """
+        pairs = [[query["sent_no_cit"], row["text"]] for _, row in results.iterrows()]
+        scores = model.predict(pairs)
+        return scores
+
+    return modernbert_crossencoder
+
+
 METRICS = {
     "cosine_similarity": get_cosine_similarity_metric,
     "recency": get_recency_metric,
-    "log_citations": get_log_citations_metric
+    "log_citations": get_log_citations_metric,
 }
+
 
 def get_metric(name: str, db=None) -> callable:
     if name in METRICS:
@@ -69,30 +94,24 @@ def get_metric(name: str, db=None) -> callable:
 
 
 def main():
-    from database.database import VectorQueryResult
+    from database.database import VectorSearchResult
 
     queries = [
         "If you want to go to France's capital go to Paris",
         "There are larger planets than Mercury",
     ]
-    single_query = pd.Series(queries[0])
+    single_query = pd.Series({"sent_no_cit": queries[0], "sent_idx": 0, "pubdate": pd.Timestamp("2023-10-01")})
     results = pd.DataFrame(
         [
-            VectorQueryResult(
-                chunk="The capital of France is Paris.",
-                chunk_id=1,
+            VectorSearchResult(
+                text="The capital of France is Paris.",
                 doi=None,
-                title=None,
-                abstract=None,
                 pubdate=None,
                 distance=0.25,
             ),
-            VectorQueryResult(
-                chunk="Jupiter is the largest planet in our solar system.",
-                chunk_id=1,
+            VectorSearchResult(
+                text="Jupiter is the largest planet in our solar system.",
                 doi=None,
-                title=None,
-                abstract=None,
                 pubdate=None,
                 distance=0.75,
             ),
@@ -101,9 +120,15 @@ def main():
     fn = get_cosine_similarity_metric()
 
     scores = fn(single_query, results)
-    print(scores)  # Should print a Series with scores for each result
+    print(f"Query: {single_query}")
+    print(f"Cosine similarities: {scores}")  # Should print a Series with scores for each result
 
-    # print(scores)  # Should print a list of scores for each query-record pair
+    fn = get_modernbert_crossencoder()
+
+    scores = fn(single_query, results)
+
+    print(f"Query: {single_query}")
+    print(f"ModernBERT scores: {scores}")  # Should print a Series with scores for each result
 
 
 if __name__ == "__main__":
