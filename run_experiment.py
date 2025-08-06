@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from database.database import Database, VectorSearchResult
 from query_expander import get_expander
-from Embedders import get_embedder
+from embedders import get_embedder
 from Rerankers import get_reranker
 
 logger = logging.getLogger(__name__)
@@ -191,7 +191,7 @@ class Experiment:
         self.reranker = get_reranker(reranker_name=reranker_to_use, db=self.db) if reranker_to_use is not None else None
 
         # Strategy for using multiple document / query expansions
-        supported_strategies = {"50/50": self.__fifty_fifty_search, "basic": self.__basic_search}
+        supported_strategies = {"50-50": self.__fifty_fifty_search, "basic": self.__basic_search}
         if strategy in supported_strategies:
             self.strategy = strategy
         else:
@@ -380,8 +380,7 @@ class Experiment:
         """
         Writes out the results of a .run() experiment, which only includes the config and the average Jaccard score.
         """
-        current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename_base = f"{self.target_table}_{self.query_expansion_name}_norm{self.normalize}_n{len(self.dataset)}_topk{self.top_k}_{current_time}"
+        filename_base = self._get_output_filename_base()
 
         # Create directory if it doesn't exist
         if not os.path.exists(f"experiments/results/{filename_base}"):
@@ -511,12 +510,10 @@ class Experiment:
                         embedding=embedding,
                         example=example,
                     )
-                    print(f"Got {len(results)} results for example {example['sent_no_cit'][:40]}", flush=True)
 
                     # TODO: Reranking logic will go here
                     if self.reranker is not None:
                         results = self.reranker(query=example["expanded_query"], results=results)
-                    print(f"Reranked {len(results)}", flush=True)
 
                     if len(results) != self.top_k:
                         logger.warning(f"Expected {self.top_k} results, but got {len(results)}. ")
@@ -544,8 +541,8 @@ class Experiment:
 
         if self.reranker_to_use == "deberta_nli":
             num_workers = min(
-                num_workers, 4
-            )  # Limit to 4 workers for DeBERTa reranker, which must host another model and process on GPU
+                num_workers, 6
+            )  # Limit to 6 workers for DeBERTa reranker, which must host another model and process on GPU
         print(f"Starting {num_workers} database query workers")
 
         start = time()

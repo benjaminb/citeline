@@ -15,7 +15,7 @@ resolves the record, then calls the enrichment function with the example and the
 import pandas as pd
 
 
-# TODO: figure out how to handle these wrt reference chunks
+BGE_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
 
 def query_expander_factory(keys_and_headers: list[tuple[str, str]], prev_n: int = 0):
@@ -24,7 +24,14 @@ def query_expander_factory(keys_and_headers: list[tuple[str, str]], prev_n: int 
     """
 
     # NOTE: changing this to take an example (pd.Series) rather than just the text
-    def query_expansion_function(example, record: pd.Series | dict) -> str:
+    def query_expansion_function(example: pd.Series, record: pd.Series | dict) -> str:
+        """
+        Args:
+            example: pd.Series
+                The example Series from data, containing fields like 'sent_no_cit', 'sent_idx', etc.
+            record: pd.Series or dict
+                The full record from which the example is derived, containing additional fields like 'title', 'abstract', etc.
+        """
 
         text = example.sent_no_cit
         if prev_n > 0:
@@ -57,6 +64,7 @@ class QueryExpander:
         "add_title_prev_3": query_expander_factory([("title", "Title:")], prev_n=3),
         "add_title_abstract_prev3": query_expander_factory([("title", "Title:"), ("abstract", "Abstract:")], prev_n=3),
         "add_prev_7": query_expander_factory([], prev_n=7),
+        "add_bge_instruction": lambda example, record: BGE_INSTRUCTION + example.sent_no_cit,
     }
 
     def __init__(
@@ -118,6 +126,10 @@ class QueryExpander:
 
 
 def get_expander(name: str, path_to_data: str) -> QueryExpander:
+    """
+    path_to_data: str
+        Path to the JSONL file containing the reference data (the Reviews dataset).
+    """
     try:
         data = pd.read_json(path_to_data, lines=True)
         return QueryExpander(expansion_function_name=name, reference_data=data)
@@ -135,7 +147,6 @@ def main():
         print(f"Keys in the value dict: {list(value.keys())}")
         print("===" * 20)
         break
-
 
 
 if __name__ == "__main__":

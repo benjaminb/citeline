@@ -569,7 +569,7 @@ class Database:
             target_column (str): Column in the database where the vectors will be stored.
             batch_size (int): Number of expansions to process in each batch.
         """
-        from Embedders import get_embedder
+        from embedders import get_embedder
 
         embedder = get_embedder(embedder_name, self.device, normalize)
         embeddings = embedder(expansions)
@@ -603,7 +603,7 @@ class Database:
         Create a new column in the specified table to store vector embeddings using threads.
         This is more efficient for database operations than using processes.
         """
-        from Embedders import get_embedder
+        from embedders import get_embedder
         from concurrent.futures import ThreadPoolExecutor
         import queue
 

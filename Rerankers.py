@@ -52,16 +52,16 @@ def get_deberta_nli_ranker(db: None, use_contradiction=False) -> callable:
     device = device if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
     model_name = "MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli"
     tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSequenceClassification.from_pretrained(model_name)
+    model = AutoModelForSequenceClassification.from_pretrained(model_name, torch_dtype=torch.float16)
     model = model.to(device)
     model.eval()
 
     def entailment_ranker(query: str, results: pd.DataFrame) -> pd.DataFrame:
         results_copy = results.copy()
         premises = results_copy["text"].tolist()
-        scores = np.zeros(len(premises), dtype=np.float32)
-
-        batch_size = 16
+        # scores = np.zeros(len(premises), dtype=np.float16)
+        all_scores = []
+        batch_size = 8
         for i in tqdm(range(0, len(results_copy), batch_size), desc="Processing NLI scores", leave=False):
             batch_premises = premises[i : i + batch_size]
             batch_queries = [query] * len(batch_premises)
@@ -83,9 +83,11 @@ def get_deberta_nli_ranker(db: None, use_contradiction=False) -> callable:
                 batch_scores = torch.maximum(entailment_scores, contradiction_scores)
             else:
                 batch_scores = entailment_scores
-            scores[i : i + len(batch_scores)] = batch_scores.cpu().numpy()
+            all_scores.append(batch_scores)
+            # scores[i : i + len(batch_scores)] = batch_scores.cpu().numpy(dtype=np.float16)
+        final_scores = torch.cat(all_scores).cpu().numpy()
 
-        results_copy["deberta_nli_score"] = scores
+        results_copy["deberta_nli_score"] = final_scores
         return results_copy.sort_values("deberta_nli_score", ascending=False).reset_index(drop=True)
 
     return entailment_ranker

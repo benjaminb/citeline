@@ -4,13 +4,13 @@ import cProfile
 import pstats
 from dotenv import load_dotenv
 from time import time
-from Embedders import get_embedder, EMBEDDING_CLASS
+from embedders import get_embedder, EMBEDDING_CLASS
 from database.database import Database
 
 
 def stress_test(model_name: str, db: Database):
     print(f"Embedding model: {model_name}")
-    embedder = get_embedder(model_name, 'cuda', normalize=False)
+    embedder = get_embedder(model_name, "cuda", normalize=False)
     batch_size = 1
     averages = []
     while batch_size < 4096:
@@ -18,8 +18,7 @@ def stress_test(model_name: str, db: Database):
             # Get chunks from the database
             conn = psycopg2.connect(**db.db_params)
             cursor = conn.cursor()
-            cursor.execute(
-                f"SELECT text FROM chunks LIMIT {batch_size}")
+            cursor.execute(f"SELECT text FROM chunks LIMIT {batch_size}")
             rows = cursor.fetchall()
             conn.close()
             chunks = [row[0] for row in rows]
@@ -30,9 +29,8 @@ def stress_test(model_name: str, db: Database):
             result = embedder(chunks)
             duration = time() - start
             print(f"Result shape: {result.shape}")
-            averages.append(duration/batch_size)
-            print(
-                f"Batch size {batch_size} took {duration} seconds ({duration/batch_size} per chunk)")
+            averages.append(duration / batch_size)
+            print(f"Batch size {batch_size} took {duration} seconds ({duration/batch_size} per chunk)")
             batch_size *= 2
         except Exception as e:
             print(e)
@@ -52,18 +50,18 @@ def profile(model_name: str, db: Database):
     with cProfile.Profile() as pr:
         stress_test(model_name=model_name, db=db)
     stats = pstats.Stats(pr)
-    stats.strip_dirs().sort_stats('cumulative').print_stats(40)
+    stats.strip_dirs().sort_stats("cumulative").print_stats(40)
 
 
 def main():
     # Load database
-    load_dotenv('.env', override=True)
+    load_dotenv(".env", override=True)
     db_params = {
-        'dbname': os.getenv('DB_NAME'),
-        'user': os.getenv('DB_USER'),
-        'password': os.getenv('DB_PASSWORD'),
-        'host': os.getenv('DB_HOST'),
-        'port': os.getenv('DB_PORT'),
+        "dbname": os.getenv("DB_NAME"),
+        "user": os.getenv("DB_USER"),
+        "password": os.getenv("DB_PASSWORD"),
+        "host": os.getenv("DB_HOST"),
+        "port": os.getenv("DB_PORT"),
     }
     start = time()
     db = Database(db_params)
@@ -71,9 +69,9 @@ def main():
     print(db.db_params)
 
     # Time each embedding model
-    for model_name in ['adsabs/astroBERT']:
+    for model_name in ["adsabs/astroBERT"]:
         profile(model_name, db)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
