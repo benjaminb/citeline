@@ -68,6 +68,7 @@ def get_modernbert_crossencoder(db=None) -> callable:
     from sentence_transformers import CrossEncoder
 
     model = CrossEncoder("tomaarsen/reranker-ModernBERT-large-gooaq-bce")
+    # model = CrossEncoder("tomaarsen/reranker-ModernBERT-base-gooaq-bce") # smaller model for faster inference
 
     def modernbert_crossencoder(query: pd.Series, results: pd.DataFrame) -> pd.Series:
         """
@@ -84,6 +85,7 @@ METRICS = {
     "cosine_similarity": get_cosine_similarity_metric,
     "recency": get_recency_metric,
     "log_citations": get_log_citations_metric,
+    "modernbert": get_modernbert_crossencoder,
 }
 
 
