@@ -389,9 +389,11 @@ class Experiment:
         # Iterate over query results to convert pubdate to string format
         query_results_json = []
         for example, results in self.query_results:
+            example_copy = example.copy()
+            example_copy["pubdate"] = example_copy["pubdate"].strftime("%Y-%m-%d")
             for result in results:
                 result["pubdate"] = result["pubdate"].strftime("%Y-%m-%d")
-            query_results_json.append([example, results])
+            query_results_json.append([example_copy, results])
         with open(f"experiments/results/{filename_base}/query_results_{filename_base}.json", "w") as f:
             json.dump(query_results_json, f)
 

@@ -375,12 +375,6 @@ class Database:
         with open("database_errors.log", "a") as f:
             f.write(f"[{timestamp}]: (caller: {caller_name}) {message}\n")
 
-    def __clear_gpu_memory(self):
-        if self.device == "cuda":
-            torch.cuda.empty_cache()
-        elif self.device == "mps":
-            torch.mps.empty_cache()
-
     def set_session_resources(self, optimize_for: Literal["query", "index", "insert"], verbose=True):
         """
         Set session resources for PostgreSQL
@@ -590,167 +584,167 @@ class Database:
                 )
             self.conn.commit()
 
-    def create_vector_column(
-        self,
-        embedder_name: str,
-        normalize: bool = False,
-        enricher_name: str = None,
-        target_table: str = "lib",
-        target_column: str = "chunk",
-        batch_size: int = 16,
-    ):
-        """
-        Create a new column in the specified table to store vector embeddings using threads.
-        This is more efficient for database operations than using processes.
-        """
-        from embedders import get_embedder
-        from concurrent.futures import ThreadPoolExecutor
-        import queue
+    # def create_vector_column(
+    #     self,
+    #     embedder_name: str,
+    #     normalize: bool = False,
+    #     enricher_name: str = None,
+    #     target_table: str = "lib",
+    #     target_column: str = "chunk",
+    #     batch_size: int = 16,
+    # ):
+    #     """
+    #     Create a new column in the specified table to store vector embeddings using threads.
+    #     This is more efficient for database operations than using processes.
+    #     """
+    #     from embedders import get_embedder
+    #     from concurrent.futures import ThreadPoolExecutor
+    #     import queue
 
-        # Initialize the embedder in the main process
-        logger.info(f"Using embedder: {embedder_name}")
-        embedder = get_embedder(embedder_name, self.device)
-        dim = embedder.dim
+    #     # Initialize the embedder in the main process
+    #     logger.info(f"Using embedder: {embedder_name}")
+    #     embedder = get_embedder(embedder_name, self.device)
+    #     dim = embedder.dim
 
-        if enricher_name:
-            from TextEnrichers import get_enricher
+    #     if enricher_name:
+    #         from TextEnrichers import get_enricher
 
-            enricher = get_enricher(name=enricher_name, path_to_data="../data/preprocessed/research.jsonl")
+    #         enricher = get_enricher(name=enricher_name, path_to_data="../data/preprocessed/research.jsonl")
 
-        # Construct column name
-        vector_column_name = Database.EMBEDDER_SHORTNAMES.get(
-            embedder_name, embedder_name.replace("/", "_").replace("-", "_")
-        )
-        if normalize:
-            vector_column_name += "_norm"
-        if enricher_name:
-            vector_column_name += f"_{enricher_name}"
+    #     # Construct column name
+    #     vector_column_name = Database.EMBEDDER_SHORTNAMES.get(
+    #         embedder_name, embedder_name.replace("/", "_").replace("-", "_")
+    #     )
+    #     if normalize:
+    #         vector_column_name += "_norm"
+    #     if enricher_name:
+    #         vector_column_name += f"_{enricher_name}"
 
-        self.set_session_resources(optimize_for="insert", verbose=True)
+    #     self.set_session_resources(optimize_for="insert", verbose=True)
 
-        logger.debug(f"Attempting to create column '{vector_column_name}' in table '{target_table}'...")
-        # Register vector extension and create column
-        query = f"ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
-        logger.debug(f"Executing query: {query}")
-        with self.conn.cursor() as cursor:
-            cursor.execute(query)
-            self.conn.commit()
+    #     logger.debug(f"Attempting to create column '{vector_column_name}' in table '{target_table}'...")
+    #     # Register vector extension and create column
+    #     query = f"ALTER TABLE {target_table} ADD COLUMN IF NOT EXISTS {vector_column_name} VECTOR({dim});"
+    #     logger.debug(f"Executing query: {query}")
+    #     with self.conn.cursor() as cursor:
+    #         cursor.execute(query)
+    #         self.conn.commit()
 
-            # Get all text chunks to embed
-            start = time()
-            cursor.execute(f"SELECT id, doi, {target_column} FROM {target_table};")
-            rows = cursor.fetchall()
-            logger.debug(
-                f"Fetched {len(rows)} rows from the database. SELECT execution time: {time() - start:.2f} seconds"
-            )
-            all_ids, all_dois, all_chunks = zip(*rows)
-            del rows
+    #         # Get all text chunks to embed
+    #         start = time()
+    #         cursor.execute(f"SELECT id, doi, {target_column} FROM {target_table};")
+    #         rows = cursor.fetchall()
+    #         logger.debug(
+    #             f"Fetched {len(rows)} rows from the database. SELECT execution time: {time() - start:.2f} seconds"
+    #         )
+    #         all_ids, all_dois, all_chunks = zip(*rows)
+    #         del rows
 
-        # Enrich chunks if an enricher is provided
-        # if enricher_name:
-        #     texts_with_dois = zip(all_chunks, all_dois)
-        #     all_chunks = enricher.enrich_batch(texts_with_dois=texts_with_dois)
+    #     # Enrich chunks if an enricher is provided
+    #     # if enricher_name:
+    #     #     texts_with_dois = zip(all_chunks, all_dois)
+    #     #     all_chunks = enricher.enrich_batch(texts_with_dois=texts_with_dois)
 
-        # Create thread-safe queues for tasks and progress tracking
-        task_queue = queue.Queue()
-        progress_queue = queue.Queue()
+    #     # Create thread-safe queues for tasks and progress tracking
+    #     task_queue = queue.Queue()
+    #     progress_queue = queue.Queue()
 
-        # Calculate number of batches
-        total_batches = (len(all_chunks) + batch_size - 1) // batch_size
-        num_workers = int(os.getenv("CPUS", max(1, os.cpu_count()))) - 1
+    #     # Calculate number of batches
+    #     total_batches = (len(all_chunks) + batch_size - 1) // batch_size
+    #     num_workers = int(os.getenv("CPUS", max(1, os.cpu_count()))) - 1
 
-        # Thread worker function
-        def consumer_thread():
-            # Get a database connection from the connection pool or create a new one
-            conn = psycopg.connect(**self.db_params)
-            register_vector(conn)
+    #     # Thread worker function
+    #     def consumer_thread():
+    #         # Get a database connection from the connection pool or create a new one
+    #         conn = psycopg.connect(**self.db_params)
+    #         register_vector(conn)
 
-            with conn.cursor() as cur:
-                # Settings for better INSERT performance
-                cur.execute("SET work_mem='2GB';")
-                cur.execute("SET maintenance_work_mem='2GB';")
+    #         with conn.cursor() as cur:
+    #             # Settings for better INSERT performance
+    #             cur.execute("SET work_mem='2GB';")
+    #             cur.execute("SET maintenance_work_mem='2GB';")
 
-                # Create temp table for efficient batch updates
-                cur.execute(f"CREATE TEMP TABLE temp_embeddings (id int, embedding vector({dim}))")
-                conn.commit()
+    #             # Create temp table for efficient batch updates
+    #             cur.execute(f"CREATE TEMP TABLE temp_embeddings (id int, embedding vector({dim}))")
+    #             conn.commit()
 
-                while True:
-                    try:
-                        # Get a batch from the queue
-                        item = task_queue.get(block=True, timeout=5)
-                        if item is None:  # Sentinel value to signal end of work
-                            task_queue.task_done()
-                            break
+    #             while True:
+    #                 try:
+    #                     # Get a batch from the queue
+    #                     item = task_queue.get(block=True, timeout=5)
+    #                     if item is None:  # Sentinel value to signal end of work
+    #                         task_queue.task_done()
+    #                         break
 
-                        batch_ids, batch_embeddings = item
+    #                     batch_ids, batch_embeddings = item
 
-                        # Use COPY protocol for fast insertion
-                        with cur.copy("COPY temp_embeddings (id, embedding) FROM STDIN WITH (FORMAT BINARY)") as copy:
-                            copy.set_types(["int4", "vector"])
-                            for row_id, embedding in zip(batch_ids, batch_embeddings):
-                                copy.write_row([row_id, embedding])
+    #                     # Use COPY protocol for fast insertion
+    #                     with cur.copy("COPY temp_embeddings (id, embedding) FROM STDIN WITH (FORMAT BINARY)") as copy:
+    #                         copy.set_types(["int4", "vector"])
+    #                         for row_id, embedding in zip(batch_ids, batch_embeddings):
+    #                             copy.write_row([row_id, embedding])
 
-                        # Update the main table from the temp table
-                        cur.execute(
-                            f"UPDATE {target_table} SET {vector_column_name} = temp.embedding "
-                            f"FROM temp_embeddings temp WHERE {target_table}.id = temp.id"
-                        )
-                        cur.execute("TRUNCATE temp_embeddings")
-                        conn.commit()
+    #                     # Update the main table from the temp table
+    #                     cur.execute(
+    #                         f"UPDATE {target_table} SET {vector_column_name} = temp.embedding "
+    #                         f"FROM temp_embeddings temp WHERE {target_table}.id = temp.id"
+    #                     )
+    #                     cur.execute("TRUNCATE temp_embeddings")
+    #                     conn.commit()
 
-                        # Report progress
-                        progress_queue.put(1)
-                        task_queue.task_done()
+    #                     # Report progress
+    #                     progress_queue.put(1)
+    #                     task_queue.task_done()
 
-                    except queue.Empty:
-                        # No more tasks for a while, check if we should exit
-                        if task_queue.empty():
-                            break
+    #                 except queue.Empty:
+    #                     # No more tasks for a while, check if we should exit
+    #                     if task_queue.empty():
+    #                         break
 
-            # Clean up
-            conn.close()
+    #         # Clean up
+    #         conn.close()
 
-        # Start the thread pool
-        with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            # Start worker threads
-            for _ in range(num_workers):
-                executor.submit(consumer_thread)
-            print(f"Started thread pool with {num_workers} workers...")
+    #     # Start the thread pool
+    #     with ThreadPoolExecutor(max_workers=num_workers) as executor:
+    #         # Start worker threads
+    #         for _ in range(num_workers):
+    #             executor.submit(consumer_thread)
+    #         print(f"Started thread pool with {num_workers} workers...")
 
-            # Producer in the main thread (GPU operations)
-            with tqdm(total=total_batches, desc="Embedding and writing to database") as progress_bar:
-                processed = 0
+    #         # Producer in the main thread (GPU operations)
+    #         with tqdm(total=total_batches, desc="Embedding and writing to database") as progress_bar:
+    #             processed = 0
 
-                # Process batches
-                for i in range(0, len(all_chunks), batch_size):
-                    texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
-                    embeddings = embedder(texts)
-                    task_queue.put((ids, embeddings))
+    #             # Process batches
+    #             for i in range(0, len(all_chunks), batch_size):
+    #                 texts, ids = all_chunks[i : i + batch_size], all_ids[i : i + batch_size]
+    #                 embeddings = embedder(texts)
+    #                 task_queue.put((ids, embeddings))
 
-                    # Check progress queue for updates
-                    try:
-                        while not progress_queue.empty():
-                            progress = progress_queue.get_nowait()
-                            processed += progress
-                            progress_bar.update(progress)
-                    except queue.Empty:
-                        pass
+    #                 # Check progress queue for updates
+    #                 try:
+    #                     while not progress_queue.empty():
+    #                         progress = progress_queue.get_nowait()
+    #                         processed += progress
+    #                         progress_bar.update(progress)
+    #                 except queue.Empty:
+    #                     pass
 
-                # Finishing up: add sentinel values to signal workers to exit
-                for _ in range(num_workers):
-                    task_queue.put(None)
-                task_queue.join()
+    #             # Finishing up: add sentinel values to signal workers to exit
+    #             for _ in range(num_workers):
+    #                 task_queue.put(None)
+    #             task_queue.join()
 
-                # Final progress update
-                try:
-                    while not progress_queue.empty():
-                        progress = progress_queue.get_nowait()
-                        processed += progress
-                        progress_bar.update(progress)
-                except queue.Empty:
-                    pass
+    #             # Final progress update
+    #             try:
+    #                 while not progress_queue.empty():
+    #                     progress = progress_queue.get_nowait()
+    #                     processed += progress
+    #                     progress_bar.update(progress)
+    #             except queue.Empty:
+    #                 pass
 
-        print(f"Successfully created and populated vector column: {vector_column_name}")
+    #     print(f"Successfully created and populated vector column: {vector_column_name}")
 
     def create_index(
         self,
@@ -844,14 +838,20 @@ class Database:
         # Set up operator string, session resources, and pubdate format
         _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
         self.set_session_resources(optimize_for="query", verbose=False)
+
+        # Convert pubdate to string in YYYY-MM-DD format
         if not pubdate:
-            # Set to today in YYY-MM-DD format
-            pubdate = datetime.now().strftime("%Y-%m-%d")
-        else:
+            pubdate_str = datetime.now().strftime("%Y-%m-%d")
+        elif isinstance(pubdate, pd.Timestamp):
+            pubdate_str = pubdate.strftime("%Y-%m-%d")  # Convert to clean YYYY-MM-DD
+        elif isinstance(pubdate, str):
             try:
                 datetime.strptime(pubdate, "%Y-%m-%d")
+                pubdate_str = pubdate
             except ValueError:
                 raise ValueError(f"Invalid pubdate format: {pubdate}. Use YYYY-MM-DD format.")
+        else:
+            pubdate_str = str(pubdate)[:10]  # Fallback: take first 10 chars
 
         with self.conn.cursor() as cursor:
             # Vector index parameters
@@ -865,7 +865,7 @@ class Database:
                 SELECT
                     text, doi, pubdate, {target_column} {_operator_} %s AS distance
                 FROM {target_table}
-                WHERE pubdate <= '{pubdate}'
+                WHERE pubdate <= '{pubdate_str}'
                 ORDER BY distance ASC
                 LIMIT {top_k};
                 """,
