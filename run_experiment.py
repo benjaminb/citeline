@@ -160,7 +160,7 @@ class Experiment:
         """
         # Dataset and results
         try:
-            self.dataset = pd.read_json(dataset_path, lines=True)
+            self.dataset = pd.read_json(dataset_path, lines=True, convert_dates=['pubdate'])
         except Exception as e:
             raise ValueError(f"Error reading dataset from path '{dataset_path}': {e}")
 

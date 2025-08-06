@@ -1,137 +1,109 @@
 """
-The Metric class is an interface for rank fusion / reranking.
-A Metric is a function taking query and its corresponding DB results as input and returns a float score.
-
-To more efficiently use embedders we use batches of queries and results for input rather than single queries.
-Metric: [(query, VectorQueryResult)] -> float
+A metric is a function that takes a query (pd.Series) and its results (pd.DataFrame) and returns a list of scores,
+each score reflecting the similarity or relevance of the result row to the query
 """
 
-from database.database import VectorQueryResult
-from typing import Callable
+import pandas as pd
 
 
-class Metric:
-    def __init__(self, name: str, function: Callable):
-        self.name = name
-        # Confirm that the function takes two arguments: queries and records
-        if not callable(function) or function.__code__.co_argcount != 2:
-            raise ValueError(
-                "Function must be callable and take exactly two arguments: queries and records."
-            )
-        self.function = function
-
-    def __call__(self, queries: list[str], records: list[VectorQueryResult]) -> list[list[float]]:
+def get_cosine_similarity_metric(db=None) -> callable:
+    def cosine_similarity(query: pd.Series, results: pd.DataFrame) -> pd.Series:
         """
-        Compute the metric score for a given query and its results.
-
-        Precondition: The queries and records must be of the same length.
-
-        :param query: The query string.
-        :param results: A list of results corresponding to the query.
-        :return: A 2D list of float scores; each row corresponds to a query and the columns correspond to the scores for each record.
+        Computes cosine similarity as 1 - distance for each result in the results DataFrame.
         """
-        return self.function(queries, records)
+        return 1 - results["distance"]
 
+    return cosine_similarity
 
-
-def get_roberta_entailment_function():
+def get_recency_metric(db=None) -> callable:
     """
-    This function creates a closure for the Roberta NLI model and tokenizer so that
-    they are loaded once when roberta_entailment is instantiated, rather than every time it is called.
+    Returns a metric that computes a score based on the recency of a result publication to the
+    query date. To model a bias for recent publications, we use -log(years since publication + 1).
+    The + 1 avoids a blowup for publications in the same year as the query.
     """
-    import torch
-    from torch import nn
-    from transformers import AutoTokenizer, AutoModelForSequenceClassification
-    import torch.nn.functional as F
+    import numpy as np
 
-    device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
-    print(f"Using device: {device}")
+    def log_recency(query: pd.Series, results: pd.DataFrame) -> pd.Series:
+        """
+        Computes recency score based on the publication date of each result.
+        """
+        if "pubdate" not in results.columns:
+            raise ValueError("Results DataFrame must contain 'pubdate' column")
 
-    model_name = "cross-encoder/nli-roberta-base"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSequenceClassification.from_pretrained(model_name).to(device)
+        # Calculate years since publication
+        years_since_pub = (query['pubdate'] - results["pubdate"]).dt.days / 365.25
+        assert (years_since_pub >= 0).all(), f"Found negative years_since_pub values: {years_since_pub[years_since_pub < 0].tolist()}"
+        return -np.log(years_since_pub + 1)
+    return log_recency
 
-    def roberta_entailment(queries, records) -> list[list[float]]:
-        scores = []
-        for query, record_list in zip(queries, records):
-            premises = [record.chunk for record in record_list]
-            hypotheses = [query] * len(premises)
-            inputs = tokenizer(
-                premises, hypotheses, return_tensors="pt", truncation=True, padding=True
-            ).to(device)
-            record_scores = []
-            for record in record_list:
-                inputs = tokenizer(record.chunk, query, return_tensors="pt", truncation=True).to(
-                    device
-                )
-                with torch.no_grad():
-                    logits = model(**inputs).logits
-                probs = F.softmax(logits, dim=1).squeeze().tolist()
-                record_scores.append(probs[1])
-            scores.append(record_scores)
-        return scores
-
-    return roberta_entailment
-
-
-def get_deberta_entailment_function():
+def get_log_citations_metric(db=None) -> callable:
     """
-    This function creates a closure for the DeBERTa NLI model and tokenizer so that
-    they are loaded once when deberta_entailment is instantiated, rather than every time it is called.
+    Returns a metric that computes a score based on the log of citation counts.
     """
-    import torch
-    from sentence_transformers import CrossEncoder
+    import numpy as np
 
-    device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
-    model = CrossEncoder("cross-encoder/nli-deberta-v3-base", device=device)
+    def log_citations_metric(query: pd.Series, results: pd.DataFrame) -> pd.Series:
+        """
+        Computes log citation score for each result.
+        """
+        if "citation_count" not in results.columns:
+            raise ValueError("Results DataFrame must contain 'citation_count' column")
 
-    def deberta_entailment(queries, records) -> list[list[float]]:
-        scores = []
-        for query, record_list in zip(queries, records):
-            premises = [record.chunk for record in record_list]
-            hypotheses = [query] * len(premises)
-            inputs = list(zip(premises, hypotheses))
-            record_scores = model.predict(inputs, apply_softmax=True)
-            inference_scores = record_scores[:, 1].tolist()
-            print(f"Inference scores: {inference_scores}")
-            scores.append(inference_scores)
-        return scores
+        # TODO: Consider normalizing by years since publication, since older papers have more time to accumulate citations
+        # TODO: would base 10 be more appropriate?
+        return np.log1p(results["citation_count"])  # log(1 + citation_count) to handle zero citations
 
-    return deberta_entailment
+    return log_citations_metric
+
+
+METRICS = {
+    "cosine_similarity": get_cosine_similarity_metric,
+    "recency": get_recency_metric,
+    "log_citations": get_log_citations_metric
+}
+
+def get_metric(name: str, db=None) -> callable:
+    if name in METRICS:
+        return METRICS[name](db=db)
+    raise ValueError(f"Unknown metric: {name}")
 
 
 def main():
-    entailment_metric = Metric("roberta_entailment", get_roberta_entailment_function())
+    from database.database import VectorQueryResult
+
     queries = [
         "If you want to go to France's capital go to Paris",
         "There are larger planets than Mercury",
     ]
-    records = [
-        VectorQueryResult(
-            chunk="The capital of France is Paris.",
-            chunk_id=1,
-            doi=None,
-            title=None,
-            abstract=None,
-            pubdate=None,
-            distance=None,
-        ),
-        VectorQueryResult(
-            chunk="Jupiter is the largest planet in our solar system.",
-            chunk_id=1,
-            doi=None,
-            title=None,
-            abstract=None,
-            pubdate=None,
-            distance=None,
-        ),
-    ]
-    # scores = entailment_metric(queries, [records, records])
-    # print(scores)  # Should print a list of scores for each query-record pair
+    single_query = pd.Series(queries[0])
+    results = pd.DataFrame(
+        [
+            VectorQueryResult(
+                chunk="The capital of France is Paris.",
+                chunk_id=1,
+                doi=None,
+                title=None,
+                abstract=None,
+                pubdate=None,
+                distance=0.25,
+            ),
+            VectorQueryResult(
+                chunk="Jupiter is the largest planet in our solar system.",
+                chunk_id=1,
+                doi=None,
+                title=None,
+                abstract=None,
+                pubdate=None,
+                distance=0.75,
+            ),
+        ]
+    )
+    fn = get_cosine_similarity_metric()
 
-    deberta_metric = Metric("deberta_entailment", get_deberta_entailment_function())
-    scores_deberta = deberta_metric(queries, [records, records])
-    print(scores_deberta)  # Should print a list of scores for each query-record pair
+    scores = fn(single_query, results)
+    print(scores)  # Should print a Series with scores for each result
+
+    # print(scores)  # Should print a list of scores for each query-record pair
 
 
 if __name__ == "__main__":

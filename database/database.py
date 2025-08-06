@@ -752,94 +752,6 @@ class Database:
 
         print(f"Successfully created and populated vector column: {vector_column_name}")
 
-    # def create_vector_table_enriched(
-    #     self,
-    #     target_table: str,
-    #     dim: int,
-    #     embedder,
-    #     enricher,
-    #     work_mem="2048MB",
-    #     maintenance_work_mem="2048MB",
-    #     batch_size=32,
-    # ):
-    #     """
-    #     1. Creates a vector table
-    #     2. Creates indexes for all distance metrics
-    #     3. Batch embeds all records in the `chunks` table using the given embedder
-
-    #     available distance metrics:
-    #     vector_l2_ops, vector_ip_ops, vector_cosine_ops, vector_l1_ops, bit_hamming_ops, bit_jaccard_ops
-    #     """
-
-    #     # Set session resources
-    #     cursor = self.conn.cursor()
-    #     cores = os.cpu_count()
-    #     cursor.execute("SHOW max_worker_processes;")
-    #     max_worker_processes = int(cursor.fetchone()[0])
-    #     max_parallel_workers = max(1, cores - 2)
-    #     max_parallel_maintenance_workers = int(0.2 * max_worker_processes)
-    #     print("=" * 33 + "CONFIG" + "=" * 33)
-    #     print(
-    #         "max_worker_processes | max_parallel_workers | max_parallel_maintenance_workers | work_mem | maintenance_work_mem"
-    #     )
-    #     print(
-    #         f"{max_worker_processes:^21} {max_parallel_workers:^22} {max_parallel_maintenance_workers:^34} {work_mem:^10} {maintenance_work_mem:^21}"
-    #     )
-    #     print("=" * 72)
-    #     cursor.execute(f"SET max_parallel_workers={max_parallel_workers};")
-    #     cursor.execute(f"SET max_parallel_maintenance_workers={max_parallel_maintenance_workers};")
-    #     cursor.execute(f"SET work_mem='{work_mem}';")
-    #     cursor.execute(
-    #         f"SET maintenance_work_mem='{maintenance_work_mem}';",
-    #     )
-
-    #     # Create table
-    #     cursor.execute(
-    #         f"""CREATE TABLE {target_table} (
-    #             id SERIAL PRIMARY KEY,
-    #             embedding VECTOR({dim}),
-    #             chunk_id INTEGER REFERENCES chunks(id)
-    #             );
-    #         """
-    #     )
-    #     self.conn.commit()
-    #     print(f"Created table {target_table}")
-
-    #     # Get all chunks for embedding
-    #     enricher = get_enricher(enricher)
-    #     ids_and_chunks = self._get_all_chunks(cursor)
-    #     print(f"Embedding and enriching {len(ids_and_chunks)} chunks...")
-
-    #     # Embed an insert in batches
-    #     for i in tqdm(
-    #         range(0, len(ids_and_chunks), batch_size),
-    #         desc="Inserting embeddings",
-    #         leave=False,
-    #     ):
-    #         # Clear GPU memory every 50 batches
-    #         if i % 50 == 0:
-    #             self.__clear_gpu_memory()
-
-    #         # Prepare batch
-    #         batch = ids_and_chunks[i : i + batch_size]
-    #         ids, texts = list(zip(*batch))
-    #         start = time()
-    #         embeddings = embedder(texts)
-    #         print(f"Embedding time: {time() - start:.2f} seconds for {len(texts)} chunks")
-    #         data_batch = [(embedding, id_num) for embedding, id_num in zip(embeddings, ids)]
-
-    #         # Insert
-    #         start_insert = time()
-    #         execute_values(
-    #             cursor,
-    #             f"INSERT INTO {target_table} (embedding, chunk_id) VALUES %s;",
-    #             data_batch,
-    #         )
-    #         print(f"Insert time: {time() - start_insert}")
-    #         self.conn.commit()
-
-    #     cursor.close()
-
     def create_index(
         self,
         target_table: str,
@@ -961,68 +873,69 @@ class Database:
             )
             results = cursor.fetchall()
             return pd.DataFrame(results, columns=["text", "doi", "pubdate", "distance"])
-            # return [VectorSearchResult(*result) for result in results]
 
-    def query_vector_column(
-        self,
-        query_vector: np.array,
-        target_table: str,
-        target_column: str,
-        metric: str = "vector_cosine_ops",
-        pubdate: str | None = None,
-        use_index=True,
-        top_k=5,
-        probes: int = None,
-        ef_search: int = None,
-    ) -> list[VectorQueryResult]:
-        """
-        Query the specified vector column in the database.
 
-        Args:
-            query_vector (np.array): The vector to query.
-            target_table (str): The name of the table to query.
-            target_column (str): The name of the column to query.
-            metric (str): The distance metric to use. Default is 'vector_cosine_ops'.
-            pubdate (str | None): Optional publication date filter in YYYY-MM-DD format.
-            use_index (bool): Whether to use the index for the query. Default is True.
-            top_k (int): Number of nearest neighbors to return. Default is 5.
-            probes (int): Number of probes for IVFFlat index. Default is 40.
+    # def query_vector_column(
+    #     self,
+    #     query_vector: np.array,
+    #     target_table: str,
+    #     target_column: str,
+    #     metric: str = "vector_cosine_ops",
+    #     pubdate: str | None = None,
+    #     use_index=True,
+    #     top_k=5,
+    #     probes: int = None,
+    #     ef_search: int = None,
+    # ) -> list[VectorQueryResult]:
+    #     """
+    #     Query the specified vector column in the database.
 
-        Returns:
-            list[VectorQueryResult]: A list of VectorQueryResult objects containing the results.
-        """
-        # Set up operator string, session resources, and pubdate format
-        _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
-        self.set_session_resources(optimize_for="query", verbose=False)
-        if not pubdate:
-            # Set to today in YYY-MM-DD format
-            pubdate = datetime.now().strftime("%Y-%m-%d")
-        else:
-            try:
-                datetime.strptime(pubdate, "%Y-%m-%d")
-            except ValueError:
-                raise ValueError(f"Invalid pubdate format: {pubdate}. Use YYYY-MM-DD format.")
+    #     Args:
+    #         query_vector (np.array): The vector to query.
+    #         target_table (str): The name of the table to query.
+    #         target_column (str): The name of the column to query.
+    #         metric (str): The distance metric to use. Default is 'vector_cosine_ops'.
+    #         pubdate (str | None): Optional publication date filter in YYYY-MM-DD format.
+    #         use_index (bool): Whether to use the index for the query. Default is True.
+    #         top_k (int): Number of nearest neighbors to return. Default is 5.
+    #         probes (int): Number of probes for IVFFlat index. Default is 40.
 
-        with self.conn.cursor() as cursor:
-            # Vector index parameters
-            if probes:
-                cursor.execute(f"SET ivfflat.probes = {probes};")
-            elif ef_search:
-                cursor.execute(f"SET hnsw.ef_search = {ef_search};")
+    #     Returns:
+    #         list[VectorQueryResult]: A list of VectorQueryResult objects containing the results.
+    #     """
+    #     # Set up operator string, session resources, and pubdate format
+    #     _operator_ = self.PGVECTOR_DISTANCE_OPS[metric]
+    #     self.set_session_resources(optimize_for="query", verbose=False)
+    #     if not pubdate:
+    #         # Set to today in YYY-MM-DD format
+    #         pubdate = datetime.now().strftime("%Y-%m-%d")
+    #     else:
+    #         try:
+    #             datetime.strptime(pubdate, "%Y-%m-%d")
+    #         except ValueError:
+    #             raise ValueError(f"Invalid pubdate format: {pubdate}. Use YYYY-MM-DD format.")
 
-            cursor.execute(
-                f"""
-                SELECT
-                    id, doi, title, abstract, chunk, pubdate, {target_column} {_operator_} %s AS distance
-                FROM {target_table}
-                WHERE pubdate <= '{pubdate}'
-                ORDER BY distance ASC
-                LIMIT {top_k};
-                """,
-                (query_vector,),
-            )
-            results = cursor.fetchall()
-            return [VectorQueryResult(*result) for result in results]
+    #     with self.conn.cursor() as cursor:
+    #         # Vector index parameters
+    #         if probes:
+    #             cursor.execute(f"SET ivfflat.probes = {probes};")
+    #         elif ef_search:
+    #             cursor.execute(f"SET hnsw.ef_search = {ef_search};")
+
+    #         cursor.execute(
+    #             f"""
+    #             SELECT
+    #                 id, doi, title, abstract, chunk, pubdate, {target_column} {_operator_} %s AS distance
+    #             FROM {target_table}
+    #             WHERE pubdate <= '{pubdate}'
+    #             ORDER BY distance ASC
+    #             LIMIT {top_k};
+    #             """,
+    #             (query_vector,),
+    #         )
+    #         results = cursor.fetchall()
+    #         # return [VectorQueryResult(*result) for result in results]
+    #         return pd.DataFrame(results, columns=["text", "doi", "pubdate", "distance"])
 
     def prewarm_table(self, target_table: str, target_column: str = None):
         """

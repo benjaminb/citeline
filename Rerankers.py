@@ -166,11 +166,49 @@ def get_deepseek_boolean(db=None):
 
     return deepseek_boolean
 
+def get_citation_count_reranker(db=None) -> callable:
+    """
+    Returns a reranker that sorts in descending order by citation count.
+    """
+    def citation_count_reranker(query: str, results: pd.DataFrame) -> pd.DataFrame:
+        """
+        For each result in the results DataFrame, gets the citation count from the database,
+        then returns the results sorted by citation count in descending order.
+        """
+        if db is None:
+            raise ValueError("Database connection is required")
+
+        # Get citation counts from the database
+        citation_counts = {}
+        dois = results["doi"].unique().tolist()
+        with db.conn.cursor() as cur:
+            placeholder = ', '.join(['%s'] * len(dois))
+            cur.execute(f"SELECT doi, citation_count FROM papers WHERE doi IN ({placeholder})", dois)
+            citation_counts = dict(cur.fetchall())
+
+        # Map citation counts to the results DataFrame
+        results["citation_count"] = results["doi"].map(citation_counts).fillna(0).astype(int)
+        return results.sort_values("citation_count", ascending=False).reset_index(drop=True)
+
+    return citation_count_reranker
+
+def get_pubdate_reranker(db=None) -> callable:
+    """
+    Returns a reranker that sorts by pubdate, with the most recent date first.
+    """
+    def pubdate_reranker(query: str, results: pd.DataFrame) -> pd.DataFrame:
+        """
+        Returns the results DataFrame sorted by pubdate in descending order.
+        """
+        return results.sort_values("pubdate", ascending=False).reset_index(drop=True)
+    return pubdate_reranker
 
 RERANKERS = {
     "deepseek_boolean": get_deepseek_boolean,
     "roberta_nli": get_roberta_nli_ranker,
     "deberta_nli": get_deberta_nli_ranker,
+    "citation_count": get_citation_count_reranker,
+    "pubdate": get_pubdate_reranker,
 }
 
 

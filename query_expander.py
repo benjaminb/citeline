@@ -18,7 +18,7 @@ import pandas as pd
 BGE_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
 
-def query_expander_factory(keys_and_headers: list[tuple[str, str]], prev_n: int = 0):
+def query_expander_factory(keys_and_headers: list[tuple[str, str]], prev_n: int = 0, prefix: str = ""):
     """
     Factory function to create an expansion function based on the keys and number of previous sentences
     """
@@ -48,7 +48,7 @@ def query_expander_factory(keys_and_headers: list[tuple[str, str]], prev_n: int 
             header_text = "\n\n".join([f"{header}\n{record[key]}" for key, header in keys_and_headers])
             text = f"IMPORTANT:\n{text}\n\n{header_text}" if header_text else text
 
-        return text
+        return prefix + text
 
     return query_expansion_function
 
@@ -65,6 +65,7 @@ class QueryExpander:
         "add_title_abstract_prev3": query_expander_factory([("title", "Title:"), ("abstract", "Abstract:")], prev_n=3),
         "add_prev_7": query_expander_factory([], prev_n=7),
         "add_bge_instruction": lambda example, record: BGE_INSTRUCTION + example.sent_no_cit,
+        "add_bge_prev_3": query_expander_factory([], prev_n=3, prefix=BGE_INSTRUCTION),
     }
 
     def __init__(
