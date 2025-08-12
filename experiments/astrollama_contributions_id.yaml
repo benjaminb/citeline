@@ -1,0 +1,9 @@
+dataset: 'data/dataset/split/small_train.jsonl'
+table: 'contributions'
+target_column: 'astrollama'
+metric: 'L2'
+embedder: 'UniverseTBD/astrollama'
+normalize: False
+query_expansion: 'identity'
+batch_size: 8
+top_k: 1000

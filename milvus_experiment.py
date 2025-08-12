@@ -13,7 +13,7 @@ from matplotlib.ticker import MultipleLocator
 from datetime import datetime
 from tqdm import tqdm
 
-from database.database import Database
+from pymilvus import MilvusClient, Collection
 from query_expander import get_expander
 from embedders import get_embedder
 from Rerankers import get_reranker
@@ -131,7 +131,15 @@ def write_train_test_to_file(train: pd.DataFrame, test: pd.DataFrame, path: str)
 
 
 class Experiment:
-    metric_to_str = {"vector_l2_ops": "L2", "vector_cosine_ops": "cosine", "vector_ip_ops": "ip"}
+    metric_to_str = {
+        # PGVector metrics
+        "vector_l2_ops": "L2",
+        "vector_cosine_ops": "cosine",
+        "vector_ip_ops": "ip",
+
+        # Milvus metrics
+        "L2": "L2",
+    }
 
     def __init__(
         self,
@@ -169,8 +177,8 @@ class Experiment:
             raise ValueError(f"Error reading dataset from path '{dataset_path}': {e}")
 
         # Initialize database
-        self.db = Database(path_to_env=".env")
-        self.db.test_connection()
+        self.db = MilvusClient(alias="default")
+        # self.db.test_connection()
         self.top_k = top_k
         self.use_index = use_index
         self.probes = probes
@@ -223,18 +231,20 @@ class Experiment:
         self.hits = []
         self.recall_scores = []  # proportion of target DOIs that were retrieved in the top-k results
 
-    def __basic_search(self, db, embedding, example) -> pd.DataFrame:
-        return db.vector_search(
-            query_vector=embedding,
-            target_table=self.target_table,
-            target_column=self.target_column,
-            metric=self.metric,
-            pubdate=example.get("pubdate"),
-            use_index=self.use_index,
-            top_k=self.top_k,
-            probes=self.probes,
-            ef_search=self.ef_search,
+    def __postprocess_milvus_results(self, results: list[dict]):
+        return [hit.entity | {"distance": hit.distance} for hit in results[0]]
+
+    def __basic_search(self, collection, embedding, example) -> pd.DataFrame:
+        example_pubdate = example.get("pubdate").strftime("%Y%m%d")
+        results = collection.search(
+            data=[embedding],  # TODO is this more efficient if we pass a batch?
+            anns_field=self.target_column,
+            param={"metric_type": "L2"},  # TODO: parameterize this?
+            limit=self.top_k,
+            output_fields=["text", "pubdate", "doi"],
+            filter=f"pubdate < {example_pubdate}",
         )
+        return self.__postprocess_milvus_results(results)
 
     def __fifty_fifty_search(self, db, embedding, example) -> pd.DataFrame:
         """
@@ -392,15 +402,15 @@ class Experiment:
             os.makedirs(f"experiments/results/{filename_base}")
 
         # Iterate over query results to convert pubdate to string format
-        query_results_json = []
-        for example, results in self.query_results:
-            example_copy = example.copy()
-            example_copy["pubdate"] = example_copy["pubdate"].strftime("%Y-%m-%d")
-            for result in results:
-                result["pubdate"] = result["pubdate"].strftime("%Y-%m-%d")
-            query_results_json.append([example_copy, results])
-        with open(f"experiments/results/{filename_base}/query_results_{filename_base}.json", "w") as f:
-            json.dump(query_results_json, f)
+        # query_results_json = []
+        # for example, results in self.query_results:
+        #     example_copy = example.copy()
+        #     example_copy["pubdate"] = example_copy["pubdate"].strftime("%Y-%m-%d")
+        #     for result in results:
+        #         result["pubdate"] = result["pubdate"].strftime("%Y-%m-%d")
+        #     query_results_json.append([example_copy, results])
+        # with open(f"experiments/results/{filename_base}/query_results_{filename_base}.json", "w") as f:
+        #     json.dump(query_results_json, f)
 
         # Note that k here are keys from 1 to top_k, so the list index = k - 1
         avg_jaccards = [
@@ -484,8 +494,10 @@ class Experiment:
         rank_fuser = RankFuser(config=self.metrics_config) if self.metrics_config else None
 
         # Set up database for efficient queries
-        self.db.set_session_resources(optimize_for="query", verbose=False)
-        self.db.prewarm_table(self.target_table, target_column=self.target_column)
+        # self.db.set_session_resources(optimize_for="query", verbose=False)
+        # self.db.prewarm_table(self.target_table, target_column=self.target_column)
+        collection = Collection(name=self.target_table)
+        collection.load()
 
         # Create thread-safe queues for tasks and results
         task_queue = queue.Queue(maxsize=20)
@@ -503,8 +515,10 @@ class Experiment:
             nonlocal consumer_progress
 
             # Create a dedicated database connection for this thread
-            thread_db = Database(path_to_env=".env")
-            thread_db.set_session_resources(optimize_for="query", verbose=False)
+            # thread_db = Database(path_to_env=".env")
+            # thread_db.set_session_resources(optimize_for="query", verbose=False)
+            thread_db = MilvusClient("default")
+            thread_collection = Collection(name=self.target_table)
 
             while True:
                 try:
@@ -517,7 +531,7 @@ class Experiment:
 
                     # Query the database
                     results = self.search(
-                        db=thread_db,
+                        collection=thread_collection,
                         embedding=embedding,
                         example=example,
                     )
@@ -532,7 +546,8 @@ class Experiment:
                         logger.warning(f"Expected {self.top_k} results, but got {len(results)}. ")
 
                     # Convert results DataFrame to list[dict], lower overhead for serialization
-                    results_list = results.to_dict(orient="records")
+                    # results_list = results.to_dict(orient="records")
+                    results_list = results
                     results_queue.put((example, results_list))
 
                     # Thread-safe update of progress counter
@@ -717,39 +732,39 @@ def main():
         write_train_test_to_file(train, test, "data/dataset/split/")
         return
 
-    if args.query_plan:
-        # Set up resources
-        embedder = get_embedder(args.embedder, device=device)
-        db = Database()
-        db.test_connection()
+    # if args.query_plan:
+    #     # Set up resources
+    #     embedder = get_embedder(args.embedder, device=device)
+    #     db = Database()
+    #     db.test_connection()
 
-        # Generate query vector and query plan
-        embedding = embedder(["dummy text"])
-        embedding = embedding[0]
-        print(f"Query vector shape: {embedding.shape}")
-        print(f"type(embedding): {type(embedding)}")
-        # Print configuration table
-        print("\n" + "=" * 60)
-        print("QUERY PLAN CONFIGURATION")
-        print("=" * 60)
-        print(f"{'Parameter':<15} {'Value':<40}")
-        print("-" * 60)
-        print(f"{'Embedder':<15} {args.embedder:<40}")
-        print(f"{'Device':<15} {device:<40}")
-        print(f"{'Table Name':<15} {args.target_table:<40}")
-        print(f"{'Metric':<15} {'vector_cosine_ops':<40}")
-        print(f"{'Top K':<15} {args.top_k:<40}")
-        print(f"{'Probes':<15} {args.probes:<40}")
-        print(f"{'Batch Size':<15} {args.batch_size:<40}")
-        print("=" * 60 + "\n")
+    #     # Generate query vector and query plan
+    #     embedding = embedder(["dummy text"])
+    #     embedding = embedding[0]
+    #     print(f"Query vector shape: {embedding.shape}")
+    #     print(f"type(embedding): {type(embedding)}")
+    #     # Print configuration table
+    #     print("\n" + "=" * 60)
+    #     print("QUERY PLAN CONFIGURATION")
+    #     print("=" * 60)
+    #     print(f"{'Parameter':<15} {'Value':<40}")
+    #     print("-" * 60)
+    #     print(f"{'Embedder':<15} {args.embedder:<40}")
+    #     print(f"{'Device':<15} {device:<40}")
+    #     print(f"{'Table Name':<15} {args.target_table:<40}")
+    #     print(f"{'Metric':<15} {'vector_cosine_ops':<40}")
+    #     print(f"{'Top K':<15} {args.top_k:<40}")
+    #     print(f"{'Probes':<15} {args.probes:<40}")
+    #     print(f"{'Batch Size':<15} {args.batch_size:<40}")
+    #     print("=" * 60 + "\n")
 
-        db.prewarm_table(args.target_table)
-        db.explain_analyze(
-            query_vector=embedding,
-            target_table=args.target_table,
-            metric="vector_cosine_ops",
-            top_k=args.top_k,
-        )
+    #     db.prewarm_table(args.target_table)
+    #     db.explain_analyze(
+    #         query_vector=embedding,
+    #         target_table=args.target_table,
+    #         metric="vector_cosine_ops",
+    #         top_k=args.top_k,
+    #     )
 
 
 if __name__ == "__main__":
