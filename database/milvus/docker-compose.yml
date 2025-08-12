@@ -36,6 +36,7 @@ services:
   standalone:
     container_name: milvus-standalone
     image: milvusdb/milvus:v2.2.16
+    platform: linux/amd64 # For apple silicon
     command: ["milvus", "run", "standalone"]
     environment:
       ETCD_ENDPOINTS: etcd:2379
