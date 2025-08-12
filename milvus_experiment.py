@@ -138,7 +138,9 @@ class Experiment:
         "vector_ip_ops": "ip",
 
         # Milvus metrics
-        "L2": "L2",
+        "L2": "l2",
+        "IP": "ip",
+        "COSINE": "cosine"
     }
 
     def __init__(

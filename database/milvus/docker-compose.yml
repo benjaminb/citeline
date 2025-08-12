@@ -35,7 +35,7 @@ services:
 
   standalone:
     container_name: milvus-standalone
-    image: milvusdb/milvus:v2.2.16
+    image: milvusdb/milvus:v2.6.0
     platform: linux/amd64 # For apple silicon
     command: ["milvus", "run", "standalone"]
     environment:

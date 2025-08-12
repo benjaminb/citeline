@@ -56,10 +56,43 @@ class AstroLlamaEmbedder(Embedder):
             embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
         return embeddings.detach().cpu().numpy()
 
-
-class SentenceTransformerEmbedder(Embedder):
+class QwenEmbedder(Embedder):
+    MODEL_SPECIFIC_KWARGS = {
+        "Qwen/Qwen3-Embedding-8B": {
+            # TODO: switch this on for CUDA environment
+            # "model_kwargs": {"attn_implementation": "flash_attention_2"}, # Only available on CUDA
+            "tokenizer_kwargs": {"padding_side": "left"},
+        }
+    }
     def __init__(self, model_name: str, device: str, normalize: bool):
         super().__init__(model_name, device, normalize)
+        model_kwargs = self.MODEL_SPECIFIC_KWARGS.get(model_name, {}).get("model_kwargs", {})
+        tokenizer_kwargs = self.MODEL_SPECIFIC_KWARGS.get(model_name, {}).get("tokenizer_kwargs", {})
+
+        self.model = SentenceTransformer(
+            model_name,
+            device=device,
+            model_kwargs=model_kwargs,
+            tokenizer_kwargs=tokenizer_kwargs,
+        )
+        self.model.eval()
+        self.dim = self.model.get_sentence_embedding_dimension()
+
+    def encode(self, docs):
+        with torch.no_grad():
+            return self.model.encode(
+                docs,
+                prompt_name="query" # Built-in prompt for better embedding performance
+            )
+
+    def _embed(self, docs: list[str]) -> np.ndarray:
+        return self.encode(docs)
+
+class SentenceTransformerEmbedder(Embedder):
+
+    def __init__(self, model_name: str, device: str, normalize: bool):
+        super().__init__(model_name, device, normalize)
+        # 
         self.model = SentenceTransformer(model_name, trust_remote_code=True, device=device)
         self.model.eval()
 
@@ -159,6 +192,7 @@ EMBEDDING_CLASS = {
     "bert-base-uncased": EncoderEmbedder,
     "nasa-impact/nasa-ibm-st.38m": SentenceTransformerEmbedder,
     "Qwen/Qwen3-Embedding-0.6B": SentenceTransformerEmbedder,
+    "Qwen/Qwen3-Embedding-8B": QwenEmbedder,
     "UniverseTBD/astrollama": AstroLlamaEmbedder,
     # astrosage
 }
