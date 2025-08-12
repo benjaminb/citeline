@@ -9,6 +9,7 @@ openai==1.85.0
 pandas==2.2.3
 psycopg[binary]==3.2.6
 pgvector
+pymilvus==2.6.0
 torch==2.5.1
 sentence-transformers==3.3.1
 semantic_text_splitter==0.22.0

@@ -1,22 +1,60 @@
+import numpy as np
+import pandas as pd
 import torch
+from abc import ABC, abstractmethod
 
-# import numpy as np
 from sentence_transformers import SentenceTransformer
-from transformers import AutoModel, AutoTokenizer
+from transformers import AutoModel, AutoTokenizer, AutoModelForCausalLM
 
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
 
 
-class Embedder:
-
+class Embedder(ABC):
     def __init__(self, model_name: str, device, normalize: bool):
         self.model_name = model_name
         self.device = device
         self.normalize = normalize
         self.dim = None
 
+    def __call__(self, docs: list[str] | pd.Series):
+        if isinstance(docs, pd.Series):
+            docs = docs.tolist()
+        return self._embed(docs)
+
+    @abstractmethod
+    def _embed(self, docs: list[str]) -> np.ndarray:
+        pass
+
     def __str__(self):
         return f"{self.model_name}, device={self.device}, normalize={self.normalize}"
+
+
+class AstroLlamaEmbedder(Embedder):
+    def __init__(self, model_name: str, device: str, normalize: bool):
+        super().__init__(model_name, device, normalize)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
+        self.model.eval()
+        self.dim = self.model.config.hidden_size
+        self.max_length = self.model.config.max_position_embeddings
+
+    def _embed(self, docs: list[str]) -> np.ndarray:
+        params = {
+            "return_tensors": "pt",
+            "return_token_type_ids": False,
+            "padding": True,
+            "truncation": True,
+            "max_length": self.max_length,
+        }
+        # TODO: if we can put the inputs on the same device as the model, we don't need a self.device attribute
+        inputs = self.tokenizer(docs, **params).to(self.model.device)
+        with torch.no_grad():
+            outputs = self.model(**inputs, output_hidden_states=True)
+        embeddings = outputs["hidden_states"][-1][:, 1:, ...].mean(dim=1)
+
+        if self.normalize:
+            embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+        return embeddings.detach().cpu().numpy()
 
 
 class SentenceTransformerEmbedder(Embedder):
@@ -62,22 +100,9 @@ class SentenceTransformerEmbedder(Embedder):
                     )
 
         self.encode = encode
-
-        # Old encoder implementation (no multi process pool)
-        # def encode(docs):
-        #     """
-        #     Create the embedding function in a no_grad context
-        #     """
-        #     return self.model.encode(
-        #         docs,
-        #         convert_to_numpy=True,
-        #         normalize_embeddings=self.normalize,
-        #         show_progress_bar=False)
-        # self.encode = encode
-
         self.dim = self.model.get_sentence_embedding_dimension()
 
-    def __call__(self, docs):
+    def _embed(self, docs: list[str]) -> np.ndarray:
         return self.encode(docs)
 
 
@@ -107,7 +132,7 @@ class EncoderEmbedder(Embedder):
         # NOTE: this works for BERT models but may need adjustment for other architectures
         self.dim = self.model.config.hidden_size
 
-    def __call__(self, docs: list[str]):
+    def _embed(self, docs: list[str]) -> np.ndarray:
         params = {"return_tensors": "pt", "padding": True, "truncation": True}
         if self.max_length:
             params["max_length"] = self.max_length
@@ -115,9 +140,7 @@ class EncoderEmbedder(Embedder):
         # Issue warning if input length exceeds model's max_length
         # TODO: use AutoConfig to handle this more gracefully
         if self.max_length and inputs["input_ids"].shape[1] > self.max_length:
-            print(
-                f"Warning: input length {inputs['input_ids'].shape[1]} exceeds max_length {self.max_length}"
-            )
+            print(f"Warning: input length {inputs['input_ids'].shape[1]} exceeds max_length {self.max_length}")
 
         with torch.no_grad():
             outputs = self.model(**inputs)
@@ -136,13 +159,13 @@ EMBEDDING_CLASS = {
     "bert-base-uncased": EncoderEmbedder,
     "nasa-impact/nasa-ibm-st.38m": SentenceTransformerEmbedder,
     "Qwen/Qwen3-Embedding-0.6B": SentenceTransformerEmbedder,
-    # astroLlama
+    "UniverseTBD/astrollama": AstroLlamaEmbedder,
     # astrosage
-    # "nvidia/NV-Embed-v2": SentenceTransformerEmbedder
 }
 
 MODEL_DATA = {
     "adsabs/astroBERT": {"max_length": 512},
+    "UniverseTBD/astrollama": {"max_length": 4096},
 }
 
 
@@ -150,9 +173,7 @@ def get_embedder(model_name: str, device: str, normalize: bool = False) -> Embed
     try:
         return EMBEDDING_CLASS[model_name](model_name, device, normalize)
     except KeyError:
-        raise ValueError(
-            f"Model {model_name} not supported. Available models: {list(EMBEDDING_CLASS.keys())}"
-        )
+        raise ValueError(f"Model {model_name} not supported. Available models: {list(EMBEDDING_CLASS.keys())}")
 
 
 def main():

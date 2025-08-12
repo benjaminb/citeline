@@ -17,6 +17,7 @@ from database.database import Database, VectorSearchResult
 from query_expander import get_expander
 from embedders import get_embedder
 from Rerankers import get_reranker
+from metrics import RankFuser
 
 logger = logging.getLogger(__name__)
 DISTANCE_THRESHOLDS = np.arange(1.0, 0.0, -0.01)
@@ -149,6 +150,7 @@ class Experiment:
         probes: int = 16,
         ef_search: int = 1000,
         reranker_to_use: str = None,
+        metrics_config: dict[str, float] = None,
         distance_threshold: float = None,
     ):
         # Set up configs
@@ -160,7 +162,9 @@ class Experiment:
         """
         # Dataset and results
         try:
-            self.dataset = pd.read_json(dataset_path, lines=True, convert_dates=['pubdate'])
+            self.dataset = pd.read_json(dataset_path, lines=True)
+            # Convert 'pubdate' string to datetime.date object
+            self.dataset["pubdate"] = self.dataset["pubdate"].apply(lambda x: datetime.strptime(x, "%Y-%m-%d").date())
         except Exception as e:
             raise ValueError(f"Error reading dataset from path '{dataset_path}': {e}")
 
@@ -189,6 +193,7 @@ class Experiment:
         self.query_expander = get_expander(query_expansion, path_to_data=EXPANSION_DATA_PATH)
         self.reranker_to_use = reranker_to_use
         self.reranker = get_reranker(reranker_name=reranker_to_use, db=self.db) if reranker_to_use is not None else None
+        self.metrics_config = metrics_config
 
         # Strategy for using multiple document / query expansions
         supported_strategies = {"50-50": self.__fifty_fifty_search, "basic": self.__basic_search}
@@ -463,6 +468,7 @@ class Experiment:
         This function doesn't compute metrics over various top-k cutoffs; just given the
         experiment config with a set top k
         """
+
         from concurrent.futures import ThreadPoolExecutor
         import queue
         import threading
@@ -473,6 +479,9 @@ class Experiment:
             num_cpus = int(os.getenv("CPUS"))
         except ValueError:
             raise ValueError(f"Invalid value for CPUS environment variable.")
+
+        # Set up rank fusion
+        rank_fuser = RankFuser(config=self.metrics_config) if self.metrics_config else None
 
         # Set up database for efficient queries
         self.db.set_session_resources(optimize_for="query", verbose=False)
@@ -513,7 +522,9 @@ class Experiment:
                         example=example,
                     )
 
-                    # TODO: Reranking logic will go here
+                    # Reranking
+                    if rank_fuser is not None:
+                        results = rank_fuser(query=example, results=results, db=thread_db)
                     if self.reranker is not None:
                         results = self.reranker(query=example["expanded_query"], results=results)
 
@@ -628,6 +639,7 @@ class Experiment:
             f"{'Embedder':<20}: {self.embedder.model_name}\n"
             f"{'Normalize':<20}: {self.normalize}\n"
             f"{'Enrichment':<20}: {self.query_expansion_name}\n"
+            f"{'Metrics':<20}: {self.metrics_config}\n"
             f"{'Search Strategy':<20}: {self.strategy}\n"
             f"{'Batch Size':<20}: {self.batch_size}\n"
             f"{'Top k':<20}: {self.top_k}\n"
@@ -692,6 +704,7 @@ def main():
             use_index=config.get("use_index", False),
             strategy=config.get("strategy", "basic"),
             reranker_to_use=config.get("reranker", None),
+            metrics_config=config.get("metrics", None),
             # distance_threshold=config["distance_threshold"],
         )
         print(experiment)
