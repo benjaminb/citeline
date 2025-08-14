@@ -184,7 +184,7 @@ class EncoderEmbedder(Embedder):
 
         return embeddings.detach().cpu().numpy()
 
-
+# TODO: move this into class definition, so you can use constructor instead of get_embedder?
 EMBEDDING_CLASS = {
     "adsabs/astroBERT": EncoderEmbedder,
     "BAAI/bge-small-en": SentenceTransformerEmbedder,

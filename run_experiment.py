@@ -540,13 +540,12 @@ class Experiment:
                         consumer_progress += 1
                         query_bar.update(1)  # Update progress bar directly
 
-                    task_queue.task_done()
-
                 except queue.Empty:
                     print("Consumer timeout waiting for tasks")
                     break
                 except Exception as e:
                     print(f"Consumer thread error: {str(e)}")
+                finally:
                     task_queue.task_done()
 
         # Start consumer threads
@@ -601,9 +600,10 @@ class Experiment:
                         embed_bar.update(1)
 
                     # Check and update consumer progress
-                    current_consumer = consumer_progress  # Read once to avoid race conditions
-                    if current_consumer > query_bar.n:
-                        query_bar.update(current_consumer - query_bar.n)
+                    # TODO: determine if this code is necessary
+                    # current_consumer = consumer_progress  # Read once to avoid race conditions
+                    # if current_consumer > query_bar.n:
+                    #     query_bar.update(current_consumer - query_bar.n)
 
                 # Add sentinel values to signal consumer completion
                 for _ in range(num_workers):
