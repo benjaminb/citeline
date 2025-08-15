@@ -13,16 +13,24 @@ load_dotenv("../.env")
 def argument_parser():
     parser = argparse.ArgumentParser(description="Milvus DB Management")
 
-    parser.add_argument("--drop-collection", type=str, help="Name of the collection to drop")
-    parser.add_argument("--create-collection", type=str, help="JSON string of fields to add")
-    parser.add_argument("--add-vector-field", type=str)
+    operation_group = parser.add_mutually_exclusive_group(required=True)
+    operation_group.add_argument("--drop-collection", type=str, help="Name of the collection to drop")
+    operation_group.add_argument("--create-collection", action="store_true", help="Create a new collection")
 
-    # If adding a vector field, we need the collection name and the name of the embedder to use
-    parser.add_argument("--field-name", type=str, help="Name of the vector field to add")
-    parser.add_argument("--to-collection", type=str, help="Name of the collection to add the field to")
+    # Arguments required when creating a collection
+    parser.add_argument("--name", type=str, help="Name to give the new collection")
+    parser.add_argument("--data-source", type=str, help="Path to the JSONL data file")
     parser.add_argument("--embedder", type=str, help="Name of the embedder (e.g. 'BAAI/bge-en-large-v1.5')")
+    parser.add_argument("--normalize", action="store_true", help="Whether to normalize the embeddings")
 
-    return parser
+    args = parser.parse_args()
+
+    # Validate required arguments for create-collection
+    if args.create_collection:
+        if not all([args.name, args.data_source, args.embedder]):
+            parser.error("--create-collection requires --name, --data-source, and --embedder arguments")
+
+    return args
 
 
 class MilvusDB:
@@ -41,26 +49,6 @@ class MilvusDB:
         # Set device and its related clear cache function
         self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
         self.clear_gpu_cache = self.CLEAR_GPU_CACHE_FN[self.device]
-
-    def _get_field_schemas(self, collection: Collection) -> list[FieldSchema]:
-        fields = []
-        for field in collection.schema.fields:
-            new_field = FieldSchema(
-                name=field.name,
-                dtype=field.dtype,
-                is_primary=field.is_primary,
-                auto_id=field.auto_id,
-                max_length=field.max_length if field.dtype == DataType.VARCHAR else None,
-                dim=(
-                    field.dim
-                    if field.dtype in [DataType.FLOAT_VECTOR, DataType.FLOAT16_VECTOR, DataType.BFLOAT16_VECTOR]
-                    else None
-                ),
-                description=field.description,
-            )
-            fields.append(new_field)
-
-        return fields
 
     def create_vector_collection(self, name: str, data_source: str, embedder_name: str, normalize: bool):
         """
@@ -125,35 +113,6 @@ class MilvusDB:
         else:
             print(f"Collection '{name}' does not exist.")
 
-    def insert(self, collection_name: str, data: list[dict]) -> int:
-        return self.client.insert(collection_name=collection_name, data=data)
-
-    def add_fields_to_collection(self, collection_name: str, fields: list[FieldSchema]):
-        """
-        Takes an existing collection, creates a copy with new field schemas added,
-        and replaces the old collection with the new one.
-        """
-        if not collection_name in self.client.list_collections():
-            raise ValueError(f"Collection '{collection_name}' does not exist.")
-
-        # Get the existing collection
-        collection = Collection(collection_name)
-
-        # Create a new schema with the added fields
-        new_fields = self._get_field_schemas(collection) + fields
-        new_schema = CollectionSchema(
-            fields=new_fields,
-            description=collection.schema.description,
-        )
-
-        # Copy data from the old collection to the new one
-        new_collection_name = f"{collection_name}_new"
-        self.client.create_collection(name=new_collection_name, schema=new_schema)
-
-        # Replace the old collection with the new one
-        self.client.drop_collection(collection_name)
-        self.client.create_collection(name=collection_name, schema=new_schema)
-
     def __embed_and_insert(
         self,
         collection: Collection,
@@ -179,8 +138,8 @@ class MilvusDB:
         insertion_lock = threading.Lock()
 
         num_entities = len(data)
-        data['vector'] = None
-        
+        data["vector"] = None
+
         def insert_worker():
             while True:
                 try:
@@ -202,12 +161,10 @@ class MilvusDB:
                 finally:
                     insert_queue.task_done()
 
-        insert_threads = []
         num_workers = max(1, num_cpus - 1)
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             for _ in range(num_workers):
                 thread = executor.submit(insert_worker)
-                insert_threads.append(thread)
 
             # Create progress bars
             with tqdm(total=num_entities, desc="Embedding", unit="docs", position=0) as embed_bar, tqdm(
@@ -223,7 +180,7 @@ class MilvusDB:
                     batch = data.iloc[slice(i, i + batch_size)]
                     embeddings = embedder(batch["text"])
 
-                    batch_records = batch.to_dict(orient='records')
+                    batch_records = batch.to_dict(orient="records")
                     for record, vector in zip(batch_records, embeddings):
                         record["vector"] = vector
                     insert_queue.put(batch_records)
@@ -242,30 +199,44 @@ class MilvusDB:
         print(f"New collection {collection.name}: {collection.num_entities} entities")
 
 
-if __name__ == "__main__":
+def main():
+    args = argument_parser()
+
     db = MilvusDB()
-    db.client.list_collections()
-    data = "../testdata.jsonl"
-    db.create_vector_collection(
-        name="test_collection", data_source=data, embedder_name="BAAI/bge-small-en", normalize=False
-    )
-    db.client.list_collections()
 
-    import numpy as np
+    if args.drop_collection:
+        db.drop_collection(args.drop_collection)
+    elif args.create_collection:
+        db.create_vector_collection(
+            name=args.name, data_source=args.data_source, embedder_name=args.embedder, normalize=args.normalize
+        )
 
-    query = np.random.rand(384).astype(np.float32)
-    db.client.load_collection("test_collection")
-    res = db.client.search(
-        collection_name="test_collection",
-        anns_field="vector",
-        data=[query],
-        output_fields=["text", "doi", "pubdate"],
-        limit=3,
-        search_params={"metric_type": "IP"},
-    )
-    print(f"Search results:")
-    from pprint import pprint
 
-    pprint(res[0])
+if __name__ == "__main__":
+    main()
+    # db = MilvusDB()
+    # db.client.list_collections()
+    # data = "../testdata.jsonl"
+    # db.create_vector_collection(
+    #     name="test_collection", data_source=data, embedder_name="BAAI/bge-small-en", normalize=False
+    # )
+    # db.client.list_collections()
 
-    db.drop_collection("test_collection")
+    # import numpy as np
+
+    # query = np.random.rand(384).astype(np.float32)
+    # db.client.load_collection("test_collection")
+    # res = db.client.search(
+    #     collection_name="test_collection",
+    #     anns_field="vector",
+    #     data=[query],
+    #     output_fields=["text", "doi", "pubdate"],
+    #     limit=3,
+    #     search_params={"metric_type": "IP"},
+    # )
+    # print(f"Search results:")
+    # from pprint import pprint
+
+    # pprint(res[0])
+
+    # db.drop_collection("test_collection")

@@ -581,8 +581,7 @@ class Experiment:
                             torch.mps.empty_cache()
 
                     # Get batch, perform any query expansion & generate embeddings
-                    batch_indices = slice(i, i + self.batch_size)
-                    batch = self.dataset.iloc[batch_indices]
+                    batch = self.dataset.iloc[slice(i, i + self.batch_size)]
 
                     expanded_queries = self.query_expander(batch)
                     embeddings = self.embedder(expanded_queries)
