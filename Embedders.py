@@ -56,6 +56,7 @@ class AstroLlamaEmbedder(Embedder):
             embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
         return embeddings.detach().cpu().numpy()
 
+
 class QwenEmbedder(Embedder):
     MODEL_SPECIFIC_KWARGS = {
         "Qwen/Qwen3-Embedding-8B": {
@@ -64,6 +65,7 @@ class QwenEmbedder(Embedder):
             "tokenizer_kwargs": {"padding_side": "left"},
         }
     }
+
     def __init__(self, model_name: str, device: str, normalize: bool):
         super().__init__(model_name, device, normalize)
         model_kwargs = self.MODEL_SPECIFIC_KWARGS.get(model_name, {}).get("model_kwargs", {})
@@ -80,19 +82,17 @@ class QwenEmbedder(Embedder):
 
     def encode(self, docs):
         with torch.no_grad():
-            return self.model.encode(
-                docs,
-                prompt_name="query" # Built-in prompt for better embedding performance
-            )
+            return self.model.encode(docs, prompt_name="query")  # Built-in prompt for better embedding performance
 
     def _embed(self, docs: list[str]) -> np.ndarray:
         return self.encode(docs)
+
 
 class SentenceTransformerEmbedder(Embedder):
 
     def __init__(self, model_name: str, device: str, normalize: bool):
         super().__init__(model_name, device, normalize)
-        # 
+        #
         self.model = SentenceTransformer(model_name, trust_remote_code=True, device=device)
         self.model.eval()
 
@@ -184,6 +184,7 @@ class EncoderEmbedder(Embedder):
 
         return embeddings.detach().cpu().numpy()
 
+
 # TODO: move this into class definition, so you can use constructor instead of get_embedder?
 EMBEDDING_CLASS = {
     "adsabs/astroBERT": EncoderEmbedder,
@@ -211,7 +212,16 @@ def get_embedder(model_name: str, device: str, normalize: bool = False) -> Embed
 
 
 def main():
-    pass
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
+    qwen_model = get_embedder("Qwen/Qwen3-Embedding-8B", device=device, normalize=False)
+    print(f"Loaded model: {qwen_model}")
+    sample_docs = [
+        "This is a test document.",
+        "Another document for testing purposes.",
+        "Yet another example of a document to embed.",
+    ]
+    embeddings = qwen_model(sample_docs)
+    print(f"Embeddings shape: {embeddings.shape}")
 
 
 if __name__ == "__main__":
