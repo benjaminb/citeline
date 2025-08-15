@@ -16,6 +16,7 @@ def argument_parser():
     operation_group = parser.add_mutually_exclusive_group(required=True)
     operation_group.add_argument("--drop-collection", type=str, help="Name of the collection to drop")
     operation_group.add_argument("--create-collection", action="store_true", help="Create a new collection")
+    operation_group.add_argument("--list-collections", action="store_true", help="List all collections")
 
     # Arguments required when creating a collection
     parser.add_argument("--name", type=str, help="Name to give the new collection")
@@ -112,6 +113,12 @@ class MilvusDB:
             print(f"Collection '{name}' dropped.")
         else:
             print(f"Collection '{name}' does not exist.")
+
+    def list_collections(self):
+        collections = self.client.list_collections()
+        print("Collections:")
+        for col in collections:
+            print(f" - {col}")
 
     def __embed_and_insert(
         self,
@@ -210,6 +217,8 @@ def main():
         db.create_vector_collection(
             name=args.name, data_source=args.data_source, embedder_name=args.embedder, normalize=args.normalize
         )
+    elif args.list_collections:
+        db.list_collections()
 
 
 if __name__ == "__main__":
