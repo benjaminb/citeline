@@ -17,6 +17,7 @@ def argument_parser():
     operation_group.add_argument("--drop-collection", type=str, help="Name of the collection to drop")
     operation_group.add_argument("--create-collection", action="store_true", help="Create a new collection")
     operation_group.add_argument("--list-collections", action="store_true", help="List all collections")
+    operation_group.add_argument("--healthcheck", action="store_true", help="Check the health of the Milvus server")
 
     # Arguments required when creating a collection
     parser.add_argument("--name", type=str, help="Name to give the new collection")
@@ -50,6 +51,10 @@ class MilvusDB:
         # Set device and its related clear cache function
         self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
         self.clear_gpu_cache = self.CLEAR_GPU_CACHE_FN[self.device]
+
+    def healthcheck(self):
+        status = self.client.get_server_version()
+        print(f"Milvus server version: {status}")
 
     def create_vector_collection(self, name: str, data_source: str, embedder_name: str, normalize: bool):
         """
@@ -219,6 +224,8 @@ def main():
         )
     elif args.list_collections:
         db.list_collections()
+    elif args.healthcheck:
+        db.healthcheck()
 
 
 if __name__ == "__main__":
