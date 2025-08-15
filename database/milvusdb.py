@@ -1,10 +1,11 @@
 import argparse
-from pymilvus import connections, MilvusClient, Collection, FieldSchema, CollectionSchema, DataType
+from pymilvus import MilvusClient, Collection, FieldSchema, CollectionSchema, DataType, utility
 import os
 from dotenv import load_dotenv
 from tqdm import tqdm
 from embedders import get_embedder, Embedder
 import torch
+import pandas as pd
 
 load_dotenv("../.env")
 
@@ -28,15 +29,16 @@ class MilvusDB:
     BASE_FIELDS = [
         {"field_name": "id", "datatype": DataType.INT64, "is_primary": True},
         {"field_name": "text", "datatype": DataType.VARCHAR, "max_length": 2048},
-        {"field_name": "pubdate", "datatype": DataType.INT64},  # Milvus has no date type
         {"field_name": "doi", "datatype": DataType.VARCHAR, "max_length": 64},
+        {"field_name": "pubdate", "datatype": DataType.INT64},  # Milvus has no date type
     ]
 
     CLEAR_GPU_CACHE_FN = {"cuda": torch.cuda.empty_cache, "mps": torch.mps.empty_cache, "cpu": lambda: None}
 
     def __init__(self, alias: str = "default"):
         self.client = MilvusClient(alias=alias)
-        # Assumes you're using the best GPU available
+
+        # Set device and its related clear cache function
         self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
         self.clear_gpu_cache = self.CLEAR_GPU_CACHE_FN[self.device]
 
@@ -60,29 +62,61 @@ class MilvusDB:
 
         return fields
 
-    def create_test_collection(self, name: str, added_fields: list[dict]):
+    def create_vector_collection(self, name: str, data_source: str, embedder_name: str, normalize: bool):
+        """
+        Creates a collection using the base fields and a single vector field inferred by the embedder.
+
+        Note that all collections will have nearly identical schema:
+            vector: the vector representation of the document
+            text: the text content of the document (original text, contribution, or other document expansion)
+            doi: the DOI of the research paper from which the text originates
+            pubdate: the publication date of the research paper (int YYYYMMDD format)
+        Args:
+            name: Name of the collection to create
+            data_source: path to a jsonl file with entities containing keys 'text', 'doi', and 'pubdate' (int YYYYMMDD format)
+            embedder_name: Name of the embedder to use for generating vector embeddings
+            normalize: Whether to normalize the embeddings
+        """
         if name in self.client.list_collections():
             print(f"Collection '{name}' already exists.")
             return
 
+        # Make sure we have CPU count available
+        assert "CPUS" in os.environ, "CPUS environment variable not set."
+        try:
+            num_cpus = int(os.getenv("CPUS"))
+        except ValueError:
+            raise ValueError(f"Invalid value for CPUS environment variable.")
+
+        # Load in data and embedder to be used
+        data = pd.read_json(data_source, lines=True)
+        assert set(data.columns) == {
+            "text",
+            "doi",
+            "pubdate",
+        }, "DataFrame must contain 'text', 'doi', and 'pubdate' columns (and no others)."
+        embedder = get_embedder(embedder_name, device=self.device, normalize=normalize)
+
+        # Print a table of the collection to be created, num cpus, embedder name and its dimension
+        print(f"| {'Collection Name':<20} | {'Num CPUs':<10} | {'Embedder Name':<25} | {'Embedder Dim':<12} |")
+        print(f"| {name:<20} | {num_cpus:<10} | {embedder_name:<25} | {embedder.dim:<12} |")
+
+        # Set up the schema
         schema = self.client.create_schema(
             auto_id=True,
             enable_dynamic_field=True,
         )
-
-        for field in self.BASE_FIELDS + added_fields:
+        vector_field = {"field_name": "vector", "datatype": DataType.FLOAT_VECTOR, "dim": embedder.dim}
+        for field in self.BASE_FIELDS + [vector_field]:
             schema.add_field(**field)
 
         self.client.create_collection(collection_name=name, schema=schema)
-        print(f"Collection '{name}' created with new fields: {added_fields}")
+        print(f"Collection '{name}' created")
         collection = Collection(name)
-        collection.create_index(
-            field_name="vector",
-            index_params={
-                "index_type": "FLAT",
-                "metric_type": "IP"
-            }
-        )
+        self.__embed_and_insert(collection=collection, embedder=embedder, data=data, num_cpus=num_cpus)
+
+        # Create Milvus-required index on vector column
+        collection.create_index(field_name="vector", index_params={"index_type": "FLAT", "metric_type": "IP"})
 
     def drop_collection(self, name: str):
         if self.client.has_collection(name):
@@ -120,81 +154,45 @@ class MilvusDB:
         self.client.drop_collection(collection_name)
         self.client.create_collection(name=collection_name, schema=new_schema)
 
-    def add_vector_field(
-        self, collection_name: str, field_name: str, embedder_name: str, normalize=False, batch_size: int = 16
+    def __embed_and_insert(
+        self,
+        collection: Collection,
+        embedder: Embedder,
+        data: pd.DataFrame,
+        num_cpus: int,
+        batch_size: int = 16,
     ):
-        if not collection_name in self.client.list_collections():
-            raise ValueError(f"Collection '{collection_name}' does not exist.")
+        """
 
-        # Make sure we have CPU count available
-        assert "CPUS" in os.environ, "CPUS environment variable not set."
-        try:
-            num_cpus = int(os.getenv("CPUS"))
-        except ValueError:
-            raise ValueError(f"Invalid value for CPUS environment variable.")
-
+        Args:
+            collection: The collection to add the vector field to.
+            embedder: The embedder to use for generating vector embeddings.
+            data: DataFrame assumed to have columns ["text", "doi", "pubdate" (int YYYYMMDD format)]
+            num_cpus: The number of CPU cores to use for parallel processing.
+            batch_size: The batch size to use for embedding and inserting data.
+        """
         from concurrent.futures import ThreadPoolExecutor
         import queue
         import threading
 
-        collection = Collection(collection_name)
-        collection.load()
-
-        # Get all field names from the collection
-        existing_fields = self._get_field_schemas(collection)
-        existing_fieldnames = [field.name for field in existing_fields]
-        existing_fieldnames.remove("id")
-
-        embedder = get_embedder(model_name=embedder_name, device=self.device, normalize=normalize)
-
-        # Create new field schema for the vector field
-        vector_field = FieldSchema(
-            name=field_name,
-            dtype=DataType.FLOAT_VECTOR,
-            dim=embedder.dim,
-            description=f"Vector field for {field_name}",
-        )
-
-        new_fields = existing_fields + [vector_field]
-        new_schema = CollectionSchema(new_fields)
-        new_collection_name = f"{collection_name}_new"
-        new_collection = Collection(new_collection_name, new_schema)
-
-
         insert_queue = queue.Queue(maxsize=num_cpus * 2)
-        # embedding_lock = threading.Lock()
         insertion_lock = threading.Lock()
 
-        # For tracking progress
-        num_entities = collection.num_entities
-        # producer_progress, consumer_progress = 0, 0
-
+        num_entities = len(data)
+        data['vector'] = None
+        
         def insert_worker():
-            # nonlocal consumer_progress
-
             while True:
                 try:
-                    entities, embeddings = insert_queue.get(timeout=30)
-                    if entities is None:
-                        insert_queue.task_done()
+                    # Get batch and check if the queue is empty
+                    batch_records = insert_queue.get(timeout=30)
+                    if batch_records is None:
                         break
 
-                    print(f"Embedding shape: {embeddings.shape}", flush=True)
-                    # if entities:
-                    #     print(f"First entity: {entities[0]}", flush=True)
-                    #     print(f"Entity keys: {entities[0].keys()}", flush=True)
-                    #     print(f"Entity values: {list(entities[0].values())}", flush=True)
-                    for entity, embedding in zip(entities, embeddings):
-                        print({embedding.shape}, flush=True)
-                    # let's assume the entities are a list of dicts
-                    updated_records = [entity | {field_name: embedding} for entity, embedding in zip(entities, embeddings)]
-
-                    # self.client.insert(collection_name=new_collection_name, data=updated_records)
-                    new_collection.insert(data=updated_records)
-
+                    # Insert batch, update progress bar
+                    collection.insert(batch_records)
                     with insertion_lock:
-                        # consumer_progress += len(entities)
-                        insert_bar.update(len(entities))
+                        insert_bar.update(len(batch_records))
 
                 except queue.Empty:
                     print("Insertion worker timed out waiting for data.")
@@ -218,75 +216,56 @@ class MilvusDB:
 
                 # Main thread: producer (embed using gpu)
                 clear_cache_interval = 50 * batch_size  # Will clear GPU cache every 50 batches
-                for offset in range(0, num_entities, batch_size):
-                    if offset % clear_cache_interval == 0:
+                for i in range(0, num_entities, batch_size):
+                    if i % clear_cache_interval == 0:
                         self.clear_gpu_cache()
-                    print("querying...")
-                    entities = collection.query(
-                        expr="",
-                        output_fields=existing_fieldnames,
-                        offset=offset,
-                        limit=batch_size,
-                    )
-                    print(f"Got {len(entities)} entities")
 
-                    texts = [entity["text"] for entity in entities]
-                    embeddings = embedder(texts)
+                    batch = data.iloc[slice(i, i + batch_size)]
+                    embeddings = embedder(batch["text"])
 
-                    insert_queue.put((entities, embeddings))
+                    batch_records = batch.to_dict(orient='records')
+                    for record, vector in zip(batch_records, embeddings):
+                        record["vector"] = vector
+                    insert_queue.put(batch_records)
 
-                    # Update producer progress
-                    # producer_progress += len(entities) # TODO: not needed? here or in run_experiment?
-                    embed_bar.update(len(entities))
+                    embed_bar.update(len(batch))
 
                 for _ in range(num_workers):
-                    insert_queue.put((None, None))
+                    insert_queue.put(None)
 
                 insert_queue.join()
+
         print("All insertions complete.")
         print("Flushing to disk...")
-        new_collection.flush()
-        new_collection.create_index(
-            field_name=field_name,
-            index_params={
-                "index_type": "FLAT",
-                "metric_type": "IP"
-            }
-        )
-        print(f"Old collection {collection_name}: {collection.num_entities} entities")
-        print(f"New collection {new_collection_name}: {new_collection.num_entities} entities")
+        collection.flush()
+        collection.create_index(field_name="vector", index_params={"index_type": "FLAT", "metric_type": "IP"})
+        print(f"New collection {collection.name}: {collection.num_entities} entities")
 
 
 if __name__ == "__main__":
     db = MilvusDB()
-    db.drop_collection("foo")
-    db.drop_collection("foo_new")
-    db.create_test_collection(
-        name="foo",
-        added_fields=[
-            {"field_name": "vector", "datatype": DataType.FLOAT_VECTOR, "dim": 3}
-        ]
+    db.client.list_collections()
+    data = "../testdata.jsonl"
+    db.create_vector_collection(
+        name="test_collection", data_source=data, embedder_name="BAAI/bge-small-en", normalize=False
     )
+    db.client.list_collections()
 
-    collection = Collection('foo')
+    import numpy as np
 
-    data = [
-        {"text": "Hello world", "pubdate": 20250813, "doi": "abc", "vector": [0.1, 0.2, 0.3]},
-        {"text": "Milvus is great", "pubdate": 19950808, "doi": "def", "vector": [0.4, 0.5, 0.6]},
-    ]
-    res = db.insert(collection_name="foo", data=data)
-    collection.flush()
-    print(f"Result: {res}")
-    print(f"Collection 'foo' has {collection.num_entities} entities.")
-
-    print("Making copies...")
-    db.add_vector_field(
-        collection_name="foo",
-        field_name="bge_small",
-        embedder_name="BAAI/bge-small-en",
-        normalize=True
+    query = np.random.rand(384).astype(np.float32)
+    db.client.load_collection("test_collection")
+    res = db.client.search(
+        collection_name="test_collection",
+        anns_field="vector",
+        data=[query],
+        output_fields=["text", "doi", "pubdate"],
+        limit=3,
+        search_params={"metric_type": "IP"},
     )
+    print(f"Search results:")
+    from pprint import pprint
 
-    # db.add_vector_field(
-    #     collection_name="contributions", field_name="new_vector", embedder_name="BAAI/bge-large-en-v1.5", normalize=True
-    # )
+    pprint(res[0])
+
+    db.drop_collection("test_collection")
