@@ -92,8 +92,10 @@ class MilvusDB:
         embedder = get_embedder(embedder_name, device=self.device, normalize=normalize)
 
         # Print a table of the collection to be created, num cpus, embedder name and its dimension
-        print(f"| {'Collection Name':<20} | {'Num CPUs':<10} | {'Embedder Name':<25} | {'Embedder Dim':<12} |")
-        print(f"| {name:<20} | {num_cpus:<10} | {embedder_name:<25} | {embedder.dim:<12} |")
+        print(
+            f"| {'Collection Name':<20} | {'Num CPUs':<10} | {'Embedder Name':<25} | {'Embedder Dim':<12} | {'Device':<10} |"
+        )
+        print(f"| {name:<20} | {num_cpus:<10} | {embedder_name:<25} | {embedder.dim:<12} | {self.device:<10} |")
 
         # Set up the schema
         schema = self.client.create_schema(
@@ -109,8 +111,8 @@ class MilvusDB:
         collection = Collection(name)
         self.__embed_and_insert(collection=collection, embedder=embedder, data=data, num_cpus=num_cpus)
 
-        # Create Milvus-required index on vector column
-        collection.create_index(field_name="vector", index_params={"index_type": "FLAT", "metric_type": "IP"})
+        # # Create Milvus-required index on vector column
+        # collection.create_index(field_name="vector", index_params={"index_type": "FLAT", "metric_type": "IP"})
 
     def drop_collection(self, name: str):
         if self.client.has_collection(name):
@@ -121,9 +123,47 @@ class MilvusDB:
 
     def list_collections(self):
         collections = self.client.list_collections()
-        print("Collections:")
-        for col in collections:
-            print(f" - {col}")
+        print(f"Collections: {collections}")
+        for collection_name in collections:
+            collection = Collection(collection_name)
+            print(f" - {collection_name}: {collection.num_entities} entities")
+
+
+    def search(
+        self, collection: Collection, queries: list[float], metric: str = "IP", limit: int = 3
+    ) -> list[list[dict]]:
+        """
+        Searches a collection for top-k results based on the queries and metric.
+
+        Returns:
+            A 2D list of search result dicts, i.e.
+            [
+                [{result 1}, {result 2}, ...] # results for query 1
+                [{result 1}, {result 2}, ...], # results for query 2
+                ...
+            ]
+
+            Each result dict has keys {'metric': float, 'text': str, 'doi': str, 'pubdate': int}
+
+            NOTE: 'metric' corresponds to 'distance' returned by Milvus DB. However this may be distance
+            or it may be similarity depending on metric used (e.g. with "L2" metric, smaller is better, but with "IP" larger is better)
+            Milvus calls this value 'distance' regardless of the metric used. I have renamed this 'metric' to remind us
+            that this could be either, and to remember if largest is best or worst based on the metric chosen
+        """
+        results = collection.search(
+            data=queries,
+            anns_field="vector",
+            param={"metric_type": metric},
+            limit=limit,
+            output_fields=["text", "doi", "pubdate"],
+        )
+
+        formatted_results = []
+        for hits in results:
+            # Add distance to entity and return
+            formatted_hits = [hit["entity"] | {"metric": hit["distance"]} for hit in hits]
+            formatted_results.append(formatted_hits)
+        return formatted_results
 
     def __embed_and_insert(
         self,
@@ -156,27 +196,30 @@ class MilvusDB:
             while True:
                 try:
                     # Get batch and check if the queue is empty
-                    batch_records = insert_queue.get(timeout=30)
+                    # batch_records = insert_queue.get(timeout=30)
+                    batch_records = insert_queue.get()
                     if batch_records is None:
-                        break
+                        return # finally will still call task_done()
 
                     # Insert batch, update progress bar
                     collection.insert(batch_records)
                     with insertion_lock:
                         insert_bar.update(len(batch_records))
 
-                except queue.Empty:
-                    print("Insertion worker timed out waiting for data.")
-                    break
+                # except queue.Empty:
+                #     print("Insertion worker timed out waiting for data.")
+                #     break
                 except Exception as e:
                     print(f"Insertion worker encountered an error: {e}")
                 finally:
                     insert_queue.task_done()
 
         num_workers = max(1, num_cpus - 1)
+        futures = []
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             for _ in range(num_workers):
-                thread = executor.submit(insert_worker)
+                # thread = executor.submit(insert_worker)
+                futures.append(executor.submit(insert_worker))
 
             # Create progress bars
             with tqdm(total=num_entities, desc="Embedding", unit="docs", position=0) as embed_bar, tqdm(
@@ -201,8 +244,11 @@ class MilvusDB:
 
                 for _ in range(num_workers):
                     insert_queue.put(None)
-
                 insert_queue.join()
+
+                # Surface any worker exceptions
+                for f in futures:
+                    f.result()
 
         print("All insertions complete.")
         print("Flushing to disk...")

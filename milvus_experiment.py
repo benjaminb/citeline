@@ -7,13 +7,11 @@ import yaml
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from dataclasses import asdict
 from time import time
-from matplotlib.ticker import MultipleLocator
 from datetime import datetime
 from tqdm import tqdm
-
 from pymilvus import MilvusClient, Collection
+from database.milvusdb import MilvusDB
 from query_expander import get_expander
 from embedders import get_embedder
 from Rerankers import get_reranker
@@ -30,16 +28,16 @@ def argument_parser():
     Example usage:
 
     1. Run an experiment with specified configuration:
-       python run_experiment.py --run experiments/configs/bert_cosine.yaml
+       python milvus_experiment.py --run experiments/configs/bert_cosine.yaml
 
     2. Build a train/test split by sampling from source:
-       python run_experiment.py --build --source data/dataset/full/nontrivial_llm.jsonl --train-dest data/dataset/sampled/train.jsonl --test-dest data/dataset/sample/test.jsonl --split=0.8 --seed 42
+       python milvus_experiment.py --build --source data/dataset/full/nontrivial_llm.jsonl --train-dest data/dataset/sampled/train.jsonl --test-dest data/dataset/sample/test.jsonl --split=0.8 --seed 42
 
     3. Run an experiment with a top-k scan:
-       python run_experiment.py --run-scan experiments/bert_cosine.yaml
+       python milvus_experiment.py --run-scan experiments/bert_cosine.yaml
 
     4. Generate query plans and analyze database performance:
-       python run_experiment.py --query-plan --table-name bert_hnsw --embedder bert-base-uncased --top-k 50
+       python milvus_experiment.py --query-plan --table-name bert_hnsw --embedder bert-base-uncased --top-k 50
 
     """
     # Set up argument parser
@@ -136,16 +134,17 @@ class Experiment:
         "vector_l2_ops": "L2",
         "vector_cosine_ops": "cosine",
         "vector_ip_ops": "ip",
-
         # Milvus metrics
         "L2": "l2",
         "IP": "ip",
-        "COSINE": "cosine"
+        "COSINE": "cosine",
     }
+
+    CLEAR_GPU_CACHE_FN = {"cuda": torch.cuda.empty_cache, "mps": torch.mps.empty_cache, "cpu": lambda: None}
 
     def __init__(
         self,
-        device: str,
+        # device: str,
         dataset_path: str,
         target_table: str,
         target_column: str,
@@ -164,23 +163,25 @@ class Experiment:
         distance_threshold: float = None,
     ):
         # Set up configs
-        self.device = device
+        # self.device = device
 
         """
-        NOTE: nontrivial_train.index.tolist() will give the line numbers of the original example
-        so we can look up the original sentence, etc.
+        Args:
+            dataset_path: path to a jsonl file containing lines that hat at least these keys:
+                "sent_no_cit": the sentence with inline citations replaced by "[REF]"
+                "sent_idx": the index of the sentence in the original record's "body_sentences" list
+                "source_doi": "...",
+                "
+                "pubdate": int (YYYYMMDD)
         """
         # Dataset and results
         try:
             self.dataset = pd.read_json(dataset_path, lines=True)
-            # Convert 'pubdate' string to datetime.date object
-            self.dataset["pubdate"] = self.dataset["pubdate"].apply(lambda x: datetime.strptime(x, "%Y-%m-%d").date())
         except Exception as e:
             raise ValueError(f"Error reading dataset from path '{dataset_path}': {e}")
 
         # Initialize database
-        self.db = MilvusClient(alias="default")
-        # self.db.test_connection()
+        self.db = MilvusDB()
         self.top_k = top_k
         self.use_index = use_index
         self.probes = probes
@@ -198,7 +199,8 @@ class Experiment:
         self.metric = metric
         self.batch_size = batch_size
         self.normalize = normalize
-        self.embedder = get_embedder(model_name=embedding_model_name, device=device, normalize=normalize)
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
+        self.embedder = get_embedder(model_name=embedding_model_name, device=self.device, normalize=normalize)
         self.query_expansion_name = query_expansion
         self.query_expander = get_expander(query_expansion, path_to_data=EXPANSION_DATA_PATH)
         self.reranker_to_use = reranker_to_use
@@ -453,6 +455,9 @@ class Experiment:
         plt.savefig(f"experiments/results/{filename_base}/hitrate_vs_k_{filename_base}.png")
         plt.close()
 
+    def __clear_gpu_cache(self):
+        self.CLEAR_GPU_CACHE_FN[self.device]()
+
     def get_config_dict(self):
         return {
             "dataset": self.dataset_path,
@@ -496,10 +501,8 @@ class Experiment:
         rank_fuser = RankFuser(config=self.metrics_config) if self.metrics_config else None
 
         # Set up database for efficient queries
-        # self.db.set_session_resources(optimize_for="query", verbose=False)
-        # self.db.prewarm_table(self.target_table, target_column=self.target_column)
-        collection = Collection(name=self.target_table)
-        collection.load()
+        # collection = Collection(name=self.target_table)
+        # collection.load()
 
         # Create thread-safe queues for tasks and results
         task_queue = queue.Queue(maxsize=20)
@@ -509,48 +512,53 @@ class Experiment:
 
         # For tracking progress
         dataset_size = len(self.dataset)
-        producer_progress = 0
-        consumer_progress = 0
+        # producer_progress = 0
+        # consumer_progress = 0
 
         def consumer_thread():
             """Consumer thread that handles database queries and evaluations"""
-            nonlocal consumer_progress
+            # nonlocal consumer_progress
 
             # Create a dedicated database connection for this thread
             # thread_db = Database(path_to_env=".env")
             # thread_db.set_session_resources(optimize_for="query", verbose=False)
             thread_db = MilvusClient("default")
             thread_collection = Collection(name=self.target_table)
+            thread_collection.load()
 
             while True:
                 try:
                     # Get task from queue
-                    task = task_queue.get(timeout=60)
-                    if task is None:  # Sentinel to signal completion
-                        task_queue.task_done()
+                    batch_vectors = task_queue.get(timeout=30)
+                    if batch_vectors is None:  # Sentinel to signal completion
+                        # task_queue.task_done()
                         break
-                    example, embedding = task
+                    # example, embedding = task
 
                     # Query the database
-                    results = self.search(
+                    results = self.db.search(
                         collection=thread_collection,
-                        embedding=embedding,
-                        example=example,
+                        queries=batch_vectors,
+                        metric=self.metric,
+                        limit=self.top_k
                     )
 
                     # Reranking
-                    if rank_fuser is not None:
-                        results = rank_fuser(query=example, results=results, db=thread_db)
-                    if self.reranker is not None:
-                        results = self.reranker(query=example["expanded_query"], results=results)
+                    # if rank_fuser is not None:
+                    #     results = rank_fuser(query=example, results=results, db=thread_db)
+                    # if self.reranker is not None:
+                    #     results = self.reranker(query=example["expanded_query"], results=results)
 
-                    if len(results) != self.top_k:
-                        logger.warning(f"Expected {self.top_k} results, but got {len(results)}. ")
+                    # Log any anomalies in record retrieval
+                    if len(results) != len(batch_vectors):
+                        logger.warning(
+                            f"Expected {len(batch_vectors)} results, but got {len(results)} for batch starting with {batch_vectors[0]['sent_no_cit'][:100]}"
+                        )
+                    if len(results[0]) != self.top_k:
+                        logger.warning(f"Expected {self.top_k} results, but got {len(results)} for batch starting with {batch_vectors[0]['sent_no_cit'][:100]}.")
 
-                    # Convert results DataFrame to list[dict], lower overhead for serialization
-                    # results_list = results.to_dict(orient="records")
-                    results_list = results
-                    results_queue.put((example, results_list))
+
+                    results_queue.put(results)
 
                     # Thread-safe update of progress counter
                     with progress_lock, query_bar_lock:
@@ -569,10 +577,10 @@ class Experiment:
         # Start consumer threads
         num_workers = max(1, num_cpus - 1)  # Leave one core for the main thread
 
-        if self.reranker_to_use == "deberta_nli":
-            num_workers = min(
-                num_workers, 6
-            )  # Limit to 6 workers for DeBERTa reranker, which must host another model and process on GPU
+        # if self.reranker_to_use == "deberta_nli":
+        #     num_workers = min(
+        #         num_workers, 6
+        #     )  # Limit to 6 workers for DeBERTa reranker, which must host another model and process on GPU
         print(f"Starting {num_workers} database query workers")
 
         start = time()
@@ -590,39 +598,40 @@ class Experiment:
             ) as query_bar:
 
                 # Main thread acts as the producer
+                # Clear GPU cache every 50 batches
+                clear_cache_interval = self.batch_size * 50
                 for i in range(0, dataset_size, self.batch_size):
-                    # GPU cache clearing
-                    if i % 50 == 0:
-                        if self.device == "cuda":
-                            torch.cuda.empty_cache()
-                        elif self.device == "mps":
-                            torch.mps.empty_cache()
+                    if i % clear_cache_interval == 0:
+                        self.__clear_gpu_cache()
 
                     # Get batch, perform any query expansion & generate embeddings
-                    batch_indices = slice(i, i + self.batch_size)
-                    batch = self.dataset.iloc[batch_indices]
-
+                    batch = self.dataset.iloc[slice(i, i + self.batch_size)]
                     expanded_queries = self.query_expander(batch)
                     embeddings = self.embedder(expanded_queries)
 
-                    self.dataset.loc[batch.index, "expanded_query"] = expanded_queries
+                    # Convert to dicts
+                    batch_records = batch.to_dict(orient="records")
+                    # for record, vector in zip(batch_records, embeddings):
+                    #     record["vector"] = vector
 
-                    # Add tasks to queue and update producer progress
-                    for j in range(len(batch)):
-                        example_dict = batch.iloc[j].to_dict()
-                        embedding = embeddings[j]
-                        task_queue.put((example_dict, embedding))
+                    task_queue.put(embeddings)
 
-                        # Update producer progress
-                        producer_progress += 1
-                        embed_bar.update(1)
+                    # # Add tasks to queue and update producer progress
+                    # for j in range(len(batch)):
+                    #     example_dict = batch.iloc[j].to_dict()
+                    #     embedding = embeddings[j]
+                    #     task_queue.put((example_dict, embedding))
 
-                    # Check and update consumer progress
-                    current_consumer = consumer_progress  # Read once to avoid race conditions
-                    if current_consumer > query_bar.n:
-                        query_bar.update(current_consumer - query_bar.n)
+                    # Update producer progress
+                    # producer_progress += len(batch_records)
+                    embed_bar.update(len(batch_records))
 
-                # Add sentinel values to signal consumer completion
+                    # # Check and update consumer progress
+                    # current_consumer = consumer_progress  # Read once to avoid race conditions
+                    # if current_consumer > query_bar.n:
+                    #     query_bar.update(current_consumer - query_bar.n)
+
+                # Put sentinels on the task queue to signal consumer completion
                 for _ in range(num_workers):
                     task_queue.put(None)
 
@@ -630,8 +639,8 @@ class Experiment:
                 task_queue.join()
 
                 # Final consumer progress update
-                if consumer_progress > query_bar.n:
-                    query_bar.update(consumer_progress - query_bar.n)
+                # if consumer_progress > query_bar.n:
+                #     query_bar.update(consumer_progress - query_bar.n)
 
         # Append the (example dict, results list[dict]) pairs
         while not results_queue.empty():
@@ -706,7 +715,6 @@ def main():
 
         # Set up and run experiment
         experiment = Experiment(
-            device=device,
             dataset_path=config["dataset"],
             target_table=config["table"],
             target_column=config["target_column"],
@@ -733,40 +741,6 @@ def main():
         train, test = train_test_split_nontrivial("data/dataset/full/nontrivial.jsonl")
         write_train_test_to_file(train, test, "data/dataset/split/")
         return
-
-    # if args.query_plan:
-    #     # Set up resources
-    #     embedder = get_embedder(args.embedder, device=device)
-    #     db = Database()
-    #     db.test_connection()
-
-    #     # Generate query vector and query plan
-    #     embedding = embedder(["dummy text"])
-    #     embedding = embedding[0]
-    #     print(f"Query vector shape: {embedding.shape}")
-    #     print(f"type(embedding): {type(embedding)}")
-    #     # Print configuration table
-    #     print("\n" + "=" * 60)
-    #     print("QUERY PLAN CONFIGURATION")
-    #     print("=" * 60)
-    #     print(f"{'Parameter':<15} {'Value':<40}")
-    #     print("-" * 60)
-    #     print(f"{'Embedder':<15} {args.embedder:<40}")
-    #     print(f"{'Device':<15} {device:<40}")
-    #     print(f"{'Table Name':<15} {args.target_table:<40}")
-    #     print(f"{'Metric':<15} {'vector_cosine_ops':<40}")
-    #     print(f"{'Top K':<15} {args.top_k:<40}")
-    #     print(f"{'Probes':<15} {args.probes:<40}")
-    #     print(f"{'Batch Size':<15} {args.batch_size:<40}")
-    #     print("=" * 60 + "\n")
-
-    #     db.prewarm_table(args.target_table)
-    #     db.explain_analyze(
-    #         query_vector=embedding,
-    #         target_table=args.target_table,
-    #         metric="vector_cosine_ops",
-    #         top_k=args.top_k,
-    #     )
 
 
 if __name__ == "__main__":
