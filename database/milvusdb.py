@@ -11,6 +11,9 @@ load_dotenv("../.env")
 
 
 def argument_parser():
+    """
+    python milvusdb.py --create-collection --name <collection_name> --data-source <data_source> --embedder <embedder_name> [--normalize]
+    """
     parser = argparse.ArgumentParser(description="Milvus DB Management")
 
     operation_group = parser.add_mutually_exclusive_group(required=True)
@@ -18,12 +21,20 @@ def argument_parser():
     operation_group.add_argument("--create-collection", action="store_true", help="Create a new collection")
     operation_group.add_argument("--list-collections", action="store_true", help="List all collections")
     operation_group.add_argument("--healthcheck", action="store_true", help="Check the health of the Milvus server")
+    operation_group.add_argument("--describe-collection", type=str, help="Describe a collection")
+    operation_group.add_argument("--create-index", type=str, help="Create an index on a collection")
 
     # Arguments required when creating a collection
     parser.add_argument("--name", type=str, help="Name to give the new collection")
     parser.add_argument("--data-source", type=str, help="Path to the JSONL data file")
     parser.add_argument("--embedder", type=str, help="Name of the embedder (e.g. 'BAAI/bge-en-large-v1.5')")
     parser.add_argument("--normalize", action="store_true", help="Whether to normalize the embeddings")
+    parser.add_argument(
+        "--index-type", type=str, default="FLAT", help="Type of index to create (e.g. 'FLAT', 'IVF', etc.)"
+    )
+    parser.add_argument(
+        "--metric-type", type=str, default="IP", help="Metric type for the index (e.g. 'IP', 'L2', etc.)"
+    )
 
     args = parser.parse_args()
 
@@ -56,6 +67,48 @@ class MilvusDB:
         status = self.client.get_server_version()
         print(f"Milvus server version: {status}")
 
+    def _filter_existing_data(self, collection: Collection, data: pd.DataFrame) -> pd.DataFrame:
+        """Retrieve existing entities and filter out duplicates from input data"""
+
+        if collection.num_entities == 0:
+            print("Collection is empty. Will insert all data.")
+            return data
+
+        # Query all entities - retrieve text and doi fields
+        existing_entities = collection.query(
+            expr="", output_fields=["text", "doi"], limit=collection.num_entities  # Empty expression gets all entities
+        )
+
+        print(f"Retrieved {len(existing_entities)} existing entities from collection")
+        print(f"Dataset is {len(data)} rows")
+
+        # Create index on 'doi' on df for faster lookup
+        data.set_index("doi", inplace=True)
+
+        rows_to_remove = set()
+        for entity in existing_entities:
+            # If single result, this is pd.Series, multiple results -> pd.DataFrame
+            matching_rows = data.loc[entity["doi"]]
+            if isinstance(matching_rows, pd.Series):  # ensures matching_rows is df
+                matching_rows = matching_rows.to_frame().T
+
+            for idx, row in matching_rows.iterrows():
+                if row["text"][:100] == entity["text"][:100]:  # Compare first 100 chars of text
+                    rows_to_remove.add(idx)
+
+        # Drop rows already inserted, and set 'doi' back to a column
+        data = data.drop(index=rows_to_remove)
+        data.reset_index(drop=False, inplace=True)
+        print(f"Dataset is now {len(data)} rows")
+
+        return data
+
+    def create_index(self, collection_name, index_type: str = "FLAT", metric_type: str = "IP"):
+        collection = Collection(collection_name)
+        collection.create_index(
+            field_name="vector", index_params={"index_type": index_type, "metric_type": metric_type}
+        )
+
     def create_vector_collection(self, name: str, data_source: str, embedder_name: str, normalize: bool):
         """
         Creates a collection using the base fields and a single vector field inferred by the embedder.
@@ -71,18 +124,14 @@ class MilvusDB:
             embedder_name: Name of the embedder to use for generating vector embeddings
             normalize: Whether to normalize the embeddings
         """
-        if name in self.client.list_collections():
-            print(f"Collection '{name}' already exists.")
-            return
-
-        # Make sure we have CPU count available
+        # Make sure we have CPU count set
         assert "CPUS" in os.environ, "CPUS environment variable not set."
         try:
             num_cpus = int(os.getenv("CPUS"))
         except ValueError:
             raise ValueError(f"Invalid value for CPUS environment variable.")
 
-        # Load in data and embedder to be used
+        # Load and check data, load embedder
         data = pd.read_json(data_source, lines=True)
         assert set(data.columns) == {
             "text",
@@ -91,28 +140,69 @@ class MilvusDB:
         }, "DataFrame must contain 'text', 'doi', and 'pubdate' columns (and no others)."
         embedder = get_embedder(embedder_name, device=self.device, normalize=normalize)
 
+        # Check if collection already exists and handle resumption
+        if name in self.client.list_collections():
+            print(f"Collection '{name}' already exists. Checking for existing data...")
+            collection = Collection(name)
+            collection.load()  # Ensure collection is loaded
+
+            if len(data) == collection.num_entities:
+                print("Data source length same as collection, there appears to be nothing to insert.")
+                return
+
+            # Filter out existing data from input
+            data = self._filter_existing_data(collection, data)
+
+        else:
+            # Create new collection
+            print(f"Creating new collection '{name}'...")
+            # Set up the schema
+            schema = self.client.create_schema(
+                auto_id=True,
+                enable_dynamic_field=True,
+            )
+            vector_field = {"field_name": "vector", "datatype": DataType.FLOAT_VECTOR, "dim": embedder.dim}
+            for field in self.BASE_FIELDS + [vector_field]:
+                schema.add_field(**field)
+
+            self.client.create_collection(collection_name=name, schema=schema)
+            print(f"Collection '{name}' created")
+            collection = Collection(name)
+            collection.create_index(field_name="vector", index_params={"index_type": "FLAT", "metric_type": "IP"})
+
         # Print a table of the collection to be created, num cpus, embedder name and its dimension
-        print(
-            f"| {'Collection Name':<20} | {'Num CPUs':<10} | {'Embedder Name':<25} | {'Embedder Dim':<12} | {'Device':<10} |"
-        )
-        print(f"| {name:<20} | {num_cpus:<10} | {embedder_name:<25} | {embedder.dim:<12} | {self.device:<10} |")
+        print("=" * 50)
+        print("COLLECTION CREATION SUMMARY")
+        print("=" * 50)
+        print(f"Collection Name     : {name}")
+        print(f"Collection Entities : {collection.num_entities}")
+        print(f"Num CPUs            : {num_cpus}")
+        print(f"Embedder Name       : {embedder_name}")
+        print(f"Embedder Dimension  : {embedder.dim}")
+        print(f"Normalize           : {normalize}")
+        print(f"Device              : {self.device}")
+        print(f"Data source         : {data_source}")
+        print(f"Data size           : {len(data)} rows")
+        print("=" * 50)
 
-        # Set up the schema
-        schema = self.client.create_schema(
-            auto_id=True,
-            enable_dynamic_field=True,
-        )
-        vector_field = {"field_name": "vector", "datatype": DataType.FLOAT_VECTOR, "dim": embedder.dim}
-        for field in self.BASE_FIELDS + [vector_field]:
-            schema.add_field(**field)
-
-        self.client.create_collection(collection_name=name, schema=schema)
-        print(f"Collection '{name}' created")
-        collection = Collection(name)
         self.__embed_and_insert(collection=collection, embedder=embedder, data=data, num_cpus=num_cpus)
 
-        # # Create Milvus-required index on vector column
-        # collection.create_index(field_name="vector", index_params={"index_type": "FLAT", "metric_type": "IP"})
+        print(f"New collection {collection.name}: {collection.num_entities} entities")
+
+    def describe_collection(self, name: str):
+        if not name in self.client.list_collections():
+            print(f"Collection '{name}' does not exist.")
+            return
+
+        try:
+            res = self.client.describe_collection(name)
+            print(f"Collection '{name}' description:")
+            for key, value in res.items():
+                print(f"  {key}: {value}")
+            collection = Collection(name)
+            print("Number of entities:", collection.num_entities)
+        except Exception as e:
+            print(f"Error describing collection '{name}': {e}")
 
     def drop_collection(self, name: str):
         if self.client.has_collection(name):
@@ -127,7 +217,6 @@ class MilvusDB:
         for collection_name in collections:
             collection = Collection(collection_name)
             print(f" - {collection_name}: {collection.num_entities} entities")
-
 
     def search(
         self, collection: Collection, queries: list[float], metric: str = "IP", limit: int = 3
@@ -188,33 +277,35 @@ class MilvusDB:
 
         insert_queue = queue.Queue(maxsize=num_cpus * 2)
         insertion_lock = threading.Lock()
-
-        num_entities = len(data)
-        data["vector"] = None
+        FLUSH_INTERVAL = 1000
+        inserted_count = 0  # Counter the insert_workers use to determine when to flush
 
         def insert_worker():
+            nonlocal inserted_count
             while True:
                 try:
                     # Get batch and check if the queue is empty
-                    # batch_records = insert_queue.get(timeout=30)
                     batch_records = insert_queue.get()
                     if batch_records is None:
-                        return # finally will still call task_done()
+                        return  # finally will still call task_done()
 
-                    # Insert batch, update progress bar
                     collection.insert(batch_records)
                     with insertion_lock:
                         insert_bar.update(len(batch_records))
+                        inserted_count += len(batch_records)
+                        if inserted_count >= FLUSH_INTERVAL:
+                            collection.flush()
+                            inserted_count = 0
+                            print(f"FLUSH!!!!", flush=True)
 
-                # except queue.Empty:
-                #     print("Insertion worker timed out waiting for data.")
-                #     break
                 except Exception as e:
                     print(f"Insertion worker encountered an error: {e}")
                 finally:
                     insert_queue.task_done()
 
         num_workers = max(1, num_cpus - 1)
+        num_entities = len(data)
+        flush_interval = batch_size  # Flush every batch
         futures = []
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             for _ in range(num_workers):
@@ -250,11 +341,9 @@ class MilvusDB:
                 for f in futures:
                     f.result()
 
-        print("All insertions complete.")
-        print("Flushing to disk...")
+        print("All insertions complete. Flushing to disk...", end="")
         collection.flush()
-        collection.create_index(field_name="vector", index_params={"index_type": "FLAT", "metric_type": "IP"})
-        print(f"New collection {collection.name}: {collection.num_entities} entities")
+        print("done!")
 
 
 def main():
@@ -268,6 +357,10 @@ def main():
         db.create_vector_collection(
             name=args.name, data_source=args.data_source, embedder_name=args.embedder, normalize=args.normalize
         )
+    elif args.create_index:
+        db.create_index(collection_name=args.create_index, index_type=args.index_type, metric_type=args.metric_type)
+    elif args.describe_collection:
+        db.describe_collection(args.describe_collection)
     elif args.list_collections:
         db.list_collections()
     elif args.healthcheck:
