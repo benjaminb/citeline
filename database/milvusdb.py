@@ -77,58 +77,22 @@ class MilvusDB:
         print(f"Retrieving {collection.num_entities} existing entities from collection '{collection.name}'...")
 
         # Use iterator to get ALL entities without offset/limit constraints
-        try:
-            iterator = collection.query_iterator(
-                expr="", output_fields=["text", "doi"], batch_size=1000  # Process in smaller batches
-            )
+        iterator = collection.query_iterator(
+            expr="", output_fields=["text", "doi"], batch_size=1000  # Process in smaller batches
+        )
 
-            all_existing_entities = []
-            progress_bar = tqdm(total=collection.num_entities, desc="Querying existing entities")
+        all_existing_entities = []
+        progress_bar = tqdm(total=collection.num_entities, desc="Querying existing entities")
 
-            while True:
-                batch = iterator.next()
-                if not batch:
-                    break
-                all_existing_entities.extend(batch)
-                progress_bar.update(len(batch))
+        while True:
+            batch = iterator.next()
+            if not batch:
+                break
+            all_existing_entities.extend(batch)
+            progress_bar.update(len(batch))
 
-            progress_bar.close()
-            iterator.close()
-
-        except AttributeError:
-            # Fallback to old method if query_iterator doesn't exist
-            print("Warning: query_iterator not available, using fallback method with 16384 limit")
-
-            # Fallback to original batched query method
-            max_window = 16384
-            all_existing_entities = []
-
-            offset = 0
-            progress_bar = tqdm(total=min(collection.num_entities, max_window), desc="Querying existing entities")
-
-            while offset < collection.num_entities and offset < max_window:
-                remaining_entities = collection.num_entities - offset
-                max_limit_for_offset = max_window - offset
-                limit = min(remaining_entities, max_limit_for_offset)
-
-                if limit <= 0:
-                    break
-
-                batch_entities = collection.query(
-                    expr="",
-                    output_fields=["text", "doi"],
-                    limit=limit,
-                    offset=offset,
-                )
-                all_existing_entities.extend(batch_entities)
-
-                offset += limit
-                progress_bar.update(len(batch_entities))
-
-            progress_bar.close()
-
-            if collection.num_entities > max_window:
-                print(f"Warning: Only checked first {max_window} entities out of {collection.num_entities}")
+        progress_bar.close()
+        iterator.close()
 
         print(f"Retrieved {len(all_existing_entities)} existing entities from collection")
         print(f"Dataset is {len(data)} rows")
@@ -136,17 +100,18 @@ class MilvusDB:
         # Create index on 'doi' on df for faster lookup
         data.set_index("doi", inplace=True)
 
-        rows_to_remove = set()
-        for entity in tqdm(all_existing_entities, desc="Checking for duplicates"):
-            if entity["doi"] in data.index:  # Check if DOI exists in our data
-                # If single result, this is pd.Series, multiple results -> pd.DataFrame
-                matching_rows = data.loc[entity["doi"]]
-                if isinstance(matching_rows, pd.Series):  # ensures matching_rows is df
-                    matching_rows = matching_rows.to_frame().T
+        # Create a set of existing (doi, text_prefix) for fast lookup
+        existing_keys = set()
+        for entity in tqdm(all_existing_entities, desc="Building existing keys set"):
+            text_prefix = entity["text"][:100] if entity["text"] else ""
+            existing_keys.add((entity["doi"], text_prefix))
 
-                for idx, row in matching_rows.iterrows():
-                    if row["text"][:100] == entity["text"][:100]:  # Compare first 100 chars of text
-                        rows_to_remove.add(idx)
+        # Check data against existing keys
+        rows_to_remove = set()
+        for doi, row in tqdm(data.iterrows(), desc="Checking for duplicates"):
+            text_prefix = row["text"][:100] if row["text"] else ""
+            if (doi, text_prefix) in existing_keys:
+                rows_to_remove.add(doi)
 
         # Drop rows already inserted, and set 'doi' back to a column
         data = data.drop(index=rows_to_remove)
