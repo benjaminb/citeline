@@ -1,11 +1,11 @@
 python milvusdb.py --create-collection \
---name bge_chunks \
+--name astrollama_chunks \
 --data-source ../data/research_chunks.jsonl \
---embedder BAAI/bge-large-en-v1.5 \
+--embedder UniverseTBD/astrollama \
 --normalize
 
 python milvusdb.py --create-collection \
---name bge_contributions \
+--name astrollama_contributions \
 --data-source ../data/research_contributions.jsonl \
---embedder BAAI/bge-large-en-v1.5 \
+--embedder UniverseTBD/astrollama \
 --normalize
