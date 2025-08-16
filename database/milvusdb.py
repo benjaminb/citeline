@@ -103,16 +103,21 @@ class MilvusDB:
             text_prefix = entity["text"][:100] if entity["text"] else ""
             existing_keys.add((entity["doi"], text_prefix))
 
-        # Track original indices before setting DOI as index
-        data_with_original_index = data.reset_index(names=["original_index"])
-        data_with_original_index.set_index("doi", inplace=True)
+        print(f"Built {len(existing_keys)} unique (doi, text_prefix) keys from existing entities")
 
         # Check data against existing keys - remove rows that already exist in collection
         rows_to_remove = set()
-        for doi, row in tqdm(data_with_original_index.iterrows(), desc="Filtering already inserted data"):
+        matches_found = 0
+
+        for idx, row in tqdm(data.iterrows(), desc="Filtering already inserted data"):
             text_prefix = row["text"][:100] if row["text"] else ""
-            if (doi, text_prefix) in existing_keys:
-                rows_to_remove.add(row["original_index"])  # Use original index
+            key = (row["doi"], text_prefix)
+            if key in existing_keys:
+                rows_to_remove.add(idx)
+                matches_found += 1
+
+        print(f"Debug: Found {matches_found} exact matches out of {len(data)} rows")
+        print(f"Debug: Removing {len(rows_to_remove)} rows")
 
         # Drop rows already inserted using original indices
         data = data.drop(index=rows_to_remove)
