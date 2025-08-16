@@ -100,7 +100,7 @@ class MilvusDB:
         # Create a set of existing (doi, text_prefix) for fast lookup
         existing_keys = set()
         for entity in tqdm(all_existing_entities, desc="Building existing keys set"):
-            text_prefix = entity["text"][:100] if entity["text"] else ""
+            text_prefix = entity["text"][:100]
             existing_keys.add((entity["doi"], text_prefix))
 
         print(f"Built {len(existing_keys)} unique (doi, text_prefix) keys from existing entities")
@@ -110,7 +110,7 @@ class MilvusDB:
         matches_found = 0
 
         for idx, row in tqdm(data.iterrows(), desc="Filtering already inserted data"):
-            text_prefix = row["text"][:100] if row["text"] else ""
+            text_prefix = row["text"][:100]
             key = (row["doi"], text_prefix)
             if key in existing_keys:
                 rows_to_remove.add(idx)
