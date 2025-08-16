@@ -97,25 +97,25 @@ class MilvusDB:
         print(f"Retrieved {len(all_existing_entities)} existing entities from collection")
         print(f"Dataset is {len(data)} rows")
 
-        # Create index on 'doi' on df for faster lookup
-        data.set_index("doi", inplace=True)
-
         # Create a set of existing (doi, text_prefix) for fast lookup
         existing_keys = set()
         for entity in tqdm(all_existing_entities, desc="Building existing keys set"):
             text_prefix = entity["text"][:100] if entity["text"] else ""
             existing_keys.add((entity["doi"], text_prefix))
 
-        # Check data against existing keys
+        # Track original indices before setting DOI as index
+        data_with_original_index = data.reset_index(names=["original_index"])
+        data_with_original_index.set_index("doi", inplace=True)
+
+        # Check data against existing keys - remove rows that already exist in collection
         rows_to_remove = set()
-        for doi, row in tqdm(data.iterrows(), desc="Checking for duplicates"):
+        for doi, row in tqdm(data_with_original_index.iterrows(), desc="Filtering already inserted data"):
             text_prefix = row["text"][:100] if row["text"] else ""
             if (doi, text_prefix) in existing_keys:
-                rows_to_remove.add(doi)
+                rows_to_remove.add(row["original_index"])  # Use original index
 
-        # Drop rows already inserted, and set 'doi' back to a column
+        # Drop rows already inserted using original indices
         data = data.drop(index=rows_to_remove)
-        data.reset_index(drop=False, inplace=True)
 
         removed_count = len(rows_to_remove)
         print(f"Found {removed_count} already inserted entries.")
