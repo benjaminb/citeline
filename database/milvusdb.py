@@ -76,19 +76,59 @@ class MilvusDB:
 
         print(f"Retrieving {collection.num_entities} existing entities from collection '{collection.name}'...")
 
-        # Milvus has a hard limit of 16384 entities per query
-        batch_size = 16384
-        all_existing_entities = []
-
-        # Query in batches to handle the 16384 limit
-        for offset in tqdm(range(0, collection.num_entities, batch_size), desc="Querying existing entities"):
-            batch_entities = collection.query(
-                expr="",
-                output_fields=["text", "doi"],
-                limit=min(batch_size, collection.num_entities - offset),
-                offset=offset,
+        # Use iterator to get ALL entities without offset/limit constraints
+        try:
+            iterator = collection.query_iterator(
+                expr="", output_fields=["text", "doi"], batch_size=1000  # Process in smaller batches
             )
-            all_existing_entities.extend(batch_entities)
+
+            all_existing_entities = []
+            progress_bar = tqdm(total=collection.num_entities, desc="Querying existing entities")
+
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                all_existing_entities.extend(batch)
+                progress_bar.update(len(batch))
+
+            progress_bar.close()
+            iterator.close()
+
+        except AttributeError:
+            # Fallback to old method if query_iterator doesn't exist
+            print("Warning: query_iterator not available, using fallback method with 16384 limit")
+
+            # Fallback to original batched query method
+            max_window = 16384
+            all_existing_entities = []
+
+            offset = 0
+            progress_bar = tqdm(total=min(collection.num_entities, max_window), desc="Querying existing entities")
+
+            while offset < collection.num_entities and offset < max_window:
+                remaining_entities = collection.num_entities - offset
+                max_limit_for_offset = max_window - offset
+                limit = min(remaining_entities, max_limit_for_offset)
+
+                if limit <= 0:
+                    break
+
+                batch_entities = collection.query(
+                    expr="",
+                    output_fields=["text", "doi"],
+                    limit=limit,
+                    offset=offset,
+                )
+                all_existing_entities.extend(batch_entities)
+
+                offset += limit
+                progress_bar.update(len(batch_entities))
+
+            progress_bar.close()
+
+            if collection.num_entities > max_window:
+                print(f"Warning: Only checked first {max_window} entities out of {collection.num_entities}")
 
         print(f"Retrieved {len(all_existing_entities)} existing entities from collection")
         print(f"Dataset is {len(data)} rows")
