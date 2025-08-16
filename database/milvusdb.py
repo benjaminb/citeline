@@ -74,31 +74,46 @@ class MilvusDB:
             print("Collection is empty. Will insert all data.")
             return data
 
-        # Query all entities - retrieve text and doi fields
-        existing_entities = collection.query(
-            expr="", output_fields=["text", "doi"], limit=collection.num_entities  # Empty expression gets all entities
-        )
+        print(f"Retrieving {collection.num_entities} existing entities from collection '{collection.name}'...")
 
-        print(f"Retrieved {len(existing_entities)} existing entities from collection")
+        # Milvus has a hard limit of 16384 entities per query
+        batch_size = 16384
+        all_existing_entities = []
+
+        # Query in batches to handle the 16384 limit
+        for offset in tqdm(range(0, collection.num_entities, batch_size), desc="Querying existing entities"):
+            batch_entities = collection.query(
+                expr="",
+                output_fields=["text", "doi"],
+                limit=min(batch_size, collection.num_entities - offset),
+                offset=offset,
+            )
+            all_existing_entities.extend(batch_entities)
+
+        print(f"Retrieved {len(all_existing_entities)} existing entities from collection")
         print(f"Dataset is {len(data)} rows")
 
         # Create index on 'doi' on df for faster lookup
         data.set_index("doi", inplace=True)
 
         rows_to_remove = set()
-        for entity in existing_entities:
-            # If single result, this is pd.Series, multiple results -> pd.DataFrame
-            matching_rows = data.loc[entity["doi"]]
-            if isinstance(matching_rows, pd.Series):  # ensures matching_rows is df
-                matching_rows = matching_rows.to_frame().T
+        for entity in tqdm(all_existing_entities, desc="Checking for duplicates"):
+            if entity["doi"] in data.index:  # Check if DOI exists in our data
+                # If single result, this is pd.Series, multiple results -> pd.DataFrame
+                matching_rows = data.loc[entity["doi"]]
+                if isinstance(matching_rows, pd.Series):  # ensures matching_rows is df
+                    matching_rows = matching_rows.to_frame().T
 
-            for idx, row in matching_rows.iterrows():
-                if row["text"][:100] == entity["text"][:100]:  # Compare first 100 chars of text
-                    rows_to_remove.add(idx)
+                for idx, row in matching_rows.iterrows():
+                    if row["text"][:100] == entity["text"][:100]:  # Compare first 100 chars of text
+                        rows_to_remove.add(idx)
 
         # Drop rows already inserted, and set 'doi' back to a column
         data = data.drop(index=rows_to_remove)
         data.reset_index(drop=False, inplace=True)
+
+        removed_count = len(rows_to_remove)
+        print(f"Found {removed_count} already inserted entries.")
         print(f"Dataset is now {len(data)} rows")
 
         return data
