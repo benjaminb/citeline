@@ -218,6 +218,9 @@ class Experiment:
         self.search = supported_strategies[strategy]  # Search function to use in .run()
 
         # Prepare attributes for results
+        self.recall_matrix = None
+        self.hitrate_matrix = None
+        self.iou_matrix = None
         self.stats_by_topk = {k: {"hitrates": [], "jaccards": []} for k in range(1, top_k + 1)}
         self.jaccard_scores = {threshold: [] for threshold in DISTANCE_THRESHOLDS}
         """
@@ -417,42 +420,93 @@ class Experiment:
         #     json.dump(query_results_json, f)
 
         # Note that k here are keys from 1 to top_k, so the list index = k - 1
-        avg_jaccards = [
-            sum(self.stats_by_topk[k]["jaccards"]) / len(self.stats_by_topk[k]["jaccards"]) for k in self.stats_by_topk
-        ]
-        average_hit_rates = [self.stats_by_topk[k]["avg_hitrate"] for k in self.stats_by_topk]
 
         output = {
             "config": self.get_config_dict(),
             "average_score": self.average_score,
             "ef_search": self.ef_search,
             "best_top_ks": self.best_top_ks,
-            "average_hit_rates": average_hit_rates,
-            "average_jaccards": avg_jaccards,
-            "first_rank": self.first_rank,
-            "last_rank": self.last_rank,
+            "average_hitrate_at_k": self.avg_hitrate_at_k,
+            "average_iou_at_k": self.avg_iou_at_k,
+            "average_recall_at_k": self.avg_recall_at_k,
         }
 
         with open(f"experiments/results/{filename_base}/results_{filename_base}.json", "w") as f:
             json.dump(output, f)
 
-        self.__plot_results(filename_base, output)
+        self.__plot_results(filename_base)
 
-    def __plot_results(self, filename_base, output):
+    def __plot_results(self, filename_base):
         import matplotlib.pyplot as plt
 
         k_values = [k for k in range(1, self.top_k + 1)]
 
+        # # Make a plot of the average hit rates (y-axis) and IoU (Jaccard) vs. top-k (x-axis)
+        # plt.figure(figsize=(10, 10))
+        # plt.plot(k_values, self.avg_hitrate_at_k, linestyle="-", label="Average Hit Rate@k", color="blue")
+        # plt.plot(k_values, self.avg_iou_at_k, linestyle="-", label="Average IoU@k", color="green")
+        # plt.plot(k_values, self.avg_recall_at_k, linestyle="-", label="Average Recall@k", color="red")
+        # plt.xlabel("Top-k")
+        # plt.ylabel("Score")
+        # plt.title("Stats@k")
+        # plt.legend()
+        # plt.grid()
+        # plt.savefig(f"experiments/results/{filename_base}/stats_at_k_{filename_base}.png")
+        # plt.close()
         # Make a plot of the average hit rates (y-axis) and IoU (Jaccard) vs. top-k (x-axis)
-        plt.figure(figsize=(10, 6))
-        plt.plot(k_values, output["average_hit_rates"], linestyle="-", label="Average Hit Rate", color="blue")
-        plt.plot(k_values, output["average_jaccards"], linestyle="-", label="Average Jaccard", color="orange")
+        
+        plt.figure(figsize=(12, 8))  # Slightly larger to accommodate annotations
+
+        # Plot the lines
+        (line1,) = plt.plot(k_values, self.avg_hitrate_at_k, linestyle="-", label="Average Hit Rate@k", color="blue")
+        (line2,) = plt.plot(k_values, self.avg_iou_at_k, linestyle="-", label="Average IoU@k", color="green")
+        (line3,) = plt.plot(k_values, self.avg_recall_at_k, linestyle="-", label="Average Recall@k", color="red")
+
+        # Add annotations every 100 values
+        annotation_interval = 100
+        for i in range(0, len(k_values), annotation_interval):
+            k = k_values[i]
+
+            # Annotate hit rate
+            plt.annotate(
+                f"{self.avg_hitrate_at_k[i]:.3f}",
+                xy=(k, self.avg_hitrate_at_k[i]),
+                xytext=(5, 5),
+                textcoords="offset points",
+                fontsize=8,
+                color="blue",
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7),
+            )
+
+            # Annotate IoU
+            plt.annotate(
+                f"{self.avg_iou_at_k[i]:.3f}",
+                xy=(k, self.avg_iou_at_k[i]),
+                xytext=(5, -15),
+                textcoords="offset points",
+                fontsize=8,
+                color="green",
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7),
+            )
+
+            # Annotate recall
+            plt.annotate(
+                f"{self.avg_recall_at_k[i]:.3f}",
+                xy=(k, self.avg_recall_at_k[i]),
+                xytext=(5, -25),
+                textcoords="offset points",
+                fontsize=8,
+                color="red",
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7),
+            )
+
         plt.xlabel("Top-k")
         plt.ylabel("Score")
-        plt.title("Average Hit Rates and IoU vs. Top-k")
+        plt.title("Stats@k")
         plt.legend()
         plt.grid()
-        plt.savefig(f"experiments/results/{filename_base}/hitrate_vs_k_{filename_base}.png")
+        plt.tight_layout()  # Adjust layout to prevent clipping of annotations
+        plt.savefig(f"experiments/results/{filename_base}/stats_at_k_{filename_base}.png", dpi=300, bbox_inches="tight")
         plt.close()
 
     def __clear_gpu_cache(self):
@@ -508,39 +562,27 @@ class Experiment:
         task_queue = queue.Queue(maxsize=20)
         results_queue = queue.Queue()
         progress_lock = threading.Lock()
-        query_bar_lock = threading.Lock()
 
         # For tracking progress
         dataset_size = len(self.dataset)
-        # producer_progress = 0
-        # consumer_progress = 0
+        consumer_progress = 0
 
         def consumer_thread():
             """Consumer thread that handles database queries and evaluations"""
-            # nonlocal consumer_progress
+            nonlocal consumer_progress
 
-            # Create a dedicated database connection for this thread
-            # thread_db = Database(path_to_env=".env")
-            # thread_db.set_session_resources(optimize_for="query", verbose=False)
-            thread_db = MilvusClient("default")
             thread_collection = Collection(name=self.target_table)
             thread_collection.load()
 
             while True:
                 try:
-                    # Get task from queue
-                    batch_vectors = task_queue.get(timeout=30)
-                    if batch_vectors is None:  # Sentinel to signal completion
-                        # task_queue.task_done()
+                    batch_records, embeddings = task_queue.get(timeout=90)
+                    if embeddings is None:  # Sentinel to signal completion
                         break
-                    # example, embedding = task
 
                     # Query the database
-                    results = self.db.search(
-                        collection=thread_collection,
-                        queries=batch_vectors,
-                        metric=self.metric,
-                        limit=self.top_k
+                    search_results = self.db.search(
+                        collection=thread_collection, queries=embeddings, metric=self.metric, limit=self.top_k
                     )
 
                     # Reranking
@@ -550,37 +592,31 @@ class Experiment:
                     #     results = self.reranker(query=example["expanded_query"], results=results)
 
                     # Log any anomalies in record retrieval
-                    if len(results) != len(batch_vectors):
-                        logger.warning(
-                            f"Expected {len(batch_vectors)} results, but got {len(results)} for batch starting with {batch_vectors[0]['sent_no_cit'][:100]}"
-                        )
-                    if len(results[0]) != self.top_k:
-                        logger.warning(f"Expected {self.top_k} results, but got {len(results)} for batch starting with {batch_vectors[0]['sent_no_cit'][:100]}.")
+                    if len(search_results) != len(embeddings):
+                        logger.warning(f"Expected {len(embeddings)} results, but got {len(search_results)} for batch")
+                    if len(search_results[0]) != self.top_k:
+                        logger.warning(f"Expected {self.top_k} results, but got {len(search_results[0])} for batch.")
 
-
-                    results_queue.put(results)
+                    # Put the (records, results) pair on queue for stats computation later
+                    results_queue.put((batch_records, search_results))
 
                     # Thread-safe update of progress counter
-                    with progress_lock, query_bar_lock:
-                        consumer_progress += 1
-                        query_bar.update(1)  # Update progress bar directly
+                    with progress_lock:
+                        consumer_progress += len(embeddings)
 
-                    task_queue.task_done()
-
-                except queue.Empty:
-                    print("Consumer timeout waiting for tasks")
+                except queue.Empty as e:
+                    print(f"Consumer timeout waiting for tasks (or queue empty?) {str(e)}")
                     break
                 except Exception as e:
                     print(f"Consumer thread error: {str(e)}")
+                finally:
                     task_queue.task_done()
 
         # Start consumer threads
         num_workers = max(1, num_cpus - 1)  # Leave one core for the main thread
 
         # if self.reranker_to_use == "deberta_nli":
-        #     num_workers = min(
-        #         num_workers, 6
-        #     )  # Limit to 6 workers for DeBERTa reranker, which must host another model and process on GPU
+        #     num_workers = min(num_workers, 6)  # Limit to 6 workers for DeBERTa reranker, which must host another model and process on GPU
         print(f"Starting {num_workers} database query workers")
 
         start = time()
@@ -593,9 +629,9 @@ class Experiment:
                 consumer_threads.append(thread)
 
             # Create progress bars
-            with tqdm(total=dataset_size, desc="Embedding (GPU)", position=0) as embed_bar, tqdm(
+            with tqdm(total=dataset_size, desc="Embedding (GPU)", position=0) as producer_bar, tqdm(
                 total=dataset_size, desc="DB Queries", position=1
-            ) as query_bar:
+            ) as consumer_bar:
 
                 # Main thread acts as the producer
                 # Clear GPU cache every 50 batches
@@ -609,46 +645,58 @@ class Experiment:
                     expanded_queries = self.query_expander(batch)
                     embeddings = self.embedder(expanded_queries)
 
-                    # Convert to dicts
+                    # Convert to dicts and put on queue for consumer
                     batch_records = batch.to_dict(orient="records")
-                    # for record, vector in zip(batch_records, embeddings):
-                    #     record["vector"] = vector
+                    task_queue.put((batch_records, embeddings))
+                    producer_bar.update(len(batch_records))
 
-                    task_queue.put(embeddings)
-
-                    # # Add tasks to queue and update producer progress
-                    # for j in range(len(batch)):
-                    #     example_dict = batch.iloc[j].to_dict()
-                    #     embedding = embeddings[j]
-                    #     task_queue.put((example_dict, embedding))
-
-                    # Update producer progress
-                    # producer_progress += len(batch_records)
-                    embed_bar.update(len(batch_records))
-
-                    # # Check and update consumer progress
-                    # current_consumer = consumer_progress  # Read once to avoid race conditions
-                    # if current_consumer > query_bar.n:
-                    #     query_bar.update(current_consumer - query_bar.n)
+                    # Update consumer progress bar
+                    with progress_lock:
+                        current_consumer_progress = consumer_progress
+                    if current_consumer_progress > consumer_bar.n:
+                        consumer_bar.update(current_consumer_progress - consumer_bar.n)
 
                 # Put sentinels on the task queue to signal consumer completion
                 for _ in range(num_workers):
-                    task_queue.put(None)
+                    task_queue.put((None, None))
 
                 # Wait for all tasks to be processed
                 task_queue.join()
 
                 # Final consumer progress update
-                # if consumer_progress > query_bar.n:
-                #     query_bar.update(consumer_progress - query_bar.n)
+                with progress_lock:
+                    final_consumer_progress = consumer_progress
 
-        # Append the (example dict, results list[dict]) pairs
+                if final_consumer_progress > consumer_bar.n:
+                    consumer_bar.update(final_consumer_progress - consumer_bar.n)
+
+        # Initialize the results matrices and compute stats
+        self.hitrate_matrix = np.zeros((len(self.dataset), self.top_k))
+        self.iou_matrix = np.zeros((len(self.dataset), self.top_k))
+        self.recall_matrix = np.zeros((len(self.dataset), self.top_k))
+        stats_idx = 0
         while not results_queue.empty():
-            self.query_results.append(results_queue.get())
+            batch_records, batch_results = results_queue.get()
+            stats = self._compute_metrics_batch(batch_records, batch_results)
+
+            # Insert stats' B * self.top_k arrays onto the corresponding matrices
+            self.recall_matrix[stats_idx : stats_idx + len(batch_records), :] = stats["recall_at_k"]
+            self.iou_matrix[stats_idx : stats_idx + len(batch_records), :] = stats["iou_at_k"]
+            self.hitrate_matrix[stats_idx : stats_idx + len(batch_records), :] = stats["hitrate_at_k"]
+            stats_idx += len(batch_records)
+
+        # Ensure we processed everything we enqueued
+        if stats_idx != len(self.dataset):
+            logger.warning(f"Stats rows filled ({stats_idx}) != dataset size ({len(self.dataset)}).")
+
+        # Compute summary directly from matrices (don’t call __compute_stats)
+        self.avg_recall_at_k = self.recall_matrix.mean(axis=0)
+        self.avg_hitrate_at_k = self.hitrate_matrix.mean(axis=0)
+        self.avg_iou_at_k = self.iou_matrix.mean(axis=0)
 
         print(f"Experiment computed in {time() - start:.2f} seconds")
         start = time()
-        self.__compute_stats()
+        # self.__compute_stats()
         print(f"Stats computed in {time() - start:.2f} seconds")
         self.__write_run_results()
 
@@ -673,6 +721,64 @@ class Experiment:
             f"{'ef_search':<20}: {self.ef_search}\n"
             f"{'='*40}\n"
         )
+
+    def _compute_metrics(self, example, results) -> dict[str, np.ndarray]:
+        """
+        Computes the metrics for a single example and its results.
+        Returns a dictionary of metrics.
+        """
+        hit_dois = set()  # Dois in retrieved entities
+        target_dois = example["citation_dois"]
+        retrieved_dois = set()
+        union_dois = set(target_dois)
+        hitrate_at_k = np.zeros(self.top_k)
+        iou_at_k = np.zeros(self.top_k)
+        recall_at_k = np.zeros(self.top_k)
+
+        # Iterate over the results
+        for i, result in enumerate(results):
+            # Add retrieved DOI at this rank to retrieved_dois and union
+            doi = result["doi"]
+            retrieved_dois.add(doi)
+            union_dois.add(doi)
+            if doi in target_dois:
+                hit_dois.add(doi)
+
+            # Compute and store stats
+            recall = len(hit_dois) / len(target_dois) if target_dois else 0
+            hitrate = int(recall > 0)  # 1 if hit, 0 otherwise
+            iou = len(hit_dois) / len(union_dois) if union_dois else 0
+
+            recall_at_k[i] = recall
+            hitrate_at_k[i] = hitrate
+            iou_at_k[i] = iou
+
+        return {
+            "recall_at_k": recall_at_k,
+            "hitrate_at_k": hitrate_at_k,
+            "iou_at_k": iou_at_k,
+        }
+
+    def _compute_metrics_batch(self, examples, batch_results):
+
+        # Initialize metrics
+        batch_recall = np.zeros((len(examples), self.top_k))
+        batch_hitrate = np.zeros((len(examples), self.top_k))
+        batch_iou = np.zeros((len(examples), self.top_k))
+
+        # Compute metrics for each example in the batch
+        for i, (example, results) in enumerate(zip(examples, batch_results)):
+            metrics = self._compute_metrics(example, results)
+            batch_recall[i] = metrics["recall_at_k"]
+            batch_hitrate[i] = metrics["hitrate_at_k"]
+            batch_iou[i] = metrics["iou_at_k"]
+
+        # Aggregate metrics across the batch
+        return {
+            "recall_at_k": batch_recall,
+            "hitrate_at_k": batch_hitrate,
+            "iou_at_k": batch_iou,
+        }
 
 
 def main():
