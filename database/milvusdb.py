@@ -70,6 +70,9 @@ class MilvusDB:
     def _filter_existing_data(self, collection: Collection, data: pd.DataFrame) -> pd.DataFrame:
         """Retrieve existing entities and filter out duplicates from input data"""
 
+        # Flush and refresh
+        collection.flush()
+        collection.load()
         if collection.num_entities == 0:
             print("Collection is empty. Will insert all data.")
             return data
@@ -91,11 +94,13 @@ class MilvusDB:
             all_existing_entities.extend(batch)
             progress_bar.update(len(batch))
 
+        assert (
+            len(all_existing_entities) == collection.num_entities
+        ), f"Expected {collection.num_entities} entities, but got {len(all_existing_entities)} from query iterator"
         progress_bar.close()
         iterator.close()
 
-        print(f"Retrieved {len(all_existing_entities)} existing entities from collection")
-        print(f"Dataset is {len(data)} rows")
+        print(f"Retrieved {len(all_existing_entities)} existing entities from collection '{collection.name}'")
 
         # Create a set of existing (doi, text_prefix) for fast lookup
         existing_keys = set()
@@ -104,6 +109,9 @@ class MilvusDB:
             existing_keys.add((entity["doi"], text_prefix))
 
         print(f"Built {len(existing_keys)} unique (doi, text_prefix) keys from existing entities")
+        print(f"Examples:")
+        for doi, text_prefix in list(existing_keys)[:5]:  # Show 5 examples
+            print(f" - DOI: {doi}, Text Prefix: {text_prefix}")
 
         # Check data against existing keys - remove rows that already exist in collection
         rows_to_remove = set()
@@ -116,16 +124,13 @@ class MilvusDB:
                 rows_to_remove.add(idx)
                 matches_found += 1
 
-        print(f"Debug: Found {matches_found} exact matches out of {len(data)} rows")
-        print(f"Debug: Removing {len(rows_to_remove)} rows")
+        print(f"{matches_found} rows in dataset match existing entities")
 
         # Drop rows already inserted using original indices
+        original_data_len = len(data)
         data = data.drop(index=rows_to_remove)
-
-        removed_count = len(rows_to_remove)
-        print(f"Found {removed_count} already inserted entries.")
-        print(f"Dataset is now {len(data)} rows")
-
+        assert len(data) == original_data_len - matches_found, "Mismatch in dataset length after filtering"
+        print(f"Dataset length: {original_data_len}->{len(data)}")
         return data
 
     def create_index(self, collection_name, index_type: str = "FLAT", metric_type: str = "IP"):
@@ -302,7 +307,7 @@ class MilvusDB:
 
         insert_queue = queue.Queue(maxsize=num_cpus * 2)
         insertion_lock = threading.Lock()
-        FLUSH_INTERVAL = 1000
+        FLUSH_INTERVAL = 16
         inserted_count = 0  # Counter the insert_workers use to determine when to flush
 
         def insert_worker():
@@ -314,6 +319,7 @@ class MilvusDB:
                     if batch_records is None:
                         return  # finally will still call task_done()
 
+                    # Insert, then inside lock update progress & check to flush
                     collection.insert(batch_records)
                     with insertion_lock:
                         insert_bar.update(len(batch_records))
@@ -321,7 +327,6 @@ class MilvusDB:
                         if inserted_count >= FLUSH_INTERVAL:
                             collection.flush()
                             inserted_count = 0
-                            print(f"FLUSH!!!!", flush=True)
 
                 except Exception as e:
                     print(f"Insertion worker encountered an error: {e}")
@@ -330,7 +335,6 @@ class MilvusDB:
 
         num_workers = max(1, num_cpus - 1)
         num_entities = len(data)
-        flush_interval = batch_size  # Flush every batch
         futures = []
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             for _ in range(num_workers):
@@ -366,7 +370,7 @@ class MilvusDB:
                 for f in futures:
                     f.result()
 
-        print("All insertions complete. Flushing to disk...", end="")
+        print("All insertions complete. Final flush to disk...", end="")
         collection.flush()
         print("done!")
 
