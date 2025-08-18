@@ -51,7 +51,8 @@ class MilvusDB:
         {"field_name": "id", "datatype": DataType.INT64, "is_primary": True},
         {"field_name": "text", "datatype": DataType.VARCHAR, "max_length": 2048},
         {"field_name": "doi", "datatype": DataType.VARCHAR, "max_length": 64},
-        {"field_name": "pubdate", "datatype": DataType.INT64},  # Milvus has no date type
+        {"field_name": "citation_count", "datatype": DataType.INT64},
+        {"field_name": "pubdate", "datatype": DataType.INT64},  # Milvus has no date type, so we use int YYYYMMDD
     ]
 
     CLEAR_GPU_CACHE_FN = {"cuda": torch.cuda.empty_cache, "mps": torch.mps.empty_cache, "cpu": lambda: None}
@@ -150,7 +151,7 @@ class MilvusDB:
             pubdate: the publication date of the research paper (int YYYYMMDD format)
         Args:
             name: Name of the collection to create
-            data_source: path to a jsonl file with entities containing keys 'text', 'doi', and 'pubdate' (int YYYYMMDD format)
+            data_source: path to a jsonl file with entities containing keys 'text', 'doi', 'citation_count', and 'pubdate' (int YYYYMMDD format)
             embedder_name: Name of the embedder to use for generating vector embeddings
             normalize: Whether to normalize the embeddings
         """
@@ -167,7 +168,8 @@ class MilvusDB:
             "text",
             "doi",
             "pubdate",
-        }, "DataFrame must contain 'text', 'doi', and 'pubdate' columns (and no others)."
+            "citation_count",
+        }, f"DataFrame must contain 'text', 'doi', 'citation_count', and 'pubdate' columns (and no others). Dataset given has columns {data.columns}"
         embedder = get_embedder(embedder_name, device=self.device, normalize=normalize)
 
         # Check if collection already exists and handle resumption
@@ -307,7 +309,7 @@ class MilvusDB:
 
         insert_queue = queue.Queue(maxsize=num_cpus * 2)
         insertion_lock = threading.Lock()
-        FLUSH_INTERVAL = 16
+        FLUSH_INTERVAL = int(os.getenv("FLUSH_INTERVAL", 1000))
         inserted_count = 0  # Counter the insert_workers use to determine when to flush
 
         def insert_worker():

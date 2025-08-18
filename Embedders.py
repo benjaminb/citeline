@@ -139,7 +139,7 @@ class SentenceTransformerEmbedder(Embedder):
         return self.encode(docs)
 
 
-class EncoderEmbedder(Embedder):
+class AstrobertEmbedder(Embedder):
     def __init__(self, model_name: str, device: str, normalize: bool):
         super().__init__(model_name, device, normalize)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -185,16 +185,72 @@ class EncoderEmbedder(Embedder):
         return embeddings.detach().cpu().numpy()
 
 
+class SpecterEmbedder(Embedder):
+    ADAPTER_MAP = {
+        "allenai/specter2": ("allenai/specter2", "[PRX]"),
+        "allenai/specter2_adhoc_query": ("allenai/specter2_adhoc_query", "[QRY]"),
+    }
+
+    def __init__(self, model_name: str, device: str, normalize: bool):
+        """
+        Because Specter uses different adapters for embedding docs vs. queries, here model_name
+        actually refers to the adapter
+            allenai/specter2: document embedder
+            allenai/specter2_adhoc_query: short query embedder
+        """
+        super().__init__(model_name, device, normalize)
+        self.tokenizer = AutoTokenizer.from_pretrained("allenai/specter2_base")
+        self.device = device
+        self.adapter_name = model_name
+
+        # Load the model and adapter
+        from adapters import AutoAdapterModel
+
+        self.model = AutoAdapterModel.from_pretrained("allenai/specter2_base")
+        self.model.load_adapter(self.adapter_name, source="hf", set_active=True)
+
+        # Check that adapter is properly loaded onto model
+        adapter_code = "[PRX]" if model_name == "allenai/specter2" else "[QRY]"
+        assert (
+            adapter_code in self.model.active_adapters
+        ), f"Specter2 adapter not loaded correctly, {adapter_code} not found in active adapters"
+
+        self.model = self.model.to(self.device)
+        self.model.eval()
+        self.max_length = 512
+        self.dim = self.model.config.hidden_size
+
+    def _embed(self, docs: list[str]) -> np.ndarray:
+        params = {
+            "padding": True,
+            "truncation": True,
+            "return_tensors": "pt",
+            "max_length": 512,
+            "return_token_type_ids": False,
+        }
+        inputs = self.tokenizer(docs, **params).to(self.device)
+
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        embeddings = outputs.last_hidden_state[:, 0, :]
+
+        if self.normalize:
+            embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
+
+        return embeddings.detach().cpu().numpy()
+
+
 # TODO: move this into class definition, so you can use constructor instead of get_embedder?
 EMBEDDING_CLASS = {
-    "adsabs/astroBERT": EncoderEmbedder,
+    "adsabs/astroBERT": AstrobertEmbedder,
     "BAAI/bge-small-en": SentenceTransformerEmbedder,
     "BAAI/bge-large-en-v1.5": SentenceTransformerEmbedder,
-    "bert-base-uncased": EncoderEmbedder,
     "nasa-impact/nasa-ibm-st.38m": SentenceTransformerEmbedder,
     "Qwen/Qwen3-Embedding-0.6B": SentenceTransformerEmbedder,
     "Qwen/Qwen3-Embedding-8B": QwenEmbedder,
     "UniverseTBD/astrollama": AstroLlamaEmbedder,
+    "allenai/specter2": SpecterEmbedder,
+    "allenai/specter2_adhoc_query": SpecterEmbedder,
     # astrosage
 }
 
@@ -213,15 +269,16 @@ def get_embedder(model_name: str, device: str, normalize: bool = False) -> Embed
 
 def main():
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
-    qwen_model = get_embedder("Qwen/Qwen3-Embedding-8B", device=device, normalize=False)
-    print(f"Loaded model: {qwen_model}")
+    embedder = get_embedder("allenai/specter2_adhoc_query", device=device, normalize=False)
+    print(f"Loaded model: {embedder}")
     sample_docs = [
         "This is a test document.",
         "Another document for testing purposes.",
         "Yet another example of a document to embed.",
     ]
-    embeddings = qwen_model(sample_docs)
+    embeddings = embedder(sample_docs)
     print(f"Embeddings shape: {embeddings.shape}")
+    print(f"Embeddings norms: {np.linalg.norm(embeddings, axis=1)}")
 
 
 if __name__ == "__main__":
