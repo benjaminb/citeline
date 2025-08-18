@@ -421,14 +421,18 @@ class Experiment:
 
         # Note that k here are keys from 1 to top_k, so the list index = k - 1
 
+        avg_hitrate_at_k = self.avg_hitrate_at_k.tolist()
+        avg_iou_at_k = self.avg_iou_at_k.tolist()
+        avg_recall_at_k = self.avg_recall_at_k.tolist()
         output = {
             "config": self.get_config_dict(),
             "average_score": self.average_score,
             "ef_search": self.ef_search,
-            "best_top_ks": self.best_top_ks,
-            "average_hitrate_at_k": self.avg_hitrate_at_k,
-            "average_iou_at_k": self.avg_iou_at_k,
-            "average_recall_at_k": self.avg_recall_at_k,
+            "average_hitrate_at_k": avg_hitrate_at_k,
+            "average_iou_at_k": avg_iou_at_k,
+            "average_recall_at_k": avg_recall_at_k,
+            "best_recall_k": max(avg_recall_at_k),
+            "best_iou_k": max(avg_iou_at_k),
         }
 
         with open(f"experiments/results/{filename_base}/results_{filename_base}.json", "w") as f:
@@ -454,7 +458,7 @@ class Experiment:
         # plt.savefig(f"experiments/results/{filename_base}/stats_at_k_{filename_base}.png")
         # plt.close()
         # Make a plot of the average hit rates (y-axis) and IoU (Jaccard) vs. top-k (x-axis)
-        
+
         plt.figure(figsize=(12, 8))  # Slightly larger to accommodate annotations
 
         # Plot the lines
@@ -554,10 +558,6 @@ class Experiment:
         # Set up rank fusion
         rank_fuser = RankFuser(config=self.metrics_config) if self.metrics_config else None
 
-        # Set up database for efficient queries
-        # collection = Collection(name=self.target_table)
-        # collection.load()
-
         # Create thread-safe queues for tasks and results
         task_queue = queue.Queue(maxsize=20)
         results_queue = queue.Queue()
@@ -576,7 +576,7 @@ class Experiment:
 
             while True:
                 try:
-                    batch_records, embeddings = task_queue.get(timeout=90)
+                    batch_records, embeddings = task_queue.get(timeout=30)
                     if embeddings is None:  # Sentinel to signal completion
                         break
 
@@ -590,6 +590,8 @@ class Experiment:
                     #     results = rank_fuser(query=example, results=results, db=thread_db)
                     # if self.reranker is not None:
                     #     results = self.reranker(query=example["expanded_query"], results=results)
+
+                    # TODO: fix logging within thread
 
                     # Log any anomalies in record retrieval
                     if len(search_results) != len(embeddings):
@@ -647,7 +649,7 @@ class Experiment:
 
                     # Convert to dicts and put on queue for consumer
                     batch_records = batch.to_dict(orient="records")
-                    task_queue.put((batch_records, embeddings))
+                    task_queue.put((batch_records, embeddings.tolist()))
                     producer_bar.update(len(batch_records))
 
                     # Update consumer progress bar
@@ -769,6 +771,9 @@ class Experiment:
         # Compute metrics for each example in the batch
         for i, (example, results) in enumerate(zip(examples, batch_results)):
             metrics = self._compute_metrics(example, results)
+            # Check if metrics are all 0
+            if np.all(metrics["recall_at_k"] == 0) and np.all(metrics["hitrate_at_k"] == 0) and np.all(metrics["iou_at_k"] == 0):
+                print(f"All metrics are zero for example {i}", flush=True)
             batch_recall[i] = metrics["recall_at_k"]
             batch_hitrate[i] = metrics["hitrate_at_k"]
             batch_iou[i] = metrics["iou_at_k"]
