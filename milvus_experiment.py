@@ -221,8 +221,13 @@ class Experiment:
         self.recall_matrix = None
         self.hitrate_matrix = None
         self.iou_matrix = None
-        self.stats_by_topk = {k: {"hitrates": [], "jaccards": []} for k in range(1, top_k + 1)}
-        self.jaccard_scores = {threshold: [] for threshold in DISTANCE_THRESHOLDS}
+        self.avg_hitrate_at_k = None
+        self.avg_iou_at_k = None
+        self.avg_recall_at_k = None
+        self.best_k_for_iou = None
+
+        # self.stats_by_topk = {k: {"hitrates": [], "jaccards": []} for k in range(1, top_k + 1)}
+        # self.jaccard_scores = {threshold: [] for threshold in DISTANCE_THRESHOLDS}
         """
         Dictionary of average Jaccard scores for each distance threshold
         {0.5: 0.1785} means after only keeping query results with distance < 0.5, the average IoU score for
@@ -408,31 +413,18 @@ class Experiment:
         if not os.path.exists(f"experiments/results/{filename_base}"):
             os.makedirs(f"experiments/results/{filename_base}")
 
-        # Iterate over query results to convert pubdate to string format
-        # query_results_json = []
-        # for example, results in self.query_results:
-        #     example_copy = example.copy()
-        #     example_copy["pubdate"] = example_copy["pubdate"].strftime("%Y-%m-%d")
-        #     for result in results:
-        #         result["pubdate"] = result["pubdate"].strftime("%Y-%m-%d")
-        #     query_results_json.append([example_copy, results])
-        # with open(f"experiments/results/{filename_base}/query_results_{filename_base}.json", "w") as f:
-        #     json.dump(query_results_json, f)
-
-        # Note that k here are keys from 1 to top_k, so the list index = k - 1
-
-        avg_hitrate_at_k = self.avg_hitrate_at_k.tolist()
-        avg_iou_at_k = self.avg_iou_at_k.tolist()
-        avg_recall_at_k = self.avg_recall_at_k.tolist()
+        # avg_hitrate_at_k = self.avg_hitrate_at_k.tolist()
+        # avg_iou_at_k = self.avg_iou_at_k.tolist()
+        # avg_recall_at_k = self.avg_recall_at_k.tolist()
         output = {
             "config": self.get_config_dict(),
             "average_score": self.average_score,
             "ef_search": self.ef_search,
-            "average_hitrate_at_k": avg_hitrate_at_k,
-            "average_iou_at_k": avg_iou_at_k,
-            "average_recall_at_k": avg_recall_at_k,
-            "best_recall_k": max(avg_recall_at_k),
-            "best_iou_k": max(avg_iou_at_k),
+            "average_hitrate_at_k": self.avg_hitrate_at_k,
+            "average_iou_at_k": self.avg_iou_at_k,
+            "average_recall_at_k": self.avg_recall_at_k,
+            "best_recall_k": max(self.avg_recall_at_k),
+            "best_iou_k": max(self.avg_iou_at_k),
         }
 
         with open(f"experiments/results/{filename_base}/results_{filename_base}.json", "w") as f:
@@ -444,21 +436,6 @@ class Experiment:
         import matplotlib.pyplot as plt
 
         k_values = [k for k in range(1, self.top_k + 1)]
-
-        # # Make a plot of the average hit rates (y-axis) and IoU (Jaccard) vs. top-k (x-axis)
-        # plt.figure(figsize=(10, 10))
-        # plt.plot(k_values, self.avg_hitrate_at_k, linestyle="-", label="Average Hit Rate@k", color="blue")
-        # plt.plot(k_values, self.avg_iou_at_k, linestyle="-", label="Average IoU@k", color="green")
-        # plt.plot(k_values, self.avg_recall_at_k, linestyle="-", label="Average Recall@k", color="red")
-        # plt.xlabel("Top-k")
-        # plt.ylabel("Score")
-        # plt.title("Stats@k")
-        # plt.legend()
-        # plt.grid()
-        # plt.savefig(f"experiments/results/{filename_base}/stats_at_k_{filename_base}.png")
-        # plt.close()
-        # Make a plot of the average hit rates (y-axis) and IoU (Jaccard) vs. top-k (x-axis)
-
         plt.figure(figsize=(12, 8))  # Slightly larger to accommodate annotations
 
         # Plot the lines
@@ -466,6 +443,18 @@ class Experiment:
         (line2,) = plt.plot(k_values, self.avg_iou_at_k, linestyle="-", label="Average IoU@k", color="green")
         (line3,) = plt.plot(k_values, self.avg_recall_at_k, linestyle="-", label="Average Recall@k", color="red")
 
+        # Add marker and label for maximal IoU point
+        max_iou_value = self.avg_iou_at_k[self.best_k_for_iou - 1]
+        plt.scatter(self.best_k_for_iou, max(self.avg_iou_at_k), color="green", s=100, zorder=5, marker='o')
+        plt.annotate(
+            f'Max IoU: {max_iou_value:.3f} at k={self.best_k_for_iou}',
+            xy=(self.best_k_for_iou, max_iou_value),
+            xytext=(20, 20), textcoords='offset points',
+            fontsize=10, color='green', weight='bold',
+            bbox=dict(boxstyle='round,pad=0.5', facecolor='lightgreen', alpha=0.8),
+            arrowprops=dict(arrowstyle='->', color='green', lw=1.5)
+        )
+        
         # Add annotations every 100 values
         annotation_interval = 100
         for i in range(0, len(k_values), annotation_interval):
@@ -671,8 +660,10 @@ class Experiment:
 
                 if final_consumer_progress > consumer_bar.n:
                     consumer_bar.update(final_consumer_progress - consumer_bar.n)
+        print(f"Experiment computed in {time() - start:.2f} seconds")
 
         # Initialize the results matrices and compute stats
+        start = time()
         self.hitrate_matrix = np.zeros((len(self.dataset), self.top_k))
         self.iou_matrix = np.zeros((len(self.dataset), self.top_k))
         self.recall_matrix = np.zeros((len(self.dataset), self.top_k))
@@ -691,14 +682,11 @@ class Experiment:
         if stats_idx != len(self.dataset):
             logger.warning(f"Stats rows filled ({stats_idx}) != dataset size ({len(self.dataset)}).")
 
-        # Compute summary directly from matrices (don’t call __compute_stats)
-        self.avg_recall_at_k = self.recall_matrix.mean(axis=0)
-        self.avg_hitrate_at_k = self.hitrate_matrix.mean(axis=0)
-        self.avg_iou_at_k = self.iou_matrix.mean(axis=0)
-
-        print(f"Experiment computed in {time() - start:.2f} seconds")
-        start = time()
-        # self.__compute_stats()
+        # Compute summary stats
+        self.avg_recall_at_k = self.recall_matrix.mean(axis=0).tolist()
+        self.avg_hitrate_at_k = self.hitrate_matrix.mean(axis=0).tolist()
+        self.avg_iou_at_k = self.iou_matrix.mean(axis=0).tolist()
+        self.best_k_for_iou = int(np.argmax(self.avg_iou_at_k)) + 1  # +1 for 1-indexed k
         print(f"Stats computed in {time() - start:.2f} seconds")
         self.__write_run_results()
 
@@ -729,7 +717,7 @@ class Experiment:
         Computes the metrics for a single example and its results.
         Returns a dictionary of metrics.
         """
-        hit_dois = set()  # Dois in retrieved entities
+        hit_dois = set()  # Dois in retrieved entities that match a target doi
         target_dois = example["citation_dois"]
         retrieved_dois = set()
         union_dois = set(target_dois)
