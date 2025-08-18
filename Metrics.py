@@ -53,24 +53,8 @@ def get_log_citations_metric() -> callable:
         """
         Computes log citation score for each result.
         """
-        dois_in_results = results["doi"].dropna().unique().tolist()
-        with db.conn.cursor() as cursor:
-            placeholder = ",".join(["%s"] * len(dois_in_results))
 
-            cursor.execute(
-                f"""
-                SELECT doi, citation_count
-                FROM papers
-                WHERE doi IN ({placeholder})
-                """,
-                tuple(dois_in_results),
-            )
-            citation_data = cursor.fetchall()
-
-        # Create a lookup table and get citation counts for each result
-        citation_count_lookup = {doi: count for doi, count in citation_data}
-        citation_counts = results["doi"].map(citation_count_lookup).fillna(0).astype(int)
-
+        citation_counts = results.citation_counts.tolist()
         # TODO: Consider normalizing by years since publication, since older papers have more time to accumulate citations
         # TODO: would base 10 be more appropriate?
         return np.log1p(citation_counts)  # log(1 + citation_count) to handle zero citations

@@ -454,7 +454,7 @@ class Experiment:
             bbox=dict(boxstyle='round,pad=0.5', facecolor='lightgreen', alpha=0.8),
             arrowprops=dict(arrowstyle='->', color='green', lw=1.5)
         )
-        
+
         # Add annotations every 100 values
         annotation_interval = 100
         for i in range(0, len(k_values), annotation_interval):

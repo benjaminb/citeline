@@ -49,7 +49,7 @@ def argument_parser():
 class MilvusDB:
     BASE_FIELDS = [
         {"field_name": "id", "datatype": DataType.INT64, "is_primary": True},
-        {"field_name": "text", "datatype": DataType.VARCHAR, "max_length": 2048},
+        {"field_name": "text", "datatype": DataType.VARCHAR, "max_length": 4096},
         {"field_name": "doi", "datatype": DataType.VARCHAR, "max_length": 64},
         {"field_name": "citation_count", "datatype": DataType.INT64},
         {"field_name": "pubdate", "datatype": DataType.INT64},  # Milvus has no date type, so we use int YYYYMMDD

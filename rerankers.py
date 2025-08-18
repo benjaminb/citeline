@@ -1,8 +1,7 @@
 import json
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import torch
-import torch.nn.functional as F
-from openai import OpenAI
+
 import os
 from dotenv import load_dotenv
 import logging
@@ -10,6 +9,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from database.database import VectorSearchResult
+from database.milvusdb import MilvusDB
 
 # Set up logging
 logging.basicConfig(
@@ -96,6 +96,8 @@ def get_deberta_nli_ranker(db: None, use_contradiction=False) -> callable:
 def get_deepseek_boolean(db=None):
     assert "DEEPSEEK_API_KEY" in os.environ, "Please set the DEEPSEEK_API_KEY environment variable"
     assert db is not None, "Database instance must be provided to get_deepseek_boolean"
+    from openai import OpenAI
+
     client = OpenAI(api_key=os.getenv("DEEPSEEK_API_KEY"), base_url="https://api.deepseek.com")
     PROMPT_FILE = "llm/prompts/deepseek_citation_identification.txt"
     MAX_PAPER_LEN = 250_000  # ~65k tokens, leaving ~500 tokens for response
@@ -166,10 +168,12 @@ def get_deepseek_boolean(db=None):
 
     return deepseek_boolean
 
-def get_citation_count_reranker(db=None) -> callable:
+
+def get_citation_count_reranker_pg(db=None) -> callable:
     """
     Returns a reranker that sorts in descending order by citation count.
     """
+
     def citation_count_reranker(query: str, results: pd.DataFrame) -> pd.DataFrame:
         """
         For each result in the results DataFrame, gets the citation count from the database,
@@ -182,7 +186,7 @@ def get_citation_count_reranker(db=None) -> callable:
         citation_counts = {}
         dois = results["doi"].unique().tolist()
         with db.conn.cursor() as cur:
-            placeholder = ', '.join(['%s'] * len(dois))
+            placeholder = ", ".join(["%s"] * len(dois))
             cur.execute(f"SELECT doi, citation_count FROM papers WHERE doi IN ({placeholder})", dois)
             citation_counts = dict(cur.fetchall())
 
@@ -192,16 +196,32 @@ def get_citation_count_reranker(db=None) -> callable:
 
     return citation_count_reranker
 
+
+def get_citation_count_reranker(db: MilvusDB = None) -> callable:
+    """
+    Returns a reranker sorting order by citation count
+    Written for a Milvus collection
+    """
+
+    def citation_count_reranker(query: str, results: pd.DataFrame) -> pd.DataFrame:
+        return results.sort_values("citation_count", ascending=False).reset_index(drop=True)
+
+    return citation_count_reranker
+
+
 def get_pubdate_reranker(db=None) -> callable:
     """
     Returns a reranker that sorts by pubdate, with the most recent date first.
     """
+
     def pubdate_reranker(query: str, results: pd.DataFrame) -> pd.DataFrame:
         """
         Returns the results DataFrame sorted by pubdate in descending order.
         """
         return results.sort_values("pubdate", ascending=False).reset_index(drop=True)
+
     return pubdate_reranker
+
 
 RERANKERS = {
     "deepseek_boolean": get_deepseek_boolean,
