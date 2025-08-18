@@ -1,8 +1,8 @@
 #!/bin/bash
 #
 #SBATCH --job-name=build_qwen
-#SBATCH -p gpu # partition (queue)
-#SBATCH -c 4 # number of cores
+#SBATCH -p seas_gpu # partition (queue)
+#SBATCH -c 24 # number of cores
 #SBATCH --gres=gpu:1 # number of GPUs
 #SBATCH --mem 64000 # memory pool for all cores
 #SBATCH -t 0-00:45 # time (D-HH:MM)

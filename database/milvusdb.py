@@ -307,9 +307,9 @@ class MilvusDB:
         import queue
         import threading
 
-        insert_queue = queue.Queue(maxsize=num_cpus * 2)
+        insert_queue = queue.Queue(maxsize=num_cpus * batch_size * 2)
         insertion_lock = threading.Lock()
-        FLUSH_INTERVAL = int(os.getenv("FLUSH_INTERVAL", 1000))
+        flush_interval = int(os.getenv("FLUSH_INTERVAL", 1000))
         inserted_count = 0  # Counter the insert_workers use to determine when to flush
 
         def insert_worker():
@@ -326,7 +326,7 @@ class MilvusDB:
                     with insertion_lock:
                         insert_bar.update(len(batch_records))
                         inserted_count += len(batch_records)
-                        if inserted_count >= FLUSH_INTERVAL:
+                        if inserted_count >= flush_interval:
                             collection.flush()
                             inserted_count = 0
 
