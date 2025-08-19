@@ -249,8 +249,8 @@ EMBEDDING_CLASS = {
     "Qwen/Qwen3-Embedding-0.6B": SentenceTransformerEmbedder,
     "Qwen/Qwen3-Embedding-8B": QwenEmbedder,
     "UniverseTBD/astrollama": AstroLlamaEmbedder,
-    "allenai/specter2": SpecterEmbedder,
-    "allenai/specter2_adhoc_query": SpecterEmbedder,
+    "allenai/specter2": SpecterEmbedder, # Use this for embedding documents
+    "allenai/specter2_adhoc_query": SpecterEmbedder, # Use this for embedding queries
     # astrosage
 }
 
