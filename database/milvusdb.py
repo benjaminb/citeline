@@ -211,6 +211,7 @@ class MilvusDB:
         print(f"Embedder Name       : {embedder_name}")
         print(f"Embedder Dimension  : {embedder.dim}")
         print(f"Normalize           : {normalize}")
+        print(f"Batch Size          : {batch_size}")
         print(f"Device              : {self.device}")
         print(f"Data source         : {data_source}")
         print(f"Data size           : {len(data)} rows")
