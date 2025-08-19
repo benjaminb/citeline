@@ -8,7 +8,7 @@
 python milvusdb.py --create-collection \
 --name bge_chunks \
 --data-source ../data/research_chunks.jsonl \
---embedder bge/bge-large-en-v1.5 \
+--embedder BAAI/bge-large-en-v1.5 \
 --normalize
 
 python milvusdb.py --create-collection \
