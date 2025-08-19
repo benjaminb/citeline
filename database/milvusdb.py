@@ -29,6 +29,7 @@ def argument_parser():
     parser.add_argument("--data-source", type=str, help="Path to the JSONL data file")
     parser.add_argument("--embedder", type=str, help="Name of the embedder (e.g. 'BAAI/bge-en-large-v1.5')")
     parser.add_argument("--normalize", action="store_true", help="Whether to normalize the embeddings")
+    parser.add_argument("--batch-size", type=int, default=16, help="Batch size for embedding")
     parser.add_argument(
         "--index-type", type=str, default="FLAT", help="Type of index to create (e.g. 'FLAT', 'IVF', etc.)"
     )
@@ -140,7 +141,7 @@ class MilvusDB:
             field_name="vector", index_params={"index_type": index_type, "metric_type": metric_type}
         )
 
-    def create_vector_collection(self, name: str, data_source: str, embedder_name: str, normalize: bool):
+    def create_vector_collection(self, name: str, data_source: str, embedder_name: str, normalize: bool, batch_size=16):
         """
         Creates a collection using the base fields and a single vector field inferred by the embedder.
 
@@ -181,8 +182,6 @@ class MilvusDB:
             if len(data) == collection.num_entities:
                 print("Data source length same as collection, there appears to be nothing to insert.")
                 return
-
-            # Filter out existing data from input
             data = self._filter_existing_data(collection, data)
 
         else:
@@ -217,7 +216,9 @@ class MilvusDB:
         print(f"Data size           : {len(data)} rows")
         print("=" * 50)
 
-        self.__embed_and_insert(collection=collection, embedder=embedder, data=data, num_cpus=num_cpus)
+        self.__embed_and_insert(
+            collection=collection, embedder=embedder, data=data, num_cpus=num_cpus, batch_size=batch_size
+        )
 
         print(f"New collection {collection.name}: {collection.num_entities} entities")
 
@@ -386,7 +387,11 @@ def main():
         db.drop_collection(args.drop_collection)
     elif args.create_collection:
         db.create_vector_collection(
-            name=args.name, data_source=args.data_source, embedder_name=args.embedder, normalize=args.normalize
+            name=args.name,
+            data_source=args.data_source,
+            embedder_name=args.embedder,
+            normalize=args.normalize,
+            batch_size=args.batch_size,
         )
     elif args.create_index:
         db.create_index(collection_name=args.create_index, index_type=args.index_type, metric_type=args.metric_type)
