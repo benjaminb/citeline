@@ -32,4 +32,4 @@ Performing top-20 vector similarity on this table resulted in an average IoU of 
 
 #### 8.20.25
 
-Wrote  to remove `[REF]` from datasets' inputs; this is not a token in any model vocabulary, so it's likely tokenizing to `'[', 'ref', ']'` which just adds noise.
+Wrote `clean_dataset_refs.ipynb` to remove `[REF]` from datasets' inputs; this is not a token in any model vocabulary, so it's likely tokenizing to `'[', 'ref', ']'` which just adds noise. Re-running baseline experiments against the cleaned dataset.

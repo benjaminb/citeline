@@ -1,10 +1,10 @@
-dataset: 'data/dataset/nontrivial_checked.jsonl'
+dataset: 'data/dataset/nontrivial_cleaned.jsonl'
 table: 'bge_contributions'
 target_column: 'vector'
 metric: 'IP'
 embedder: 'BAAI/bge-large-en-v1.5'
 normalize: True
 query_expansion: 'identity'
-batch_size: 32
-top_k: 1000
+batch_size: 16
+top_k: 100
 output_path: 'experiments/results/baseline_no_ref'
