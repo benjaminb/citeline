@@ -10,11 +10,12 @@ DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_availabl
 
 
 class Embedder(ABC):
-    def __init__(self, model_name: str, device, normalize: bool):
+    def __init__(self, model_name: str, device, normalize: bool, for_queries: bool):
         self.model_name = model_name
         self.device = device
         self.normalize = normalize
         self.dim = None
+        self.for_queries = for_queries
 
     def __call__(self, docs: list[str] | pd.Series):
         if isinstance(docs, pd.Series):
@@ -30,8 +31,12 @@ class Embedder(ABC):
 
 
 class AstroLlamaEmbedder(Embedder):
-    def __init__(self, model_name: str, device: str, normalize: bool):
-        super().__init__(model_name, device, normalize)
+    """
+    Does not use special instruction prompts for embedding queries or docs
+    """
+
+    def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool = False):
+        super().__init__(model_name, device, normalize, for_queries)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
         self.model.eval()
@@ -58,8 +63,8 @@ class AstroLlamaEmbedder(Embedder):
 
 
 class QwenEmbedder(Embedder):
-    def __init__(self, model_name: str, device: str, normalize: bool):
-        super().__init__(model_name, device, normalize)
+    def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool):
+        super().__init__(model_name, device, normalize, for_queries)
         model_kwargs = {"attn_implementation": "flash_attention_2"} if device == "cuda" else {}
         tokenizer_kwargs = {"padding_side": "left"}
 
@@ -74,13 +79,16 @@ class QwenEmbedder(Embedder):
 
     def _embed(self, docs: list[str]) -> np.ndarray:
         with torch.no_grad():
-            return self.model.encode(docs, prompt_name="query")  # Built-in prompt for better embedding performance
+            kwargs = {"sentences": docs}
+            if self.for_queries:
+                kwargs["prompt_name"] = "query"
+            return self.model.encode(**kwargs)
 
 
 class SentenceTransformerEmbedder(Embedder):
 
-    def __init__(self, model_name: str, device: str, normalize: bool):
-        super().__init__(model_name, device, normalize)
+    def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool = False):
+        super().__init__(model_name, device, normalize, for_queries)
         #
         self.model = SentenceTransformer(model_name, trust_remote_code=True, device=device)
         self.model.eval()
@@ -91,7 +99,6 @@ class SentenceTransformerEmbedder(Embedder):
             self.pool = self.model.start_multi_process_pool(
                 target_devices=[f"cuda:{i}" for i in range(torch.cuda.device_count())]
             )
-
         if self.pool:
             print(f"Using {torch.cuda.device_count()} cuda GPUs for encoding.")
 
@@ -129,8 +136,8 @@ class SentenceTransformerEmbedder(Embedder):
 
 
 class AstrobertEmbedder(Embedder):
-    def __init__(self, model_name: str, device: str, normalize: bool):
-        super().__init__(model_name, device, normalize)
+    def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool = False):
+        super().__init__(model_name, device, normalize, for_queries)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
 
         # Set up the model
@@ -180,14 +187,18 @@ class SpecterEmbedder(Embedder):
         "allenai/specter2_adhoc_query": ("allenai/specter2_adhoc_query", "[QRY]"),
     }
 
-    def __init__(self, model_name: str, device: str, normalize: bool):
+    def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool):
         """
         Because Specter uses different adapters for embedding docs vs. queries, here model_name
         actually refers to the adapter
             allenai/specter2: document embedder
             allenai/specter2_adhoc_query: short query embedder
         """
-        super().__init__(model_name, device, normalize)
+        super().__init__(model_name, device, normalize, for_queries)
+        assert for_queries == (
+            model_name == "allenai/specter2_adhoc_query"
+        ), "If for_queries is True, model_name should be 'allenai/specter2_adhoc_query'. Otherwise, it should be 'allenai/specter2'."
+
         self.tokenizer = AutoTokenizer.from_pretrained("allenai/specter2_base")
         self.device = device
         self.adapter_name = model_name
@@ -199,7 +210,7 @@ class SpecterEmbedder(Embedder):
         self.model.load_adapter(self.adapter_name, source="hf", set_active=True)
 
         # Check that adapter is properly loaded onto model
-        adapter_code = "[PRX]" if model_name == "allenai/specter2" else "[QRY]"
+        adapter_code = "[QRY]" if for_queries else "[PRX]"
         assert (
             adapter_code in self.model.active_adapters
         ), f"Specter2 adapter not loaded correctly, {adapter_code} not found in active adapters"

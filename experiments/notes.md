@@ -33,3 +33,9 @@ Performing top-20 vector similarity on this table resulted in an average IoU of 
 #### 8.20.25
 
 Wrote `clean_dataset_refs.ipynb` to remove `[REF]` from datasets' inputs; this is not a token in any model vocabulary, so it's likely tokenizing to `'[', 'ref', ']'` which just adds noise. Re-running baseline experiments against the cleaned dataset.
+
+The top-performing embedder has been BGE so far, which [states you should prepend short queries with an instruction](https://huggingface.co/BAAI/bge-large-en-v1.5) for embedding. I've implemented this as a type of query expansion, `add_bge_instruction`. If there is a meaningful improvement, perhaps this instruction should be moved into the `Embedder` subclass itself.
+
+After running experiments with and without `[REF]` in the input sentence and with/without the added BGE instruction for queries:
+* Removing the `[REF]` marker improved hitrate and recall in all cases
+* Adding the BGE instruction also improved hitrate and recall by about 1% for most $k$.

@@ -705,7 +705,6 @@ class Experiment:
 
     def __str__(self):
         return (
-            f"Experiment Configuration:\n"
             f"{'='*40}\n"
             f"{'Device':<20}: {self.device}\n"
             f"{'Dataset Path':<20}: {self.dataset_path}\n"
