@@ -319,9 +319,9 @@ MODEL_DATA = {
 }
 
 
-def get_embedder(model_name: str, device: str, normalize: bool = False) -> Embedder:
+def get_embedder(model_name: str, device: str, normalize: bool, for_queries: bool) -> Embedder:
     try:
-        return EMBEDDING_CLASS[model_name](model_name, device, normalize)
+        return EMBEDDING_CLASS[model_name](model_name, device, normalize, for_queries)
     except KeyError:
         raise ValueError(f"Model {model_name} not supported. Available models: {list(EMBEDDING_CLASS.keys())}")
 
