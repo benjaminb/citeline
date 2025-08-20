@@ -12,7 +12,7 @@ load_dotenv("../.env")
 
 def argument_parser():
     """
-    python milvusdb.py --create-collection --name <collection_name> --data-source <data_source> --embedder <embedder_name> [--normalize]
+    python milvusdb.py --create-collection --name <collection_name> --data-source <data_source> --embedder <embedder_name> [--normalize] [--batch-size <16>]
     """
     parser = argparse.ArgumentParser(description="Milvus DB Management")
 
@@ -247,6 +247,7 @@ class MilvusDB:
 
     def list_collections(self):
         collections = self.client.list_collections()
+        collections.sort()
         print(f"Collections: {collections}")
         for collection_name in collections:
             collection = Collection(collection_name)

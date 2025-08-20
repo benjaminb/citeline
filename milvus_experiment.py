@@ -14,7 +14,7 @@ from pymilvus import MilvusClient, Collection
 from database.milvusdb import MilvusDB
 from query_expander import get_expander
 from embedders import get_embedder
-from Rerankers import get_reranker
+from rerankers import get_reranker
 from metrics import RankFuser
 
 logger = logging.getLogger(__name__)
@@ -445,14 +445,17 @@ class Experiment:
 
         # Add marker and label for maximal IoU point
         max_iou_value = self.avg_iou_at_k[self.best_k_for_iou - 1]
-        plt.scatter(self.best_k_for_iou, max(self.avg_iou_at_k), color="green", s=100, zorder=5, marker='o')
+        plt.scatter(self.best_k_for_iou, max(self.avg_iou_at_k), color="green", s=100, zorder=5, marker="o")
         plt.annotate(
-            f'Max IoU: {max_iou_value:.3f} at k={self.best_k_for_iou}',
+            f"Max IoU: {max_iou_value:.3f} at k={self.best_k_for_iou}",
             xy=(self.best_k_for_iou, max_iou_value),
-            xytext=(20, 20), textcoords='offset points',
-            fontsize=10, color='green', weight='bold',
-            bbox=dict(boxstyle='round,pad=0.5', facecolor='lightgreen', alpha=0.8),
-            arrowprops=dict(arrowstyle='->', color='green', lw=1.5)
+            xytext=(20, 20),
+            textcoords="offset points",
+            fontsize=10,
+            color="green",
+            weight="bold",
+            bbox=dict(boxstyle="round,pad=0.5", facecolor="lightgreen", alpha=0.8),
+            arrowprops=dict(arrowstyle="->", color="green", lw=1.5),
         )
 
         # Add annotations every 100 values
@@ -497,7 +500,15 @@ class Experiment:
         plt.ylabel("Score")
         plt.title("Stats@k")
         plt.legend()
-        plt.grid()
+
+        # Add grid lines at 0.05 intervals but labels every 0.1
+        from matplotlib.ticker import MultipleLocator
+
+        ax = plt.gca()
+        ax.yaxis.set_major_locator(MultipleLocator(0.1))  # Labels every 0.1
+        ax.yaxis.set_minor_locator(MultipleLocator(0.05))  # Grid lines every 0.05
+        plt.grid(True, alpha=0.3, which="both")  # Show both major and minor grid lines
+
         plt.tight_layout()  # Adjust layout to prevent clipping of annotations
         plt.savefig(f"experiments/results/{filename_base}/stats_at_k_{filename_base}.png", dpi=300, bbox_inches="tight")
         plt.close()
@@ -544,11 +555,15 @@ class Experiment:
         except ValueError:
             raise ValueError(f"Invalid value for CPUS environment variable.")
 
+        collection = Collection(name=self.target_table)
+        collection.load()
+        print(f"Collection {self.target_table} loaded.")
+
         # Set up rank fusion
         rank_fuser = RankFuser(config=self.metrics_config) if self.metrics_config else None
 
         # Create thread-safe queues for tasks and results
-        task_queue = queue.Queue(maxsize=20)
+        task_queue = queue.Queue()
         results_queue = queue.Queue()
         progress_lock = threading.Lock()
 
@@ -560,8 +575,8 @@ class Experiment:
             """Consumer thread that handles database queries and evaluations"""
             nonlocal consumer_progress
 
-            thread_collection = Collection(name=self.target_table)
-            thread_collection.load()
+            # thread_collection = Collection(name=self.target_table)
+            # thread_collection.load()
 
             while True:
                 try:
@@ -571,7 +586,7 @@ class Experiment:
 
                     # Query the database
                     search_results = self.db.search(
-                        collection=thread_collection, queries=embeddings, metric=self.metric, limit=self.top_k
+                        collection=collection, queries=embeddings, metric=self.metric, limit=self.top_k
                     )
 
                     # Reranking
@@ -651,13 +666,10 @@ class Experiment:
                 for _ in range(num_workers):
                     task_queue.put((None, None))
 
-                # Wait for all tasks to be processed
+                # Cleanup the producer
                 task_queue.join()
-
-                # Final consumer progress update
                 with progress_lock:
                     final_consumer_progress = consumer_progress
-
                 if final_consumer_progress > consumer_bar.n:
                     consumer_bar.update(final_consumer_progress - consumer_bar.n)
         print(f"Experiment computed in {time() - start:.2f} seconds")
@@ -703,7 +715,7 @@ class Experiment:
             f"{'Embedder':<20}: {self.embedder.model_name}\n"
             f"{'Normalize':<20}: {self.normalize}\n"
             f"{'Enrichment':<20}: {self.query_expansion_name}\n"
-            f"{'Metrics':<20}: {self.metrics_config}\n"
+            f"{'Rank Fusers':<20}: {self.metrics_config}\n"
             f"{'Search Strategy':<20}: {self.strategy}\n"
             f"{'Batch Size':<20}: {self.batch_size}\n"
             f"{'Top k':<20}: {self.top_k}\n"
@@ -760,8 +772,12 @@ class Experiment:
         for i, (example, results) in enumerate(zip(examples, batch_results)):
             metrics = self._compute_metrics(example, results)
             # Check if metrics are all 0
-            if np.all(metrics["recall_at_k"] == 0) and np.all(metrics["hitrate_at_k"] == 0) and np.all(metrics["iou_at_k"] == 0):
-                print(f"All metrics are zero for example {i}", flush=True)
+            # if (
+            #     np.all(metrics["recall_at_k"] == 0)
+            #     and np.all(metrics["hitrate_at_k"] == 0)
+            #     and np.all(metrics["iou_at_k"] == 0)
+            # ):
+            #     print(f"All metrics are zero for example {i}", flush=True)
             batch_recall[i] = metrics["recall_at_k"]
             batch_hitrate[i] = metrics["hitrate_at_k"]
             batch_iou[i] = metrics["iou_at_k"]
@@ -777,7 +793,7 @@ class Experiment:
 def main():
 
     args = argument_parser()
-    device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
+    # device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
 
     # Set up logging
     logging.basicConfig(

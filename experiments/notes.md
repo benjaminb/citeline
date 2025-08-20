@@ -29,3 +29,7 @@ Performing top-20 vector similarity on this table resulted in an average IoU of 
 | Model | Average IoU | Recall |
 |-------|-------------|--------|
 |`bge-large`|0.0600|0.68|
+
+#### 8.20.25
+
+Wrote code to remove `[REF]` from datasets' inputs; this is not a token in any model vocabulary, so it's likely tokenizing to `'[', 'ref', ']'` which just adds noise.

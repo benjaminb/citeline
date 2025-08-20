@@ -58,18 +58,10 @@ class AstroLlamaEmbedder(Embedder):
 
 
 class QwenEmbedder(Embedder):
-    MODEL_SPECIFIC_KWARGS = {
-        "Qwen/Qwen3-Embedding-8B": {
-            # TODO: switch this on for CUDA environment
-            # "model_kwargs": {"attn_implementation": "flash_attention_2"}, # Only available on CUDA
-            "tokenizer_kwargs": {"padding_side": "left"},
-        }
-    }
-
     def __init__(self, model_name: str, device: str, normalize: bool):
         super().__init__(model_name, device, normalize)
-        model_kwargs = self.MODEL_SPECIFIC_KWARGS.get(model_name, {}).get("model_kwargs", {})
-        tokenizer_kwargs = self.MODEL_SPECIFIC_KWARGS.get(model_name, {}).get("tokenizer_kwargs", {})
+        model_kwargs = {"attn_implementation": "flash_attention_2"} if device == "cuda" else {}
+        tokenizer_kwargs = {"padding_side": "left"}
 
         self.model = SentenceTransformer(
             model_name,
@@ -80,12 +72,9 @@ class QwenEmbedder(Embedder):
         self.model.eval()
         self.dim = self.model.get_sentence_embedding_dimension()
 
-    def encode(self, docs):
+    def _embed(self, docs: list[str]) -> np.ndarray:
         with torch.no_grad():
             return self.model.encode(docs, prompt_name="query")  # Built-in prompt for better embedding performance
-
-    def _embed(self, docs: list[str]) -> np.ndarray:
-        return self.encode(docs)
 
 
 class SentenceTransformerEmbedder(Embedder):
@@ -246,11 +235,11 @@ EMBEDDING_CLASS = {
     "BAAI/bge-small-en": SentenceTransformerEmbedder,
     "BAAI/bge-large-en-v1.5": SentenceTransformerEmbedder,
     "nasa-impact/nasa-ibm-st.38m": SentenceTransformerEmbedder,
-    "Qwen/Qwen3-Embedding-0.6B": SentenceTransformerEmbedder,
+    "Qwen/Qwen3-Embedding-0.6B": QwenEmbedder,
     "Qwen/Qwen3-Embedding-8B": QwenEmbedder,
     "UniverseTBD/astrollama": AstroLlamaEmbedder,
-    "allenai/specter2": SpecterEmbedder, # Use this for embedding documents
-    "allenai/specter2_adhoc_query": SpecterEmbedder, # Use this for embedding queries
+    "allenai/specter2": SpecterEmbedder,  # Use this for embedding documents
+    "allenai/specter2_adhoc_query": SpecterEmbedder,  # Use this for embedding queries
     # astrosage
 }
 
@@ -269,7 +258,7 @@ def get_embedder(model_name: str, device: str, normalize: bool = False) -> Embed
 
 def main():
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
-    embedder = get_embedder("allenai/specter2_adhoc_query", device=device, normalize=False)
+    embedder = get_embedder("Qwen/Qwen3-Embedding-0.6B", device=device, normalize=False)
     print(f"Loaded model: {embedder}")
     sample_docs = [
         "This is a test document.",

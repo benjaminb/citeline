@@ -1,8 +1,8 @@
 dataset: 'data/dataset/nontrivial_10.jsonl'
-table: 'bge_contributions'
+table: 'astrobert_contributions'
 target_column: 'vector'
 metric: 'IP'
-embedder: 'BAAI/bge-large-en-v1.5'
+embedder: 'adsabs/astroBERT'
 normalize: True
 query_expansion: 'identity'
 batch_size: 16
