@@ -161,6 +161,7 @@ class Experiment:
         reranker_to_use: str = None,
         metrics_config: dict[str, float] = None,
         distance_threshold: float = None,
+        output_path: str = "experiments/results/",
     ):
         # Set up configs
         # self.device = device
@@ -206,6 +207,7 @@ class Experiment:
         self.reranker_to_use = reranker_to_use
         self.reranker = get_reranker(reranker_name=reranker_to_use, db=self.db) if reranker_to_use is not None else None
         self.metrics_config = metrics_config
+        self.output_path = output_path
 
         # Strategy for using multiple document / query expansions
         supported_strategies = {"50-50": self.__fifty_fifty_search, "basic": self.__basic_search}
@@ -846,6 +848,7 @@ def main():
             reranker_to_use=config.get("reranker", None),
             metrics_config=config.get("metrics", None),
             # distance_threshold=config["distance_threshold"],
+            output_path=config.get("output_path", "experiments/results/"),
         )
         print(experiment)
         experiment.run()
