@@ -7,3 +7,4 @@ normalize: True
 query_expansion: 'identity'
 batch_size: 16
 top_k: 100
+output_path: 'experiments/results/baseline_no_ref'
