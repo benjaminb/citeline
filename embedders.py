@@ -65,7 +65,8 @@ class AstroLlamaEmbedder(Embedder):
 class QwenEmbedder(Embedder):
     def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool):
         super().__init__(model_name, device, normalize, for_queries)
-        model_kwargs = {"attn_implementation": "flash_attention_2"} if device == "cuda" else {}
+        # model_kwargs = {"attn_implementation": "flash_attention_2"} if device == "cuda" else {}
+        model_kwargs = {}
         tokenizer_kwargs = {"padding_side": "left"}
 
         self.model = SentenceTransformer(
