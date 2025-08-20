@@ -38,4 +38,13 @@ The top-performing embedder has been BGE so far, which [states you should prepen
 
 After running experiments with and without `[REF]` in the input sentence and with/without the added BGE instruction for queries:
 * Removing the `[REF]` marker improved hitrate and recall in all cases
+    - This indicates that `[REF]` was adding noise to the input, negatively impacting performance. Are there other 'noises' that could be removed, such as "()", stopwords, or other punctuation?
 * Adding the BGE instruction also improved hitrate and recall by about 1% for most $k$.
+    - Moved the instruction into the embedders
+
+##### Engineering
+
+Refactored `Embedders` class:
+* Constructors take a `for_query` flag to allow different query/document embedding logic if the model suggests it (e.g. BGE, Qwen)
+* Created a decorator `@Embedder.register` to simplify the registration of new embedder classes. Now embedders instantiate from `Embedder.create` instead of an external `get_embedder` function
+

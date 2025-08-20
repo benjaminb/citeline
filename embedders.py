@@ -10,6 +10,23 @@ DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_availabl
 
 
 class Embedder(ABC):
+    registry = {}
+
+    @classmethod
+    def register(cls, model_name: str):
+        def decorator(subclass):
+            cls.registry[model_name] = subclass
+            return subclass
+
+        return decorator
+
+    @classmethod
+    def create(cls, model_name: str, device: str, normalize: bool, for_queries: bool) -> "Embedder":
+        if model_name not in cls.registry:
+            available_models = "\n".join(list(cls.registry.keys()))
+            raise ValueError(f"Unknown model name: {model_name}. Available models are: {available_models}")
+        return cls.registry[model_name](model_name, device, normalize, for_queries)
+
     def __init__(self, model_name: str, device, normalize: bool, for_queries: bool):
         self.model_name = model_name
         self.device = device
@@ -27,13 +44,16 @@ class Embedder(ABC):
         pass
 
     def __str__(self):
-        return f"{self.model_name}, device={self.device}, normalize={self.normalize}"
+        return f"{self.model_name}, device={self.device}, normalize={self.normalize}, for_queries={self.for_queries}, dim={self.dim}"
 
 
+@Embedder.register("adsabs/astroBERT")
 class AstroLlamaEmbedder(Embedder):
     """
     Does not use special instruction prompts for embedding queries or docs
     """
+
+    MODEL_DATA = {"max_length": 4096}
 
     def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool = False):
         super().__init__(model_name, device, normalize, for_queries)
@@ -62,6 +82,8 @@ class AstroLlamaEmbedder(Embedder):
         return embeddings.detach().cpu().numpy()
 
 
+@Embedder.register("Qwen/Qwen3-Embedding-8B")
+@Embedder.register("Qwen/Qwen3-Embedding-0.6B")
 class QwenEmbedder(Embedder):
     def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool):
         super().__init__(model_name, device, normalize, for_queries)
@@ -86,6 +108,7 @@ class QwenEmbedder(Embedder):
             return self.model.encode(**kwargs)
 
 
+@Embedder.register("nasa-impact/nasa-ibm-st.38m")
 class SentenceTransformerEmbedder(Embedder):
     """
     For a SentenceTransformer based model that does not have separate pipelines for embedding
@@ -97,6 +120,7 @@ class SentenceTransformerEmbedder(Embedder):
         #
         self.model = SentenceTransformer(model_name, trust_remote_code=True, device=device)
         self.model.eval()
+        self.max_length = self.model.get_max_seq_length() # should be 512
 
         # Reattempt multiprocess
         self.pool = None
@@ -140,7 +164,10 @@ class SentenceTransformerEmbedder(Embedder):
         return self.encode(docs)
 
 
+@Embedder.register("adsabs/astroBERT")
 class AstrobertEmbedder(Embedder):
+    MODEL_DATA = {"max_length": 512}
+
     def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool = False):
         super().__init__(model_name, device, normalize, for_queries)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
@@ -157,11 +184,7 @@ class AstrobertEmbedder(Embedder):
             self.model = model.to(device)
 
         self.model.eval()
-        self.max_length = (
-            MODEL_DATA[model_name]["max_length"]
-            if model_name in MODEL_DATA and "max_length" in MODEL_DATA[model_name]
-            else None
-        )
+        self.max_length = 512
 
         # NOTE: this works for BERT models but may need adjustment for other architectures
         self.dim = self.model.config.hidden_size
@@ -186,6 +209,8 @@ class AstrobertEmbedder(Embedder):
         return embeddings.detach().cpu().numpy()
 
 
+@Embedder.register("BAAI/bge-small-en")
+@Embedder.register("BAAI/bge-large-en-v1.5")
 class BGEEmbedder(Embedder):
     INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
@@ -241,27 +266,21 @@ class BGEEmbedder(Embedder):
         return self.encode(docs)
 
 
+@Embedder.register("allenai/specter2")
 class SpecterEmbedder(Embedder):
-    ADAPTER_MAP = {
-        "allenai/specter2": ("allenai/specter2", "[PRX]"),
-        "allenai/specter2_adhoc_query": ("allenai/specter2_adhoc_query", "[QRY]"),
-    }
 
     def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool):
         """
         Because Specter uses different adapters for embedding docs vs. queries, here model_name
-        actually refers to the adapter
+        is just the 'key' allenai/specter2. The for_queries flag controls which adapter gets
+        loaded:
             allenai/specter2: document embedder
             allenai/specter2_adhoc_query: short query embedder
         """
         super().__init__(model_name, device, normalize, for_queries)
-        assert for_queries == (
-            model_name == "allenai/specter2_adhoc_query"
-        ), "If for_queries is True, model_name should be 'allenai/specter2_adhoc_query'. Otherwise, it should be 'allenai/specter2'."
-
         self.tokenizer = AutoTokenizer.from_pretrained("allenai/specter2_base")
         self.device = device
-        self.adapter_name = model_name
+        self.adapter_name = "allenai/specter2_adhoc_query" if for_queries else "allenai/specter2"
 
         # Load the model and adapter
         from adapters import AutoAdapterModel
@@ -301,35 +320,30 @@ class SpecterEmbedder(Embedder):
 
 
 # TODO: move this into class definition, so you can use constructor instead of get_embedder?
-EMBEDDING_CLASS = {
-    "adsabs/astroBERT": AstrobertEmbedder,
-    "BAAI/bge-small-en": BGEEmbedder,
-    "BAAI/bge-large-en-v1.5": BGEEmbedder,
-    "nasa-impact/nasa-ibm-st.38m": SentenceTransformerEmbedder,
-    "Qwen/Qwen3-Embedding-0.6B": QwenEmbedder,
-    "Qwen/Qwen3-Embedding-8B": QwenEmbedder,
-    "UniverseTBD/astrollama": AstroLlamaEmbedder,
-    "allenai/specter2": SpecterEmbedder,  # Use this for embedding documents
-    "allenai/specter2_adhoc_query": SpecterEmbedder,  # Use this for embedding queries
-    # astrosage
-}
-
-MODEL_DATA = {
-    "adsabs/astroBERT": {"max_length": 512},
-    "UniverseTBD/astrollama": {"max_length": 4096},
-}
+# EMBEDDING_CLASS = {
+#     "adsabs/astroBERT": AstrobertEmbedder,
+#     "BAAI/bge-small-en": BGEEmbedder,
+#     "BAAI/bge-large-en-v1.5": BGEEmbedder,
+#     "nasa-impact/nasa-ibm-st.38m": SentenceTransformerEmbedder,
+#     "Qwen/Qwen3-Embedding-0.6B": QwenEmbedder,
+#     "Qwen/Qwen3-Embedding-8B": QwenEmbedder,
+#     "UniverseTBD/astrollama": AstroLlamaEmbedder,
+#     "allenai/specter2": SpecterEmbedder,  # Use this for embedding documents
+#     "allenai/specter2_adhoc_query": SpecterEmbedder,  # Use this for embedding queries
+#     # astrosage
+# }
 
 
-def get_embedder(model_name: str, device: str, normalize: bool, for_queries: bool) -> Embedder:
-    try:
-        return EMBEDDING_CLASS[model_name](model_name, device, normalize, for_queries)
-    except KeyError:
-        raise ValueError(f"Model {model_name} not supported. Available models: {list(EMBEDDING_CLASS.keys())}")
+# def get_embedder(model_name: str, device: str, normalize: bool, for_queries: bool) -> Embedder:
+#     try:
+#         return EMBEDDING_CLASS[model_name](model_name, device, normalize, for_queries)
+#     except KeyError:
+#         raise ValueError(f"Model {model_name} not supported. Available models: {list(EMBEDDING_CLASS.keys())}")
 
 
 def main():
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
-    embedder = get_embedder("Qwen/Qwen3-Embedding-0.6B", device=device, normalize=False)
+    embedder = Embedder.create("Qwen/Qwen3-Embedding-0.6B", device=device, normalize=False, for_queries=True)
     print(f"Loaded model: {embedder}")
     sample_docs = [
         "This is a test document.",

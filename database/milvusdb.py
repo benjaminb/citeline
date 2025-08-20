@@ -3,7 +3,8 @@ from pymilvus import MilvusClient, Collection, FieldSchema, CollectionSchema, Da
 import os
 from dotenv import load_dotenv
 from tqdm import tqdm
-from embedders import get_embedder, Embedder
+# from embedders import get_embedder, Embedder
+from embedders import Embedder
 import torch
 import pandas as pd
 
@@ -171,7 +172,8 @@ class MilvusDB:
             "pubdate",
             "citation_count",
         }, f"DataFrame must contain 'text', 'doi', 'citation_count', and 'pubdate' columns (and no others). Dataset given has columns {data.columns}"
-        embedder = get_embedder(embedder_name, device=self.device, normalize=normalize, for_queries=False)
+        # embedder = get_embedder(embedder_name, device=self.device, normalize=normalize, for_queries=False)
+        embedder = Embedder.create(model_name=embedder_name, device=self.device, normalize=normalize, for_queries=False)
 
         # Check if collection already exists and handle resumption
         if name in self.client.list_collections():

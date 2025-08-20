@@ -15,8 +15,8 @@ from tqdm import tqdm
 
 from database.database import Database
 from query_expander import get_expander
-from embedders import get_embedder
-from Rerankers import get_reranker
+from embedders import Embedder
+from rerankers import get_reranker
 from metrics import RankFuser
 
 logger = logging.getLogger(__name__)
@@ -188,7 +188,9 @@ class Experiment:
         self.metric = metric
         self.batch_size = batch_size
         self.normalize = normalize
-        self.embedder = get_embedder(model_name=embedding_model_name, device=device, normalize=normalize)
+        self.embedder = Embedder.create(
+            model_name=embedding_model_name, device=device, normalize=normalize, for_queries=True
+        )
         self.query_expansion_name = query_expansion
         self.query_expander = get_expander(query_expansion, path_to_data=EXPANSION_DATA_PATH)
         self.reranker_to_use = reranker_to_use
