@@ -86,6 +86,10 @@ class QwenEmbedder(Embedder):
 
 
 class SentenceTransformerEmbedder(Embedder):
+    """
+    For a SentenceTransformer based model that does not have separate pipelines for embedding
+    docs vs. queries
+    """
 
     def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool = False):
         super().__init__(model_name, device, normalize, for_queries)
@@ -181,6 +185,61 @@ class AstrobertEmbedder(Embedder):
         return embeddings.detach().cpu().numpy()
 
 
+class BGEEmbedder(Embedder):
+    INSTRUCTION = "Represent this sentence for searching relevant passages: "
+
+    def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool = False):
+        super().__init__(model_name, device, normalize, for_queries)
+        #
+        self.model = SentenceTransformer(model_name, trust_remote_code=True, device=device)
+        self.model.eval()
+
+        # Reattempt multiprocess
+        self.pool = None
+        if torch.cuda.device_count() > 1:
+            self.pool = self.model.start_multi_process_pool(
+                target_devices=[f"cuda:{i}" for i in range(torch.cuda.device_count())]
+            )
+        if self.pool:
+            print(f"Using {torch.cuda.device_count()} cuda GPUs for encoding.")
+
+            def encode(docs):
+                """
+                Create the embedding function in a no_grad context
+                """
+                if self.for_queries:
+                    docs = [self.INSTRUCTION + doc for doc in docs]
+                with torch.no_grad():
+                    return self.model.encode_multi_process(
+                        docs,
+                        pool=self.pool,
+                        normalize_embeddings=self.normalize,
+                        show_progress_bar=False,
+                    )
+
+        else:
+
+            def encode(docs):
+                """
+                Create the embedding function in a no_grad context
+                """
+                if self.for_queries:
+                    docs = [self.INSTRUCTION + doc for doc in docs]
+                with torch.no_grad():
+                    return self.model.encode(
+                        docs,
+                        convert_to_numpy=True,
+                        normalize_embeddings=self.normalize,
+                        show_progress_bar=False,
+                    )
+
+        self.encode = encode
+        self.dim = self.model.get_sentence_embedding_dimension()
+
+    def _embed(self, docs: list[str]) -> np.ndarray:
+        return self.encode(docs)
+
+
 class SpecterEmbedder(Embedder):
     ADAPTER_MAP = {
         "allenai/specter2": ("allenai/specter2", "[PRX]"),
@@ -243,8 +302,8 @@ class SpecterEmbedder(Embedder):
 # TODO: move this into class definition, so you can use constructor instead of get_embedder?
 EMBEDDING_CLASS = {
     "adsabs/astroBERT": AstrobertEmbedder,
-    "BAAI/bge-small-en": SentenceTransformerEmbedder,
-    "BAAI/bge-large-en-v1.5": SentenceTransformerEmbedder,
+    "BAAI/bge-small-en": BGEEmbedder,
+    "BAAI/bge-large-en-v1.5": BGEEmbedder,
     "nasa-impact/nasa-ibm-st.38m": SentenceTransformerEmbedder,
     "Qwen/Qwen3-Embedding-0.6B": QwenEmbedder,
     "Qwen/Qwen3-Embedding-8B": QwenEmbedder,
