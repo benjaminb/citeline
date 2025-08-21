@@ -1,8 +1,8 @@
 dataset: 'data/dataset/nontrivial_checked.jsonl'
-table: 'qwen06b_contributions'
+table: 'qwen8b_contributions'
 target_column: 'vector'
 metric: 'IP'
-embedder: 'Qwen/Qwen3-Embedding-0.6B'
+embedder: 'Qwen/Qwen3-Embedding-8B'
 normalize: True
 query_expansion: 'identity'
 batch_size: 16
