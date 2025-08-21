@@ -1,5 +1,14 @@
 import pandas as pd
 from metrics import get_metric
+"""
+The experiments, when asked to output all search results, store in a parquet format that can read into a pandas DataFrame.
+For an experiment on n records, the parquet->DataFrame will have n rows and 2 columns:
+  - 'record': the dict representing the original record from that dataset, with keys:
+    'citation_dois', 'expanded_query', 'pubdate', 'resolved_bibcodes', 'sent_cit_masked', 'sent_idx', 'sent_no_cit', 'sent_original', 'source_doi'
+  - 'results': a list of dicts representing the entities returned from the database search, in 'metric' order
+    contains keys: 'citation_count', 'doi', 'metric', 'pubdate', 'text'
+    NOTE: remember that in Milvus metrics IP and COSINE are 'higher is better' while L2 is 'lower is better'
+"""
 
 class RankFuser():
     """

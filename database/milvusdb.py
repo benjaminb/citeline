@@ -279,7 +279,7 @@ class MilvusDB:
             anns_field="vector",
             param={"metric_type": metric},
             limit=limit,
-            output_fields=["text", "doi", "pubdate"],
+            output_fields=["text", "doi", "pubdate", "citation_count"],
         )
 
         formatted_results = []

@@ -3,6 +3,7 @@
 .vscode/
 *.json
 *.jsonl
+*.parquet
 database/milvus/volumes/
 
 # But do include .json files in experiments/results

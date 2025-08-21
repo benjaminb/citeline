@@ -96,6 +96,7 @@ class QwenEmbedder(Embedder):
             device=device,
             model_kwargs=model_kwargs,
             tokenizer_kwargs=tokenizer_kwargs,
+            cache_folder="~/.cache/huggingface/hub"
         )
         self.model.eval()
         self.dim = self.model.get_sentence_embedding_dimension()

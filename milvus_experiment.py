@@ -6,19 +6,23 @@ import torch
 import yaml
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+
+# import matplotlib.pyplot as plt
 from time import time
 from datetime import datetime
+from dotenv import load_dotenv
 from tqdm import tqdm
-from pymilvus import MilvusClient, Collection
+from pymilvus import Collection
 from database.milvusdb import MilvusDB
 from query_expander import get_expander
 from embedders import Embedder
-from rerankers import get_reranker
-from metrics import RankFuser
+
+# from rerankers import get_reranker
+# from metrics import RankFuser
 
 logger = logging.getLogger(__name__)
-DISTANCE_THRESHOLDS = np.arange(1.0, 0.0, -0.01)
+load_dotenv()
+# DISTANCE_THRESHOLDS = np.arange(1.0, 0.0, -0.01)
 
 EXPANSION_DATA_PATH = "data/preprocessed/reviews.jsonl"
 
@@ -162,6 +166,7 @@ class Experiment:
         metrics_config: dict[str, float] = None,
         distance_threshold: float = None,
         output_path: str = "experiments/results/",
+        output_search_results: bool = False,
     ):
         # Set up configs
         # self.device = device
@@ -207,7 +212,7 @@ class Experiment:
         self.query_expansion_name = query_expansion
         self.query_expander = get_expander(query_expansion, path_to_data=EXPANSION_DATA_PATH)
         self.reranker_to_use = reranker_to_use
-        self.reranker = get_reranker(reranker_name=reranker_to_use, db=self.db) if reranker_to_use is not None else None
+        # self.reranker = get_reranker(reranker_name=reranker_to_use, db=self.db) if reranker_to_use is not None else None
         self.metrics_config = metrics_config
         self.output_path = output_path
 
@@ -246,6 +251,8 @@ class Experiment:
         self.best_top_distances = []
         self.hits = []
         self.recall_scores = []  # proportion of target DOIs that were retrieved in the top-k results
+
+        self.output_search_results = output_search_results
 
     def __postprocess_milvus_results(self, results: list[dict]):
         return [hit.entity | {"distance": hit.distance} for hit in results[0]]
@@ -300,10 +307,6 @@ class Experiment:
             interleaved.append(contribution_results.iloc[i])
 
         return pd.DataFrame(interleaved).reset_index(drop=True)
-        # results = pd.concat([chunk_results, contribution_results], ignore_index=True)
-        # results = results.sort_values(by="distance", ascending=True).reset_index(drop=True)
-
-        # return results
 
     def __hit_rate(self, example, results: list[dict]):
         target_dois = set(example["citation_dois"])
@@ -563,7 +566,7 @@ class Experiment:
         print(f"Collection {self.target_table} loaded.")
 
         # Set up rank fusion
-        rank_fuser = RankFuser(config=self.metrics_config) if self.metrics_config else None
+        # rank_fuser = RankFuser(config=self.metrics_config) if self.metrics_config else None
 
         # Create thread-safe queues for tasks and results
         task_queue = queue.Queue()
@@ -578,9 +581,6 @@ class Experiment:
             """Consumer thread that handles database queries and evaluations"""
             nonlocal consumer_progress
 
-            # thread_collection = Collection(name=self.target_table)
-            # thread_collection.load()
-
             while True:
                 try:
                     batch_records, embeddings = task_queue.get(timeout=30)
@@ -591,12 +591,6 @@ class Experiment:
                     search_results = self.db.search(
                         collection=collection, queries=embeddings, metric=self.metric, limit=self.top_k
                     )
-
-                    # Reranking
-                    # if rank_fuser is not None:
-                    #     results = rank_fuser(query=example, results=results, db=thread_db)
-                    # if self.reranker is not None:
-                    #     results = self.reranker(query=example["expanded_query"], results=results)
 
                     # TODO: fix logging within thread
 
@@ -683,6 +677,7 @@ class Experiment:
         self.iou_matrix = np.zeros((len(self.dataset), self.top_k))
         self.recall_matrix = np.zeros((len(self.dataset), self.top_k))
         stats_idx = 0
+        all_results = []
         while not results_queue.empty():
             batch_records, batch_results = results_queue.get()
             stats = self._compute_metrics_batch(batch_records, batch_results)
@@ -692,6 +687,20 @@ class Experiment:
             self.iou_matrix[stats_idx : stats_idx + len(batch_records), :] = stats["iou_at_k"]
             self.hitrate_matrix[stats_idx : stats_idx + len(batch_records), :] = stats["hitrate_at_k"]
             stats_idx += len(batch_records)
+
+            if self.output_search_results:
+                all_results.extend(list(zip(batch_records, batch_results)))
+
+        if self.output_search_results:
+            print("Saving search results to disk")
+            df = pd.DataFrame(all_results, columns=["record", "results"])
+            try:
+                df.to_parquet(os.path.join(self.output_path, "search_results.parquet"))
+
+            except Exception as e:
+                logger.error(f"Error saving search results: {e}")
+                logger.info(f"Saving all search results to project root")
+                df.to_parquet("search_results.parquet")
 
         # Ensure we processed everything we enqueued
         if stats_idx != len(self.dataset):
@@ -773,13 +782,6 @@ class Experiment:
         # Compute metrics for each example in the batch
         for i, (example, results) in enumerate(zip(examples, batch_results)):
             metrics = self._compute_metrics(example, results)
-            # Check if metrics are all 0
-            # if (
-            #     np.all(metrics["recall_at_k"] == 0)
-            #     and np.all(metrics["hitrate_at_k"] == 0)
-            #     and np.all(metrics["iou_at_k"] == 0)
-            # ):
-            #     print(f"All metrics are zero for example {i}", flush=True)
             batch_recall[i] = metrics["recall_at_k"]
             batch_hitrate[i] = metrics["hitrate_at_k"]
             batch_iou[i] = metrics["iou_at_k"]
@@ -849,6 +851,7 @@ def main():
             metrics_config=config.get("metrics", None),
             # distance_threshold=config["distance_threshold"],
             output_path=config.get("output_path", "experiments/results/"),
+            output_search_results=config.get("output_search_results", False),
         )
         print(experiment)
         experiment.run()
