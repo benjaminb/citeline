@@ -87,8 +87,8 @@ class AstroLlamaEmbedder(Embedder):
 class QwenEmbedder(Embedder):
     def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool):
         super().__init__(model_name, device, normalize, for_queries)
-        # model_kwargs = {"attn_implementation": "flash_attention_2"} if device == "cuda" else {}
-        model_kwargs = {}
+        # model_kwargs = {}
+        model_kwargs = {"attn_implementation": "flash_attention_2"} if device == "cuda" else {}
         tokenizer_kwargs = {"padding_side": "left"}
 
         self.model = SentenceTransformer(
@@ -120,7 +120,7 @@ class SentenceTransformerEmbedder(Embedder):
         #
         self.model = SentenceTransformer(model_name, trust_remote_code=True, device=device)
         self.model.eval()
-        self.max_length = self.model.get_max_seq_length() # should be 512
+        self.max_length = self.model.get_max_seq_length()  # should be 512
 
         # Reattempt multiprocess
         self.pool = None
@@ -317,28 +317,6 @@ class SpecterEmbedder(Embedder):
             embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)
 
         return embeddings.detach().cpu().numpy()
-
-
-# TODO: move this into class definition, so you can use constructor instead of get_embedder?
-# EMBEDDING_CLASS = {
-#     "adsabs/astroBERT": AstrobertEmbedder,
-#     "BAAI/bge-small-en": BGEEmbedder,
-#     "BAAI/bge-large-en-v1.5": BGEEmbedder,
-#     "nasa-impact/nasa-ibm-st.38m": SentenceTransformerEmbedder,
-#     "Qwen/Qwen3-Embedding-0.6B": QwenEmbedder,
-#     "Qwen/Qwen3-Embedding-8B": QwenEmbedder,
-#     "UniverseTBD/astrollama": AstroLlamaEmbedder,
-#     "allenai/specter2": SpecterEmbedder,  # Use this for embedding documents
-#     "allenai/specter2_adhoc_query": SpecterEmbedder,  # Use this for embedding queries
-#     # astrosage
-# }
-
-
-# def get_embedder(model_name: str, device: str, normalize: bool, for_queries: bool) -> Embedder:
-#     try:
-#         return EMBEDDING_CLASS[model_name](model_name, device, normalize, for_queries)
-#     except KeyError:
-#         raise ValueError(f"Model {model_name} not supported. Available models: {list(EMBEDDING_CLASS.keys())}")
 
 
 def main():
