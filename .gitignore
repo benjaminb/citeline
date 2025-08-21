@@ -5,6 +5,9 @@
 *.jsonl
 database/milvus/volumes/
 
+# But do include .json files in experiments/results
+!experiments/results/**/*.json
+
 
 
 # Mac OS files
