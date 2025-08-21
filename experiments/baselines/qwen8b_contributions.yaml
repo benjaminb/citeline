@@ -1,0 +1,10 @@
+dataset: 'data/dataset/nontrivial_checked.jsonl'
+table: 'qwen06b_contributions'
+target_column: 'vector'
+metric: 'IP'
+embedder: 'Qwen/Qwen3-Embedding-0.6B'
+normalize: True
+query_expansion: 'identity'
+batch_size: 16
+top_k: 1000
+output_path: 'experiments/results/baseline_no_ref'
