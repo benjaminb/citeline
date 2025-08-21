@@ -4,31 +4,31 @@
 
 #### 6.17.25
 
-Having chunked and embedded the research corpus using bge-small, bge-large, and astrobert, I set top-k to 1000 and performed vector search using 326 nontrivial examples from the training set. 
+Having chunked and embedded the research corpus using bge-small, bge-large, and astrobert, I set top-k to 1000 and performed vector search using 326 nontrivial examples from the training set.
 
 Each example query and search result produces a Jaccard score (intersection over union) and a 'hit percentage' (proportion of target documents retrieved by the search, i.e. recall).
 
+| Model       | Average IoU | Recall |
+| ----------- | ----------- | ------ |
+| `astrobert` | 0.0004      | 0.22   |
+| `bge-small` | 0.0015      | 0.71   |
+| `bge-large` | 0.0019      | 0.77   |
 
-| Model | Average IoU | Recall |
-|-------|-------------|--------|
-|`astrobert`|0.0004|0.22|
-|`bge-small`|0.0015|0.71|
-|`bge-large`|0.0019|0.77|
-
-*Using `k = 1000`, cosine similarity on document chunks, IVFFlat index with 1000 probes*
+_Using `k = 1000`, cosine similarity on document chunks, IVFFlat index with 1000 probes_
 
 ### Document Expansion: representing papers by a list of their contributions
 
 #### 6.17.25
+
 With vanilla RAG and these embedding models it appears that we need a high `k` in order to retrieve the target documents, but more documents retrieved lowers average IoU. One way to address this would be to use document expansion by representing each paper as a list of strings comprising that paper's original contributions.
 
-As a pilot attempt, I took 10 training examples (`small_train.jsonl`) which together cited 15 research papers. Those 15 papers I fed into DeepSeek-R1 prompting it to write out the paper's original contributions. This resulted in 154 individual 'contribution strings' which I embedded using `bge-large` (the best performing model in vanilla RAG), and inserted into a table on the database. 
+As a pilot attempt, I took 10 training examples (`small_train.jsonl`) which together cited 15 research papers. Those 15 papers I fed into DeepSeek-R1 prompting it to write out the paper's original contributions. This resulted in 154 individual 'contribution strings' which I embedded using `bge-large` (the best performing model in vanilla RAG), and inserted into a table on the database.
 
 Performing top-20 vector similarity on this table resulted in an average IoU of 0.1860 and recall of 0.94. Part of this is likely due to the much smaller search space. However the 'original contribution' extraction also may serve to focus each paper's underlying citation value and I should try this method at a larger scale.
 
-| Model | Average IoU | Recall |
-|-------|-------------|--------|
-|`bge-large`|0.0600|0.68|
+| Model       | Average IoU | Recall |
+| ----------- | ----------- | ------ |
+| `bge-large` | 0.0600      | 0.68   |
 
 #### 8.20.25
 
@@ -37,14 +37,30 @@ Wrote `clean_dataset_refs.ipynb` to remove `[REF]` from datasets' inputs; this i
 The top-performing embedder has been BGE so far, which [states you should prepend short queries with an instruction](https://huggingface.co/BAAI/bge-large-en-v1.5) for embedding. I've implemented this as a type of query expansion, `add_bge_instruction`. If there is a meaningful improvement, perhaps this instruction should be moved into the `Embedder` subclass itself.
 
 After running experiments with and without `[REF]` in the input sentence and with/without the added BGE instruction for queries:
-* Removing the `[REF]` marker improved hitrate and recall in all cases
-    - This indicates that `[REF]` was adding noise to the input, negatively impacting performance. Are there other 'noises' that could be removed, such as "()", stopwords, or other punctuation?
-* Adding the BGE instruction also improved hitrate and recall by about 1% for most $k$.
-    - Moved the instruction into the embedders
+
+- Removing the `[REF]` marker improved hitrate and recall in all cases
+  - This indicates that `[REF]` was adding noise to the input, negatively impacting performance. Are there other 'noises' that could be removed, such as "()", stopwords, or other punctuation?
+- Adding the BGE instruction also improved hitrate and recall by about 1% for most $k$.
+  - Moved the instruction into the embedders so it is used by default during queries
 
 ##### Engineering
 
 Refactored `Embedders` class:
-* Constructors take a `for_query` flag to allow different query/document embedding logic if the model suggests it (e.g. BGE, Qwen)
-* Created a decorator `@Embedder.register` to simplify the registration of new embedder classes. Now embedders instantiate from `Embedder.create` instead of an external `get_embedder` function
 
+- Constructors take a `for_query` flag to allow different query/document embedding logic if the model suggests it (e.g. BGE, Qwen)
+- Created a decorator `@Embedder.register` to simplify the registration of new embedder classes. Now embedders instantiate from `Embedder.create` instead of an external `get_embedder` function
+
+##### Research
+
+Ran experiments on the dataset (`nontrivial_checked.jsonl`, 14735 examples) against chunks & contribution representations using the following embedders:
+
+- astrobert
+- bge_large
+- nasa
+- specter2
+
+![../data/images/baselines_20250820_k1000.png](../data/images/baselines_20250820_k1000.png)
+
+The top performing embedder was `bge_large` against chunks. Interestingly, the Nasa embedder against contributions came in 2nd, while BGE against contributions came in 3rd.
+
+**Takeaway**:BGE, trained for document embedding, outperforms other science-tuned LLMs

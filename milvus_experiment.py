@@ -201,7 +201,9 @@ class Experiment:
         self.batch_size = batch_size
         self.normalize = normalize
         self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
-        self.embedder = Embedder.create(model_name=embedding_model_name, device=self.device, normalize=normalize, for_query=True)
+        self.embedder = Embedder.create(
+            model_name=embedding_model_name, device=self.device, normalize=normalize, for_queries=True
+        )
         self.query_expansion_name = query_expansion
         self.query_expander = get_expander(query_expansion, path_to_data=EXPANSION_DATA_PATH)
         self.reranker_to_use = reranker_to_use
