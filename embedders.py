@@ -2,10 +2,13 @@ import numpy as np
 import pandas as pd
 import torch
 from abc import ABC, abstractmethod
+from dotenv import load_dotenv
+import os
 
 from sentence_transformers import SentenceTransformer
 from transformers import AutoModel, AutoTokenizer, AutoModelForCausalLM
 
+load_dotenv()
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
 
 
@@ -96,7 +99,8 @@ class QwenEmbedder(Embedder):
             device=device,
             model_kwargs=model_kwargs,
             tokenizer_kwargs=tokenizer_kwargs,
-            cache_folder="~/.cache/huggingface/hub"
+            token=os.environ.get("HUGGINGFACE_API_TOKEN"),
+            # cache_folder="~/.cache/huggingface/hub"
         )
         self.model.eval()
         self.dim = self.model.get_sentence_embedding_dimension()
