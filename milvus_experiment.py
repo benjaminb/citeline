@@ -703,12 +703,12 @@ class Experiment:
             print("Saving search results to disk")
             df = pd.DataFrame(all_results, columns=["record", "results"])
             try:
-                df.to_parquet(os.path.join(self.output_path, "search_results.parquet"))
+                df.to_json(os.path.join(self.output_path, "search_results.jsonl"), lines=True, orient="records")
 
             except Exception as e:
                 logger.error(f"Error saving search results: {e}")
                 logger.info(f"Saving all search results to project root")
-                df.to_parquet("search_results.parquet")
+                df.to_json("search_results.jsonl", lines=True, orient="records")
 
         # Ensure we processed everything we enqueued
         if stats_idx != len(self.dataset):
