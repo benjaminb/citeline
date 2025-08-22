@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-#SBATCH --job-name=test_build_job
-#SBATCH -p gpu # partition (queue)
+#SBATCH --job-name=build_qwen
+#SBATCH -p gpu_h200 # partition (queue)
 #SBATCH -c 4 # number of cores
 #SBATCH --gres=gpu:1 # number of GPUs
 #SBATCH --mem 64000 # memory pool for all cores
-#SBATCH -t 0-00:30 # time (D-HH:MM)
+#SBATCH -t 0-10:00 # time (D-HH:MM)
 #SBATCH -o slurm.%x.%j.log # STDOUT
 #SBATCH -e slurm.%x.%j.log # STDERR
 
@@ -20,4 +20,14 @@ cd database/milvus
 podman compose up -d
 
 cd ..
-python milvusdb.py --create-collection --name foo --data-source ../data/research_chunks.jsonl --embedder=Qwen/Qwen3-Embedding-8B
+python milvusdb.py --create-collection --name qwen8b_chunks \
+--data-source ../data/research_chunks.jsonl \
+--embedder Qwen/Qwen3-Embedding-8B \
+--normalize \
+--batch-size 16 
+
+python milvusdb.py --create-collection --name qwen8b_contributions \
+--data-source ../data/research_contributions.jsonl \
+--embedder Qwen/Qwen3-Embedding-8B \
+--normalize \
+--batch-size 16 

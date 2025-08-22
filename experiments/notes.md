@@ -64,3 +64,15 @@ Ran experiments on the dataset (`nontrivial_checked.jsonl`, 14735 examples) agai
 The top performing embedder was `bge_large` against chunks. Interestingly, the Nasa embedder against contributions came in 2nd, while BGE against contributions came in 3rd.
 
 **Takeaway**:BGE, trained for document embedding, outperforms other science-tuned LLMs
+
+#### 8.22.25
+
+##### Engineering
+
+* Refactored `MilvusDB.search` to apply pubdate filtering: Discovered that the `MilvusDB.search` method wasn't filtering based on pubdate. Additionally, only a client object can apply filters it seems, not collection objects, in `pymilvus`.
+* Refactored `Metric` class and `RankFuser`
+
+Still to do: Adapt experiment code that computes stats to run on a reranked dataset, then you can try rank fusers with multiple different values on the same experimental output
+
+##### Research
+* Reran baselines using updated search function: Qwen06B+chunks still top performer, followed by BGE+chunks, then Qwen06+contributions close behind. Qwen4B and Qwen8B likely would do even better
