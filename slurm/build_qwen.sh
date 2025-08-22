@@ -18,6 +18,7 @@ git pull
 # Start Milvus service
 cd database/milvus
 podman compose up -d
+podman ps
 
 cd ..
 python milvusdb.py --create-collection --name qwen8b_chunks \
