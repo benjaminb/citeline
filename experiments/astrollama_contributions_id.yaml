@@ -1,9 +1,0 @@
-dataset: 'data/dataset/nontrivial_100.jsonl'
-table: 'contributions'
-target_column: 'astrollama'
-metric: 'COSINE'
-embedder: 'UniverseTBD/astrollama'
-normalize: False
-query_expansion: 'identity'
-batch_size: 8
-top_k: 1000

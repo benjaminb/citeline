@@ -1,9 +1,0 @@
-dataset: 'data/dataset/nontrivial_10.jsonl'
-table: 'specter_contributions'
-target_column: 'vector'
-metric: 'IP'
-embedder: 'allenai/specter2_adhoc_query'
-normalize: False
-query_expansion: 'identity'
-batch_size: 16
-top_k: 100

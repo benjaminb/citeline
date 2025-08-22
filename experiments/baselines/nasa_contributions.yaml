@@ -7,4 +7,4 @@ normalize: False
 query_expansion: 'identity'
 batch_size: 32
 top_k: 1000
-output_path: 'experiments/results/baseline_no_ref'
+output_path: 'experiments/results/baselines'

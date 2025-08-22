@@ -60,12 +60,11 @@ class QueryExpander:
         "add_title": query_expander_factory([("title", "Title:")]),
         "add_title_and_abstract": query_expander_factory([("title", "Title:"), ("abstract", "Abstract:")]),
         "add_prev_3": query_expander_factory([], prev_n=3),
+        "add_prev_5": query_expander_factory([], prev_n=5),
         "add_abstract_prev_3": query_expander_factory([("abstract", "Abstract:")], prev_n=3),
         "add_title_prev_3": query_expander_factory([("title", "Title:")], prev_n=3),
         "add_title_abstract_prev3": query_expander_factory([("title", "Title:"), ("abstract", "Abstract:")], prev_n=3),
         "add_prev_7": query_expander_factory([], prev_n=7),
-        "add_bge_instruction": lambda example, record: BGE_INSTRUCTION + example.sent_no_cit,
-        "add_bge_prev_3": query_expander_factory([], prev_n=3, prefix=BGE_INSTRUCTION),
     }
 
     def __init__(
