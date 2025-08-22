@@ -1,9 +1,45 @@
+from abc import ABC, abstractmethod
+import numpy as np
+import pandas as pd
+
 """
-A metric is a function that takes a query (pd.Series) and its results (pd.DataFrame) and returns a list of scores,
-each score reflecting the similarity or relevance of the result row to the query
+A metric is a class who's call method takes a 'query' (pd.Series) and 'results' (pd.DataFrame) and 
+computes a score for each result.
 """
 
-import pandas as pd
+
+class Metric(ABC):
+    registry = {}
+
+    @classmethod
+    def register(cls, metric_name: str):
+        """
+        Register a metric class with a name.
+        """
+
+        def decorator(subclass):
+            cls.registry[metric_name] = subclass
+            subclass.name = metric_name
+            return subclass
+
+        return decorator
+
+    @classmethod
+    def get_metric(cls, metric_name: str, db=None):
+        """
+        Get a registered metric class by name.
+        """
+        if not metric_name in cls.registry:
+            raise KeyError(f"Metric '{metric_name}' not found. Available metrics: {list(cls.registry.keys())}")
+        metric_class = cls.registry.get(metric_name)
+        return metric_class(db=db)
+
+    def __init__(self, db=None):
+        self.db = db
+
+    @abstractmethod
+    def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
+        pass
 
 
 def get_cosine_similarity_metric() -> callable:
@@ -14,6 +50,27 @@ def get_cosine_similarity_metric() -> callable:
         return 1 - results["distance"]
 
     return cosine_similarity
+
+
+@Metric.register("recency")
+class Recency(Metric):
+
+    def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
+        """
+        Returns the -log of years since publication
+        """
+        if "pubdate" not in results.columns:
+            raise ValueError("Results DataFrame must contain 'pubdate' column")
+
+        query_date = pd.to_datetime(str(query["pubdate"]), format="%Y%m%d")
+        results_pubdates = results["pubdate"].apply(pd.to_datetime, format="%Y%m%d")
+        # Calculate years since publication
+        days_since_pub = (query_date - results_pubdates).dt.days
+        years_since_pub = days_since_pub / 365.25
+        assert (
+            years_since_pub >= 0
+        ).all(), f"Found negative years_since_pub values: {years_since_pub[years_since_pub < 0].tolist()}"
+        return -np.log1p(years_since_pub)
 
 
 def get_recency_metric() -> callable:

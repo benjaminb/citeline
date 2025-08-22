@@ -1,5 +1,5 @@
 import argparse
-from pymilvus import MilvusClient, Collection, FieldSchema, CollectionSchema, DataType, utility
+from pymilvus import MilvusClient, Collection, DataType
 import os
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -254,7 +254,12 @@ class MilvusDB:
             print(f" - {collection_name}: {collection.num_entities} entities")
 
     def search(
-        self, collection: Collection, queries: list[float], metric: str = "IP", limit: int = 3
+        self,
+        collection_name: str,
+        query_records: list[dict],
+        query_vectors: list[float],
+        metric: str = "IP",
+        limit: int = 3,
     ) -> list[list[dict]]:
         """
         Searches a collection for top-k results based on the queries and metric.
@@ -274,13 +279,26 @@ class MilvusDB:
             Milvus calls this value 'distance' regardless of the metric used. I have renamed this 'metric' to remind us
             that this could be either, and to remember if largest is best or worst based on the metric chosen
         """
-        results = collection.search(
-            data=queries,
-            anns_field="vector",
-            param={"metric_type": metric},
-            limit=limit,
-            output_fields=["text", "doi", "pubdate", "citation_count"],
-        )
+
+        # In order to apply pubdate filter, we must search one query at a time
+        results = []
+        for record, vector in zip(query_records, query_vectors):
+            hits = self.client.search(
+                collection_name=collection_name,
+                data=[vector],
+                anns_field="vector",
+                search_params={"metric_type": metric},
+                limit=limit,
+                output_fields=["text", "doi", "pubdate", "citation_count"],
+                filter=f"pubdate <= {record['pubdate']}",
+            )
+
+            # Since we only searched one query, keep the first (and only) list of hits
+            retrieved_pubdates = [hit["entity"]["pubdate"] for hit in hits[0]]
+            assert all(
+                pubdate <= record["pubdate"] for pubdate in retrieved_pubdates
+            ), "Retrieved pubdates are not all <= query pubdate"
+            results.append(hits[0])
 
         formatted_results = []
         for hits in results:

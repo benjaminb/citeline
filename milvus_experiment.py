@@ -588,8 +588,13 @@ class Experiment:
                         break
 
                     # Query the database
-                    search_results = self.db.search(
-                        collection=collection, queries=embeddings, metric=self.metric, limit=self.top_k
+                    thread_client = MilvusDB()
+                    search_results = thread_client.search(
+                        collection_name=self.target_table,
+                        query_records=batch_records,
+                        query_vectors=embeddings,
+                        metric=self.metric,
+                        limit=self.top_k,
                     )
 
                     # TODO: fix logging within thread
@@ -597,8 +602,10 @@ class Experiment:
                     # Log any anomalies in record retrieval
                     if len(search_results) != len(embeddings):
                         logger.warning(f"Expected {len(embeddings)} results, but got {len(search_results)} for batch")
+                        print(f"Expected {len(embeddings)} results, but got {len(search_results)} for batch")
                     if len(search_results[0]) != self.top_k:
                         logger.warning(f"Expected {self.top_k} results, but got {len(search_results[0])} for batch.")
+                        print(f"Expected {self.top_k} results, but got {len(search_results[0])} for batch.")
 
                     # Put the (records, results) pair on queue for stats computation later
                     results_queue.put((batch_records, search_results))
@@ -691,6 +698,7 @@ class Experiment:
             if self.output_search_results:
                 all_results.extend(list(zip(batch_records, batch_results)))
 
+        # TODO: Move this to be in the same dir as the rest of the saved files
         if self.output_search_results:
             print("Saving search results to disk")
             df = pd.DataFrame(all_results, columns=["record", "results"])
