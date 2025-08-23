@@ -69,10 +69,10 @@ def compute_averages(stat_matrices: dict[str, np.ndarray]) -> dict[str, np.ndarr
 def compute_statistics(data: list[dict[str, list[dict] | pd.Series | pd.DataFrame]]) -> dict[str, np.ndarray]:
     """
     Computes the overall statistics from the raw or reranked results data.
-    
+
     The input data is a list of dictionaries: {"record": {...}, "results": [...]} where
     - record: pd.Series for example input record
-    - results could be a list of dictionaries for search results, or a pd.DataFrame if the data came from a reranker 
+    - results could be a list of dictionaries for search results, or a pd.DataFrame if the data came from a reranker
     """
 
     if isinstance(data[0]["results"], list):
@@ -93,7 +93,7 @@ def convert_data_to_dfs(data: list[dict[str, dict | list[dict]]]) -> dict[str, f
     return converted_data
 
 
-def improvement(old_stats: dict[str, np.ndarray], new_stats: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+def stat_diffs(old_stats: dict[str, np.ndarray], new_stats: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     """
     Computes the improvement between two sets of statistics. Assumes the
     statistics are computed over the same set of examples.
