@@ -76,3 +76,10 @@ Still to do: Adapt experiment code that computes stats to run on a reranked data
 
 ##### Research
 * Reran baselines using updated search function: Qwen06B+chunks still top performer, followed by BGE+chunks, then Qwen06+contributions close behind. Qwen4B and Qwen8B likely would do even better
+
+#### 8.23.25
+
+##### Engineering
+
+* Implemented rank fusion and various metric functions
+* Worked on a separate component to compute search results statistics, so we can quickly config and rerank along various strategies and get their performance metrics
