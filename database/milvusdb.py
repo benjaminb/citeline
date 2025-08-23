@@ -23,6 +23,7 @@ def argument_parser():
     operation_group.add_argument("--healthcheck", action="store_true", help="Check the health of the Milvus server")
     operation_group.add_argument("--describe-collection", type=str, help="Describe a collection")
     operation_group.add_argument("--create-index", type=str, help="Create an index on a collection")
+    operation_group.add_argument("--export-collection", type=str, help="Export a collection to a JSONL file")
 
     # Arguments required when creating a collection
     parser.add_argument("--name", type=str, help="Name to give the new collection")
@@ -36,6 +37,8 @@ def argument_parser():
     parser.add_argument(
         "--metric-type", type=str, default="IP", help="Metric type for the index (e.g. 'IP', 'L2', etc.)"
     )
+
+    parser.add_argument("--output-file", type=str, help="Path to the output JSONL file")
 
     args = parser.parse_args()
 
@@ -245,6 +248,48 @@ class MilvusDB:
         else:
             print(f"Collection '{name}' does not exist.")
 
+    def export_collection(self, name: str, output_file: str = None):
+        """
+        Exports a collection to a JSONL file.
+
+        Args:
+            name: Name of the collection to export.
+            output_file: Path to the output JSONL file. If None, defaults to '<collection_name>_export.jsonl'.
+        """
+        if not name in self.client.list_collections():
+            print(f"Collection '{name}' does not exist.")
+            return
+
+        collection = Collection(name)
+        collection.load()
+        if collection.num_entities == 0:
+            print(f"Collection '{name}' is empty. Nothing to export.")
+            return
+
+        if output_file is None:
+            output_file = f"{name}_export.jsonl"
+
+        print(f"Exporting collection '{name}' with {collection.num_entities} entities to '{output_file}'...")
+
+        iterator = collection.query_iterator(
+            expr="", output_fields=["text", "doi", "citation_count", "pubdate", "vector"], batch_size=1000
+        )
+
+        with open(output_file, "w") as f:
+            progress_bar = tqdm(total=collection.num_entities, desc="Exporting entities")
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                for entity in batch:
+                    del entity["id"]
+                    f.write(f"{entity}\n")
+                progress_bar.update(len(batch))
+            progress_bar.close()
+            iterator.close()
+
+        print(f"Export completed. Data saved to '{output_file}'.")
+
     def list_collections(self):
         collections = self.client.list_collections()
         collections.sort()
@@ -418,6 +463,8 @@ def main():
         db.create_index(collection_name=args.create_index, index_type=args.index_type, metric_type=args.metric_type)
     elif args.describe_collection:
         db.describe_collection(args.describe_collection)
+    elif args.export_collection:
+        db.export_collection(args.export_collection, output_file=args.output_file)
     elif args.list_collections:
         db.list_collections()
     elif args.healthcheck:

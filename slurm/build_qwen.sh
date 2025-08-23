@@ -10,6 +10,7 @@
 #SBATCH -e slurm.%x.%j.log # STDERR
 
 module load python
+mamba activate
 mamba activate citeline
 echo "which python: $(which python)"
 cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline/
