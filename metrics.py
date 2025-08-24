@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 import numpy as np
 import pandas as pd
+import torch
 
 """
 A metric is a class who's call method takes a 'query' (pd.Series) and 'results' (pd.DataFrame) and 
@@ -77,86 +78,59 @@ class Recency(Metric):
         ).all(), f"Found negative years_since_pub values: {years_since_pub[years_since_pub < 0].tolist()}"
         return -np.log1p(years_since_pub)
 
+@Metric.register("bge_reranker")
+class BGEReranker(Metric):
+    def __init__(self, db=None):
+        super().__init__(db=db)
+
+        from transformers import AutoModelForSequenceClassification, AutoTokenizer
+        self.model_name = "BAAI/bge-reranker-large"
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
+        self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name, device=device)
+        self.model.eval()
+
+    def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
+        pairs = [[query, row.text] for row in results.itertuples()]
+        with torch.no_grad():
+            inputs = self.tokenizer(pairs, return_tensors="pt", padding=True, truncation=True).to(self.model.device)
+            scores = self.model(**inputs, return_dict=True).logits.view(-1,).float
+        return pd.Series(scores, index=results.index)
+
+@Metric.register("roberta_nli")
+class RobertaNLI(Metric):
+    def __init__(self, db=None):
+        super().__init__(db=db)
+
+        # Set up model
+        from sentence_transformers import CrossEncoder
+
+        device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
+        self.model = CrossEncoder("sentence-transformers/nli-roberta-base", device=device)
+
+    def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
+        if "text" not in results.columns:
+            raise ValueError("Results DataFrame must contain 'text' column")
+
+        texts = results["text"].tolist()
+        input_pairs = [(query["sent_no_cit"], text) for text in texts]
+        with torch.no_grad():
+            scores = self.model.predict(input_pairs, batch_size=32).tolist()
+        return pd.Series(scores, index=results.index)
+
+
 @Metric.register("similarity")
 class Similarity(Metric):
     def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
         """
-        Assumes that the 'distance' key in the entity represents a similarity score,
-         e.g. inner product or cosine similarity. This metric passes through that 
+        NOTE: Assumes that the 'distance' key in the entity represents a similarity score,
+        e.g. inner product or cosine similarity. This metric passes through that
         distance key value
         """
-        if "distance" not in results.columns:
-            raise ValueError("Results DataFrame must contain 'distance' column")
+        if "metric" not in results.columns:
+            raise ValueError("Results DataFrame must contain 'metric' column")
 
-        return results["distance"]
-
-
-def get_modernbert_crossencoder() -> callable:
-    """
-    Returns a reranker that uses a pre-trained ModernBERT model to score results.
-    """
-    from sentence_transformers import CrossEncoder
-
-    model = CrossEncoder("tomaarsen/reranker-ModernBERT-large-gooaq-bce")
-    # model = CrossEncoder("tomaarsen/reranker-ModernBERT-base-gooaq-bce") # smaller model for faster inference
-
-    def modernbert_crossencoder(query: pd.Series, results: pd.DataFrame, db=None) -> pd.Series:
-        """
-        Reranks results using the ModernBERT model.
-        """
-        pairs = [[query["sent_no_cit"], row["text"]] for _, row in results.iterrows()]
-        scores = model.predict(pairs)
-        return scores
-
-    return modernbert_crossencoder
-
-
-# class RankFuser:
-#     """
-#     A class that produces a weighted sum of scores from multiple scoring functions,
-#     then uses those weights to rerank a set of results
-#     """
-
-#     def __init__(self, config: dict[str, float]):
-#         """
-#         Initializes the RankFuser with a configuration dictionary that maps scoring function names to their weights.
-
-#         Args:
-#             config (dict[str, float]): A dictionary where keys are scoring function names and values are their respective weights.
-#         """
-#         self.config = config
-#         self.metrics = [get_metric(name) for name in config.keys()]
-#         self.weights = list(config.values())
-
-#     def __call__(self, query: pd.Series, results: pd.DataFrame, db=None) -> pd.DataFrame:
-#         """
-#         Reranks the results DataFrame based on the weighted sum of scores from the configured metrics.
-
-#         Args:
-#             query (pd.Series): The query for which results are being reranked.
-#             results (pd.DataFrame): The DataFrame containing results to be reranked.
-
-#         Returns:
-#             pd.DataFrame: The reranked results DataFrame.
-#         """
-#         scores = [metric(query, results, db) for metric in self.metrics]
-#         weighted_scores = sum(weight * score for weight, score in zip(self.weights, scores))
-#         results["weighted_score"] = weighted_scores
-#         return results.sort_values("weighted_score", ascending=False).reset_index(drop=True)
-
-
-# METRICS = {
-#     "cosine_similarity": get_cosine_similarity_metric,
-#     "recency": get_recency_metric,
-#     "log_citations": get_log_citations_metric,
-#     "modernbert": get_modernbert_crossencoder,
-# }
-
-
-# def get_metric(name: str) -> callable:
-#     if name in METRICS:
-#         return METRICS[name]()
-#     raise ValueError(f"Unknown metric: {name}")
+        return results["metric"]
 
 
 def main():

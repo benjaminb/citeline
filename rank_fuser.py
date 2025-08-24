@@ -1,5 +1,7 @@
 import pandas as pd
 from metrics import Metric
+from tqdm import tqdm
+
 """
 The experiments, when asked to output all search results, store in a parquet format that can read into a pandas DataFrame.
 For an experiment on n records, the parquet->DataFrame will have n rows and 2 columns:
@@ -43,7 +45,7 @@ class RankFuser:
         """
         rows = []
 
-        for row in data:
+        for row in tqdm(data, desc="Reranking results"):
             query = pd.Series(row["record"])
             results = pd.DataFrame(row["results"])
             reranked_results = self._rerank_single(query, results)

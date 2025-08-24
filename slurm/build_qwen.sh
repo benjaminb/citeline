@@ -22,7 +22,7 @@ podman compose up -d
 podman ps
 
 cd ..
-python milvusdb.py --create-collection --name qwen8b_chunks \
+python milvusdb.py --create-collection --name qwen8b_chunks_redo \
 --data-source ../data/research_chunks.jsonl \
 --embedder Qwen/Qwen3-Embedding-8B \
 --normalize \
