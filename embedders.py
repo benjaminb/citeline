@@ -85,6 +85,10 @@ class AstroLlamaEmbedder(Embedder):
         return embeddings.detach().cpu().numpy()
 
 
+def list_available_embedders() -> list[str]:
+    return sorted(Embedder.registry.keys(), key=lambda s: s.lower())
+
+
 @Embedder.register("Qwen/Qwen3-Embedding-8B")
 @Embedder.register("Qwen/Qwen3-Embedding-0.6B")
 class QwenEmbedder(Embedder):
@@ -326,16 +330,18 @@ class SpecterEmbedder(Embedder):
 
 def main():
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
-    embedder = Embedder.create("BAAI/bge-large-en-v1.5", device=device, normalize=False, for_queries=True)
-    print(f"Loaded model: {embedder}")
-    sample_docs = [
-        "This is a test document.",
-        "Another document for testing purposes.",
-        "Yet another example of a document to embed.",
-    ]
-    embeddings = embedder(sample_docs)
-    print(f"Embeddings shape: {embeddings.shape}")
-    print(f"Embeddings norms: {np.linalg.norm(embeddings, axis=1)}")
+    for name in list_available_embedders():
+        print(f"- {name}")
+    # embedder = Embedder.create("BAAI/bge-large-en-v1.5", device=device, normalize=False, for_queries=True)
+    # print(f"Loaded model: {embedder}")
+    # sample_docs = [
+    #     "This is a test document.",
+    #     "Another document for testing purposes.",
+    #     "Yet another example of a document to embed.",
+    # ]
+    # embeddings = embedder(sample_docs)
+    # print(f"Embeddings shape: {embeddings.shape}")
+    # print(f"Embeddings norms: {np.linalg.norm(embeddings, axis=1)}")
 
 
 if __name__ == "__main__":
