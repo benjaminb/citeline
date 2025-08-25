@@ -93,7 +93,8 @@ class BGEReranker(Metric):
     def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
         pairs = [[query, row.text] for row in results.itertuples()]
         with torch.no_grad():
-            inputs = self.tokenizer(pairs, return_tensors="pt", padding=True, truncation=True).to(self.model.device)
+            # TODO: is this max_length necessary, or optimal?
+            inputs = self.tokenizer(pairs, return_tensors="pt", padding=True, truncation=True, max_length=512).to(self.model.device)
             scores = self.model(**inputs, return_dict=True).logits.view(-1,).float
         return pd.Series(scores, index=results.index)
 
