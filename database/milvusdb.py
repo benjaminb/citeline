@@ -298,6 +298,13 @@ class MilvusDB:
             collection = Collection(collection_name)
             print(f" - {collection_name}: {collection.num_entities} entities")
 
+    def rename_collection(self, old_name: str, new_name: str):
+        try:
+            self.client.rename_collection(old_name, new_name)
+            print(f"Collection '{old_name}' renamed to '{new_name}'.")
+        except Exception as e:
+            print(f"Error renaming collection '{old_name}': {e}")
+
     def search(
         self,
         collection_name: str,
