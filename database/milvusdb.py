@@ -24,6 +24,7 @@ def argument_parser():
     operation_group.add_argument("--describe-collection", type=str, help="Describe a collection")
     operation_group.add_argument("--create-index", type=str, help="Create an index on a collection")
     operation_group.add_argument("--export-collection", type=str, help="Export a collection to a JSONL file")
+    operation_group.add_argument("--rename-collection", nargs=2, metavar=("old_name", "new_name"), help="Rename a collection")
 
     # Arguments required when creating a collection
     parser.add_argument("--name", type=str, help="Name to give the new collection")
@@ -474,6 +475,9 @@ def main():
         db.export_collection(args.export_collection, output_file=args.output_file)
     elif args.list_collections:
         db.list_collections()
+    elif args.rename_collection:
+        old_name, new_name = args.rename_collection
+        db.rename_collection(old_name, new_name)
     elif args.healthcheck:
         db.healthcheck()
 
