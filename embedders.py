@@ -50,7 +50,7 @@ class Embedder(ABC):
         return f"{self.model_name}, device={self.device}, normalize={self.normalize}, for_queries={self.for_queries}, dim={self.dim}"
 
 
-@Embedder.register("adsabs/astroBERT")
+@Embedder.register("UniverseTBD/astrollama")
 class AstroLlamaEmbedder(Embedder):
     """
     Does not use special instruction prompts for embedding queries or docs
