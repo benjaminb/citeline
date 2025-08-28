@@ -1,10 +1,10 @@
 dataset: 'data/dataset/nontrivial_100.jsonl'
-table: 'bge_chunks'
+table: 'qwen8b_chunks'
 target_column: 'vector'
 metric: 'IP'
-embedder: 'BAAI/bge-large-en-v1.5'
+embedder: 'Qwen/Qwen3-Embedding-8B'
 normalize: True
-query_expansion: 'add_prev_3'
+query_expansion: 'identity'
 batch_size: 8
 top_k: 20
 output_path: 'experiments/results/test/'

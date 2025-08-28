@@ -540,6 +540,70 @@ class Experiment:
             "ef_search": self.ef_search,
         }
 
+    # --- New helper methods for serializing results to JSON-friendly primitives ---
+    def _normalize_value(self, val):
+        """Convert numpy / pandas / datetime types to plain Python types for JSON."""
+        try:
+            import numpy as _np
+            import pandas as _pd
+        except Exception:
+            _np = None
+            _pd = None
+
+        # numpy scalars
+        if _np is not None and isinstance(val, (_np.integer, _np.floating, _np.bool_)):
+            return val.item()
+        # numpy arrays
+        if _np is not None and isinstance(val, _np.ndarray):
+            return val.tolist()
+        # pandas timestamp
+        if _pd is not None and isinstance(val, _pd.Timestamp):
+            return val.isoformat()
+        # datetime
+        from datetime import datetime as _dt
+
+        if isinstance(val, _dt):
+            return val.isoformat()
+        # fallback
+        try:
+            json_encodable = val if isinstance(val, (str, int, float, bool, type(None))) else str(val)
+            return json_encodable
+        except Exception:
+            return str(val)
+
+    def _serialize_hit(self, hit):
+        """
+        Take a single 'hit' returned from Milvus/DB and convert to a plain dict with serializable values.
+        Handles dict-like hits or objects with common attributes (entity, doi, distance, text, pubdate).
+        """
+        # If it's already a dict-like mapping, normalize values
+        if isinstance(hit, dict):
+            return {k: self._normalize_value(v) for k, v in hit.items()}
+
+        # Try typical attributes used in this codebase
+        serialized = {}
+        try:
+            # Some milvus clients expose the entity as hit.entity (dict-like)
+            entity = getattr(hit, "entity", None)
+            if isinstance(entity, dict):
+                for k, v in entity.items():
+                    serialized[k] = self._normalize_value(v)
+            # Common direct attributes
+            for attr in ("doi", "text", "pubdate", "id"):
+                if hasattr(hit, attr):
+                    serialized[attr] = self._normalize_value(getattr(hit, attr))
+            # distance usually present
+            if hasattr(hit, "distance"):
+                serialized["distance"] = self._normalize_value(getattr(hit, "distance"))
+        except Exception:
+            # As a last resort, include repr
+            serialized["repr"] = repr(hit)
+
+        # If no useful fields found, return repr
+        if not serialized:
+            return {"repr": repr(hit)}
+        return serialized
+
     def run(self):
         """
         Run the experiment with the producer on the main thread and consumer threads:
@@ -576,16 +640,19 @@ class Experiment:
         # For tracking progress
         dataset_size = len(self.dataset)
         consumer_progress = 0
+        consumer_bar = None
+        sentinel = object()  # Unique sentinel object for signaling completion
 
         def consumer_thread():
             """Consumer thread that handles database queries and evaluations"""
             nonlocal consumer_progress
 
             while True:
+                item = task_queue.get()
                 try:
-                    batch_records, embeddings = task_queue.get(timeout=30)
-                    if embeddings is None:  # Sentinel to signal completion
+                    if item is sentinel:
                         break
+                    batch_records, embeddings = item
 
                     # Query the database
                     thread_client = MilvusDB()
@@ -611,12 +678,9 @@ class Experiment:
                     results_queue.put((batch_records, search_results))
 
                     # Thread-safe update of progress counter
-                    with progress_lock:
-                        consumer_progress += len(embeddings)
+                    # if consumer_bar is not None:
+                    consumer_bar.update(len(embeddings))
 
-                except queue.Empty as e:
-                    print(f"Consumer timeout waiting for tasks (or queue empty?) {str(e)}")
-                    break
                 except Exception as e:
                     print(f"Consumer thread error: {str(e)}")
                 finally:
@@ -633,18 +697,19 @@ class Experiment:
         consumer_threads = []
 
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-            # Start consumer threads
-            for _ in range(num_workers):
-                thread = executor.submit(consumer_thread)
-                consumer_threads.append(thread)
 
             # Create progress bars
             with tqdm(total=dataset_size, desc="Embedding (GPU)", position=0) as producer_bar, tqdm(
                 total=dataset_size, desc="DB Queries", position=1
-            ) as consumer_bar:
+            ) as cbar:
+                consumer_bar = cbar
 
-                # Main thread acts as the producer
-                # Clear GPU cache every 50 batches
+                # Start consumer threads
+                for _ in range(num_workers):
+                    thread = executor.submit(consumer_thread)
+                    consumer_threads.append(thread)
+
+                # Main thread acts as the producer, clear GPU cache every 50 batches
                 clear_cache_interval = self.batch_size * 50
                 for i in range(0, dataset_size, self.batch_size):
                     if i % clear_cache_interval == 0:
@@ -655,20 +720,14 @@ class Experiment:
                     expanded_queries = self.query_expander(batch)
                     embeddings = self.embedder(expanded_queries)
 
-                    # Convert to dicts and put on queue for consumer
+                    # Convert to dicts and put on consumer task_queue
                     batch_records = batch.to_dict(orient="records")
                     task_queue.put((batch_records, embeddings.tolist()))
                     producer_bar.update(len(batch_records))
 
-                    # Update consumer progress bar
-                    with progress_lock:
-                        current_consumer_progress = consumer_progress
-                    if current_consumer_progress > consumer_bar.n:
-                        consumer_bar.update(current_consumer_progress - consumer_bar.n)
-
                 # Put sentinels on the task queue to signal consumer completion
                 for _ in range(num_workers):
-                    task_queue.put((None, None))
+                    task_queue.put(sentinel)
 
                 # Cleanup the producer
                 task_queue.join()
@@ -684,7 +743,21 @@ class Experiment:
         self.iou_matrix = np.zeros((len(self.dataset), self.top_k))
         self.recall_matrix = np.zeros((len(self.dataset), self.top_k))
         stats_idx = 0
-        all_results = []
+
+        # If streaming search results to disk, prepare the output file now (single-threaded write)
+        out_file = None
+        if self.output_search_results:
+            try:
+                # Ensure output directory exists
+                os.makedirs(self.output_path, exist_ok=True)
+                out_path = os.path.join(self.output_path, "search_results.jsonl")
+                out_file = open(out_path, "w", encoding="utf-8")
+                print(f"Streaming search results to {out_path}")
+            except Exception as e:
+                logger.error(f"Could not open search results file for writing: {e}")
+                out_file = None
+
+        # Drain queue and compute batch stats, writing each record+results row to disk as a JSON line
         while not results_queue.empty():
             batch_records, batch_results = results_queue.get()
             stats = self._compute_metrics_batch(batch_records, batch_results)
@@ -695,20 +768,40 @@ class Experiment:
             self.hitrate_matrix[stats_idx : stats_idx + len(batch_records), :] = stats["hitrate_at_k"]
             stats_idx += len(batch_records)
 
-            if self.output_search_results:
-                all_results.extend(list(zip(batch_records, batch_results)))
+            # Stream results line-by-line to file to avoid building a huge in-memory list / DataFrame
+            if self.output_search_results and out_file is not None:
+                for rec, res in zip(batch_records, batch_results):
+                    # try:
+                    #     # Normalize the record (record likely already a dict)
+                    #     serial_rec = {k: self._normalize_value(v) for k, v in rec.items()}
+                    # except Exception:
+                    #     serial_rec = {"repr": str(rec)}
 
-        # TODO: Move this to be in the same dir as the rest of the saved files
-        if self.output_search_results:
-            print("Saving search results to disk")
-            df = pd.DataFrame(all_results, columns=["record", "results"])
+                    # Normalize hits
+                    # serial_res = []
+                    # try:
+                    #     for hit in res:
+                    #         serial_res.append(self._serialize_hit(hit))
+                    # except Exception:
+                    #     # If res cannot be iterated (unexpected), store its repr
+                    #     serial_res = [{"repr": str(res)}]
+
+                    # Write single json line
+                    try:
+                        # out_file.write(
+                        #     json.dumps({"record": serial_rec, "results": serial_res}, ensure_ascii=False) + "\n"
+                        # )
+                        out_file.write(json.dumps({"record": rec, "results": res}, ensure_ascii=False) + "\n")
+                    except Exception as e:
+                        # If writing a particular line fails, log and continue
+                        logger.error(f"Failed writing a search-result line: {e}")
+
+        # Close the output file if used
+        if out_file is not None:
             try:
-                df.to_json(os.path.join(self.output_path, "search_results.jsonl"), lines=True, orient="records")
-
-            except Exception as e:
-                logger.error(f"Error saving search results: {e}")
-                logger.info(f"Saving all search results to project root")
-                df.to_json("search_results.jsonl", lines=True, orient="records")
+                out_file.close()
+            except Exception:
+                pass
 
         # Ensure we processed everything we enqueued
         if stats_idx != len(self.dataset):
