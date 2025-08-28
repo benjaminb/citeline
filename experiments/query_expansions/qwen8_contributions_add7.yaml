@@ -5,6 +5,6 @@ metric: 'IP'
 embedder: 'Qwen/Qwen3-Embedding-8B'
 normalize: True
 query_expansion: 'add_prev_7'
-batch_size: 32
+batch_size: 8
 top_k: 1000
 output_path: 'experiments/query_expansions/results/'
