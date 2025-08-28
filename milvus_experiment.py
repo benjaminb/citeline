@@ -840,7 +840,6 @@ def main():
         with open(args.run, "r") as config_file:
             config = yaml.safe_load(config_file)
 
-        # Set up and run experiment
         experiment = Experiment(
             dataset_path=config["dataset"],
             target_table=config["table"],
