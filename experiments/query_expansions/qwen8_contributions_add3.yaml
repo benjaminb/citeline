@@ -7,4 +7,4 @@ normalize: True
 query_expansion: 'add_prev_3'
 batch_size: 32
 top_k: 1000
-output_path: 'experiments/results/query_expansions/'
+output_path: 'experiments/query_expansions/results/'
