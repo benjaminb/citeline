@@ -1,0 +1,10 @@
+dataset: 'data/dataset/nontrivial_checked.jsonl'
+table: 'qwen8b_chunks'
+target_column: 'vector'
+metric: 'IP'
+embedder: 'Qwen/Qwen3-Embedding-8B'
+normalize: True
+query_expansion: 'add_abstract'
+batch_size: 32
+top_k: 1000
+output_path: 'experiments/results/query_expansions/'
