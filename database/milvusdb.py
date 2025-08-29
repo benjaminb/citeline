@@ -2,6 +2,7 @@ import argparse
 from pymilvus import MilvusClient, Collection, DataType
 import os
 from dotenv import load_dotenv
+import json
 from tqdm import tqdm
 from embedders import Embedder
 import torch
@@ -292,6 +293,88 @@ class MilvusDB:
             iterator.close()
 
         print(f"Export completed. Data saved to '{output_file}'.")
+
+    def import_collection(self, name: str, data_path: str, batch_size: int = 256) -> None:
+        """
+        Expects a jsonl file with one entity per line
+        e.g. keys "text", "citation_count", "pubdate", "vector"
+
+        Inserts entities in configurable batches to avoid per-entity overhead and uses a progress bar.
+        """
+        if not os.path.exists(data_path):
+            print(f"Import file '{data_path}' does not exist.")
+            return
+
+        if name in self.client.list_collections():
+            print(f"Collection '{name}' already exists.")
+            return
+
+        # Get the vector dimension from the first non-empty line
+        first_entity = None
+        with open(data_path, "r") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    first_entity = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                break
+
+        if first_entity is None:
+            print(f"Import file '{data_path}' is empty or contains no valid JSON lines.")
+            return
+
+        vector_dimension = len(first_entity.get("vector", []))
+
+        schema = self.client.create_schema(
+            auto_id=True,
+            enable_dynamic_field=True,
+        )
+        vector_field = {"field_name": "vector", "datatype": DataType.FLOAT_VECTOR, "dim": vector_dimension}
+        for field in self.BASE_FIELDS + [vector_field]:
+            schema.add_field(**field)
+
+        self.client.create_collection(collection_name=name, schema=schema)
+        print(f"Collection '{name}' created")
+        self.client.create_index(collection_name=name, index_params={"index_type": "FLAT", "metric_type": "IP"})
+        print(f"Index created for collection '{name}'")
+
+        # Count non-empty lines for progress bar
+        with open(data_path, "r") as f:
+            total_lines = sum(1 for line in f if line.strip())
+
+        # collection = Collection(name)
+        total_inserted = 0
+        batch = []
+
+        with open(data_path, "r") as f, tqdm(total=total_lines, desc=f"Importing to {name}", unit="entities") as pbar:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    entity = json.loads(line)
+                except json.JSONDecodeError:
+                    print("Skipping malformed line during import")
+                    pbar.update(1)
+                    continue
+
+                batch.append(entity)
+                if len(batch) >= batch_size:
+                    self.client.insert(collection_name=name, data=batch)
+                    total_inserted += len(batch)
+                    pbar.update(len(batch))
+                    batch = []
+
+            # insert remainder
+            if batch:
+                self.client.insert(collection_name=name, data=batch)
+                total_inserted += len(batch)
+                pbar.update(len(batch))
+
+        # final flush to ensure persistence
+        self.client.flush(collection_name=name)
+        print(f"Import completed. Inserted {total_inserted} entities into '{name}'.")
 
     def list_collections(self):
         collections = self.client.list_collections()
