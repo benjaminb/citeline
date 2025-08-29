@@ -50,6 +50,35 @@ class Embedder(ABC):
         return f"{self.model_name}, device={self.device}, normalize={self.normalize}, for_queries={self.for_queries}, dim={self.dim}"
 
 
+@Embedder.register("AstroMLab/AstroSage-8B")
+class AstroSage(Embedder):
+    """
+    Based on Llama 3.1 8B
+    """
+
+    def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool = False):
+        # signature order changed to match Embedder.create(...) -> (model_name, device, normalize, for_queries)
+        super().__init__(model_name, device, normalize, for_queries)
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+        self.model = AutoModel.from_pretrained(model_name, device_map="auto")
+        self.dim = self.model.config.hidden_size
+        self.model.eval()
+
+    def _embed(self, docs: list[str]) -> np.ndarray:
+        inputs = self.tokenizer(docs, return_tensors="pt", padding=True, truncation=True).to(self.model.device)
+        with torch.no_grad():
+            outputs = self.model(**inputs, output_hidden_states=True)
+        last_hidden_state = outputs.hidden_states[-1]
+        embedding = last_hidden_state.mean(dim=1)
+
+        if self.normalize:
+            embedding = torch.nn.functional.normalize(embedding, p=2, dim=1)
+        return embedding.detach().cpu().numpy()
+
+
 @Embedder.register("UniverseTBD/astrollama")
 class AstroLlamaEmbedder(Embedder):
     """
@@ -329,19 +358,18 @@ class SpecterEmbedder(Embedder):
 
 
 def main():
-    device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
     for name in list_available_embedders():
         print(f"- {name}")
-    # embedder = Embedder.create("BAAI/bge-large-en-v1.5", device=device, normalize=False, for_queries=True)
-    # print(f"Loaded model: {embedder}")
-    # sample_docs = [
-    #     "This is a test document.",
-    #     "Another document for testing purposes.",
-    #     "Yet another example of a document to embed.",
-    # ]
-    # embeddings = embedder(sample_docs)
-    # print(f"Embeddings shape: {embeddings.shape}")
-    # print(f"Embeddings norms: {np.linalg.norm(embeddings, axis=1)}")
+    embedder = Embedder.create(model_name="AstroMLab/AstroSage-8B", device=DEVICE, normalize=True, for_queries=True)
+    print(f"Loaded model: {embedder}")
+    sample_docs = [
+        "This is a test document.",
+        "Another document for testing purposes.",
+        "Yet another example of a document to embed.",
+    ]
+    embeddings = embedder(sample_docs)
+    print(f"Embeddings shape: {embeddings.shape}")
+    print(f"Embeddings norms: {np.linalg.norm(embeddings, axis=1)}")
 
 
 if __name__ == "__main__":
