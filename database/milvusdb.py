@@ -288,7 +288,6 @@ class MilvusDB:
                     del entity["id"]
                     f.write(f"{entity}\n")
                 progress_bar.update(len(batch))
-                break
             progress_bar.close()
             iterator.close()
 
