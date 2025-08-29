@@ -640,7 +640,7 @@ class Experiment:
         # For tracking progress
         dataset_size = len(self.dataset)
         consumer_progress = 0
-        consumer_bar = None
+        consumer_bar = None  # Declare consumer bar reference; initialized during producer startup
         sentinel = object()  # Unique sentinel object for signaling completion
 
         def consumer_thread():
@@ -702,6 +702,7 @@ class Experiment:
             with tqdm(total=dataset_size, desc="Embedding (GPU)", position=0) as producer_bar, tqdm(
                 total=dataset_size, desc="DB Queries", position=1
             ) as cbar:
+                # Initialize consumer bar ref, must be before consumers start
                 consumer_bar = cbar
 
                 # Start consumer threads
@@ -731,10 +732,7 @@ class Experiment:
 
                 # Cleanup the producer
                 task_queue.join()
-                with progress_lock:
-                    final_consumer_progress = consumer_progress
-                if final_consumer_progress > consumer_bar.n:
-                    consumer_bar.update(final_consumer_progress - consumer_bar.n)
+
         print(f"Experiment computed in {time() - start:.2f} seconds")
 
         # Initialize the results matrices and compute stats

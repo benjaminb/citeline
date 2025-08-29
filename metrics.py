@@ -58,8 +58,8 @@ class LogCitations(Metric):
         return np.log1p(citation_counts)  # log(1 + citation_count) to handle zero citations
 
 
-@Metric.register("recency")
-class Recency(Metric):
+@Metric.register("negative_log_years_old")
+class NegativeLogYearsOld(Metric):
 
     def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
         """
@@ -78,12 +78,14 @@ class Recency(Metric):
         ).all(), f"Found negative years_since_pub values: {years_since_pub[years_since_pub < 0].tolist()}"
         return -np.log1p(years_since_pub)
 
+
 @Metric.register("bge_reranker")
 class BGEReranker(Metric):
     def __init__(self, db=None):
         super().__init__(db=db)
 
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
         self.model_name = "BAAI/bge-reranker-large"
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
@@ -94,9 +96,18 @@ class BGEReranker(Metric):
         pairs = [[query, row.text] for row in results.itertuples()]
         with torch.no_grad():
             # TODO: is this max_length necessary, or optimal?
-            inputs = self.tokenizer(pairs, return_tensors="pt", padding=True, truncation=True, max_length=512).to(self.model.device)
-            scores = self.model(**inputs, return_dict=True).logits.view(-1,).float
+            inputs = self.tokenizer(pairs, return_tensors="pt", padding=True, truncation=True, max_length=512).to(
+                self.model.device
+            )
+            scores = (
+                self.model(**inputs, return_dict=True)
+                .logits.view(
+                    -1,
+                )
+                .float
+            )
         return pd.Series(scores, index=results.index)
+
 
 @Metric.register("roberta_nli")
 class RobertaNLI(Metric):
