@@ -24,7 +24,9 @@ def argument_parser():
     operation_group.add_argument("--describe-collection", type=str, help="Describe a collection")
     operation_group.add_argument("--create-index", type=str, help="Create an index on a collection")
     operation_group.add_argument("--export-collection", type=str, help="Export a collection to a JSONL file")
-    operation_group.add_argument("--rename-collection", nargs=2, metavar=("old_name", "new_name"), help="Rename a collection")
+    operation_group.add_argument(
+        "--rename-collection", nargs=2, metavar=("old_name", "new_name"), help="Rename a collection"
+    )
 
     # Arguments required when creating a collection
     parser.add_argument("--name", type=str, help="Name to give the new collection")
@@ -286,6 +288,7 @@ class MilvusDB:
                     del entity["id"]
                     f.write(f"{entity}\n")
                 progress_bar.update(len(batch))
+                break
             progress_bar.close()
             iterator.close()
 
