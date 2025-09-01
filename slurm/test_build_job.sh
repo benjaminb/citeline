@@ -1,10 +1,10 @@
 #!/bin/bash
 #
-#SBATCH --job-name=build_qwen
-#SBATCH -p gpu # partition (queue)
-#SBATCH -c 4 # number of cores
-#SBATCH --gres=gpu:1 # number of GPUs
-#SBATCH --mem 64000 # memory pool for all cores
+#SBATCH --job-name=test_milvus_launch
+#SBATCH -p sapphire # partition (queue)
+#SBATCH -c 2 # number of cores
+#SBATCH --gres=gpu:0 # number of GPUs
+#SBATCH --mem 32000 # memory pool for all cores
 #SBATCH -t 0-00:30 # time (D-HH:MM)
 #SBATCH -o slurm.%x.%j.log # STDOUT
 #SBATCH -e slurm.%x.%j.log # STDERR
@@ -16,8 +16,7 @@ cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline/
 git pull
 
 # Start Milvus service
-cd database/milvus
-podman compose up -d
+podman compose -f database/milvus/docker-compose.yml up -d
 
-cd ..
-python milvusdb.py --create-collection --name foo --data-source ../data/research_chunks.jsonl --embedder=Qwen/Qwen3-Embedding-8B
+cd database
+python milvusdb.py --list-collections
