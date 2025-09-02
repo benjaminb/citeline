@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 #SBATCH --job-name=test_env
-#SBATCH -p test # partition (queue)
+#SBATCH -p sapphire # partition (queue)
 #SBATCH -c 2 # number of cores
 #SBATCH --gres=gpu:0 # number of GPUs
 #SBATCH --mem 16000 # memory pool for all cores
