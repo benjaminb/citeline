@@ -15,3 +15,10 @@ mamba activate citeline
 echo "which python: $(which python)"
 cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline/
 git pull
+
+podman compose -f database/milvus/docker-compose.yml up -d
+podman ps
+
+cd database
+python milvusdb.py --list-collections
+
