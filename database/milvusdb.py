@@ -296,6 +296,8 @@ class MilvusDB:
                     # Serialize and write to file
                     f.write(json.dumps(entity, ensure_ascii=False) + "\n")
                 progress_bar.update(len(batch))
+                # SHORT-CIRCUIT For testing
+                break
             progress_bar.close()
             iterator.close()
 
