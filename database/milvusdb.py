@@ -24,7 +24,13 @@ def argument_parser():
     operation_group.add_argument("--healthcheck", action="store_true", help="Check the health of the Milvus server")
     operation_group.add_argument("--describe-collection", type=str, help="Describe a collection")
     operation_group.add_argument("--create-index", type=str, help="Create an index on a collection")
-    operation_group.add_argument("--export-collection", type=str, help="Export a collection to a JSONL file")
+    operation_group.add_argument(
+        "--export-collection",
+        nargs=2,
+        metavar=("collection_name", "output_file"),
+        type=str,
+        help="Export a collection to a JSONL file",
+    )
     operation_group.add_argument(
         "--import-collection",
         nargs=2,
@@ -296,8 +302,6 @@ class MilvusDB:
                     # Serialize and write to file
                     f.write(json.dumps(entity, ensure_ascii=False) + "\n")
                 progress_bar.update(len(batch))
-                # SHORT-CIRCUIT For testing
-                break
             progress_bar.close()
             iterator.close()
 
@@ -566,7 +570,7 @@ def main():
     elif args.describe_collection:
         db.describe_collection(args.describe_collection)
     elif args.export_collection:
-        db.export_collection(args.export_collection, output_file=args.output_file)
+        db.export_collection(args.export_collection[0], output_file=args.export_collection[1])
     elif args.import_collection:
         data_path, collection_name = args.import_collection
         db.import_collection(data_path, collection_name)
