@@ -25,7 +25,12 @@ def argument_parser():
     operation_group.add_argument("--describe-collection", type=str, help="Describe a collection")
     operation_group.add_argument("--create-index", type=str, help="Create an index on a collection")
     operation_group.add_argument("--export-collection", type=str, help="Export a collection to a JSONL file")
-    operation_group.add_argument("--import-collection", nargs=2, metavar=("data_path", "collection_name"), help="Import a collection from a JSONL file")
+    operation_group.add_argument(
+        "--import-collection",
+        nargs=2,
+        metavar=("data_path", "collection_name"),
+        help="Import a collection from a JSONL file",
+    )
     operation_group.add_argument(
         "--rename-collection", nargs=2, metavar=("old_name", "new_name"), help="Rename a collection"
     )
@@ -288,14 +293,15 @@ class MilvusDB:
                     break
                 for entity in batch:
                     del entity["id"]
-                    f.write(f"{entity}\n")
+                    # Serialize and write to file
+                    f.write(json.dumps(entity, ensure_ascii=False) + "\n")
                 progress_bar.update(len(batch))
             progress_bar.close()
             iterator.close()
 
         print(f"Export completed. Data saved to '{output_file}'.")
 
-    def import_collection(self, name: str, data_path: str, batch_size: int = 256) -> None:
+    def import_collection(self, data_path: str, name: str, batch_size: int = 256) -> None:
         """
         Expects a jsonl file with one entity per line
         e.g. keys "text", "citation_count", "pubdate", "vector"
