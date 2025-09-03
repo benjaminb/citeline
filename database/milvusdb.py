@@ -410,7 +410,7 @@ class MilvusDB:
         self,
         collection_name: str,
         query_records: list[dict],
-        query_vectors: list[float],
+        query_vectors: list[list[float]],
         metric: str = "IP",
         limit: int = 3,
     ) -> list[list[dict]]:

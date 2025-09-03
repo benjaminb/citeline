@@ -1,12 +1,12 @@
-dataset: 'data/dataset/nontrivial_100.jsonl'
-table: 'bge_'
+dataset: 'data/dataset/nontrivial_checked.jsonl'
+table: 'qwen06b_'
 target_column: 'vector'
 metric: 'IP'
 embedder: 'BAAI/bge-large-en-v1.5'
 normalize: True
 query_expansion: 'add_prev_3'
-batch_size: 8
-top_k: 20
+batch_size: 16
+top_k: 200
 strategy: '50-50'
-output_path: 'experiments/results/test/'
+output_path: 'experiments/5050/results'
 output_search_results: False

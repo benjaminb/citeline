@@ -254,59 +254,52 @@ class Experiment:
 
         self.output_search_results = output_search_results
 
-    def __postprocess_milvus_results(self, results: list[dict]):
-        return [hit.entity | {"distance": hit.distance} for hit in results[0]]
-
-    def __basic_search(self, collection, embedding, example) -> pd.DataFrame:
-        example_pubdate = example.get("pubdate").strftime("%Y%m%d")
-        results = collection.search(
-            data=[embedding],  # TODO is this more efficient if we pass a batch?
-            anns_field=self.target_column,
-            param={"metric_type": "L2"},  # TODO: parameterize this?
+    def __basic_search(self, db: MilvusDB, records: list[dict], vectors: list[list[float]]) -> list[dict]:
+        return db.search(
+            collection_name=self.target_table,
+            query_records=records,
+            query_vectors=vectors,
+            metric=self.metric,
             limit=self.top_k,
-            output_fields=["text", "pubdate", "doi"],
-            filter=f"pubdate < {example_pubdate}",
         )
-        return self.__postprocess_milvus_results(results)
 
-    def __fifty_fifty_search(self, db, embedding, example) -> pd.DataFrame:
+    def __fifty_fifty_search(self, db: MilvusDB, records: list[dict], vectors: list[list[float]]) -> list[dict]:
         """
         This function retrieves half the top-k from chunks, and half from contributions,
         then returns the interleaved results
+
+        Expects self.table_name to be a stub such as "bge_" to which we concatenate "chunks"
+        and "contributions" and so on
         """
         half_k = self.top_k // 2
 
-        chunk_results = db.vector_search(
-            query_vector=embedding,
-            target_table="chunks",
-            target_column="embedding",
+        chunk_results = db.search(
+            collection_name=self.target_table + "chunks",
+            query_records=records,
+            query_vectors=vectors,
             metric=self.metric,
-            pubdate=example.get("pubdate"),
-            use_index=self.use_index,
-            top_k=half_k,
-            probes=self.probes,
-            ef_search=self.ef_search,
+            limit=half_k,
         )
 
-        contribution_results = db.vector_search(
-            query_vector=embedding,
-            target_table="contributions",
-            target_column="embedding",
+        contribution_results = db.search(
+            collection_name=self.target_table + "contributions",
+            query_records=records,
+            query_vectors=vectors,
             metric=self.metric,
-            pubdate=example.get("pubdate"),
-            use_index=self.use_index,
-            top_k=half_k,
-            probes=self.probes,
-            ef_search=self.ef_search,
+            limit=half_k,
         )
 
-        # Combine and sort
-        interleaved = []
-        for i in range(half_k):
-            interleaved.append(chunk_results.iloc[i])
-            interleaved.append(contribution_results.iloc[i])
-
-        return pd.DataFrame(interleaved).reset_index(drop=True)
+        # Combine search results 
+        results = []
+        for i in range(len(records)):  # batch size
+            chunk_search_results = chunk_results[i]
+            contribution_search_results = contribution_results[i]
+            interleaved_results = []
+            for j in range(half_k):
+                interleaved_results.append(chunk_search_results[j])
+                interleaved_results.append(contribution_search_results[j])
+            results.append(interleaved_results)
+        return results
 
     def __hit_rate(self, example, results: list[dict]):
         target_dois = set(example["citation_dois"])
@@ -344,66 +337,66 @@ class Experiment:
         citation_dois = set(example["citation_dois"])
         return self.__jaccard_score(predicted_dois, citation_dois)
 
-    def __compute_stats(self):
-        for example, results in tqdm(
-            self.query_results, desc="Computing Stats", position=2, total=len(self.query_results)
-        ):
-            # Compute stats by top k
-            for i in range(self.top_k):
-                k_idx = i + 1
+    # def __compute_stats(self):
+    #     for example, results in tqdm(
+    #         self.query_results, desc="Computing Stats", position=2, total=len(self.query_results)
+    #     ):
+    #         # Compute stats by top k
+    #         for i in range(self.top_k):
+    #             k_idx = i + 1
 
-                # Get the hitrate percent for this example at this k
-                hitrate = self.__hit_rate(example, results[:k_idx])
-                self.stats_by_topk[k_idx]["hitrates"].append(hitrate)
+    #             # Get the hitrate percent for this example at this k
+    #             hitrate = self.__hit_rate(example, results[:k_idx])
+    #             self.stats_by_topk[k_idx]["hitrates"].append(hitrate)
 
-                # Get the Jaccard score for this example at this k
-                jaccard_score = self.__jaccard(example, results[:k_idx])
-                self.stats_by_topk[k_idx]["jaccards"].append(jaccard_score)
+    #             # Get the Jaccard score for this example at this k
+    #             jaccard_score = self.__jaccard(example, results[:k_idx])
+    #             self.stats_by_topk[k_idx]["jaccards"].append(jaccard_score)
 
-                # Compute first and last ranks
-                example["first_rank"] = None
-                example["last_rank"] = None
+    #             # Compute first and last ranks
+    #             example["first_rank"] = None
+    #             example["last_rank"] = None
 
-                target_dois = set(example["citation_dois"])
-                # Skip examples with no target DOIs
-                if not target_dois:
-                    continue
+    #             target_dois = set(example["citation_dois"])
+    #             # Skip examples with no target DOIs
+    #             if not target_dois:
+    #                 continue
 
-                # Find the first rank
-                for i, result in enumerate(results):
-                    if result["doi"] in target_dois:
-                        example["first_rank"] = i + 1  # +1 because ranks are 1-indexed
-                        break
+    #             # Find the first rank
+    #             for i, result in enumerate(results):
+    #                 if result["doi"] in target_dois:
+    #                     example["first_rank"] = i + 1  # +1 because ranks are 1-indexed
+    #                     break
 
-                # If no first rank found, there won't be a last rank either
-                if example["first_rank"] is None:
-                    continue
+    #             # If no first rank found, there won't be a last rank either
+    #             if example["first_rank"] is None:
+    #                 continue
 
-                # Special case: only 1 target DOI then first rank is also last rank
-                if len(set(example["citation_dois"])) == 1:
-                    example["last_rank"] = example["first_rank"]
-                    continue
+    #             # Special case: only 1 target DOI then first rank is also last rank
+    #             if len(set(example["citation_dois"])) == 1:
+    #                 example["last_rank"] = example["first_rank"]
+    #                 continue
 
-                # Find the last rank: first check the full results if all target DOIs are present
-                all_retrieved_dois = {result["doi"] for result in results}
-                if not target_dois.issubset(all_retrieved_dois):
-                    continue
+    #             # Find the last rank: first check the full results if all target DOIs are present
+    #             all_retrieved_dois = {result["doi"] for result in results}
+    #             if not target_dois.issubset(all_retrieved_dois):
+    #                 continue
 
-                retrieved_dois = set()
-                for i, result in enumerate(results):
-                    retrieved_dois.add(result["doi"])
-                    if target_dois.issubset(retrieved_dois):
-                        example["last_rank"] = i + 1
-                        break
+    #             retrieved_dois = set()
+    #             for i, result in enumerate(results):
+    #                 retrieved_dois.add(result["doi"])
+    #                 if target_dois.issubset(retrieved_dois):
+    #                     example["last_rank"] = i + 1
+    #                     break
 
-        # Compute summary stats by top k
-        for k in self.stats_by_topk:
-            avg_jaccard = sum(self.stats_by_topk[k]["jaccards"]) / len(self.stats_by_topk[k]["jaccards"])
-            avg_hitrate = sum(self.stats_by_topk[k]["hitrates"]) / len(self.stats_by_topk[k]["hitrates"])
-            self.stats_by_topk[k]["avg_jaccard"] = avg_jaccard
-            self.stats_by_topk[k]["avg_hitrate"] = avg_hitrate
+    #     # Compute summary stats by top k
+    #     for k in self.stats_by_topk:
+    #         avg_jaccard = sum(self.stats_by_topk[k]["jaccards"]) / len(self.stats_by_topk[k]["jaccards"])
+    #         avg_hitrate = sum(self.stats_by_topk[k]["hitrates"]) / len(self.stats_by_topk[k]["hitrates"])
+    #         self.stats_by_topk[k]["avg_jaccard"] = avg_jaccard
+    #         self.stats_by_topk[k]["avg_hitrate"] = avg_hitrate
 
-        # Compute other summary stats?
+    # Compute other summary stats?
 
     def _get_output_filename_base(self):
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -540,70 +533,6 @@ class Experiment:
             "ef_search": self.ef_search,
         }
 
-    # --- New helper methods for serializing results to JSON-friendly primitives ---
-    def _normalize_value(self, val):
-        """Convert numpy / pandas / datetime types to plain Python types for JSON."""
-        try:
-            import numpy as _np
-            import pandas as _pd
-        except Exception:
-            _np = None
-            _pd = None
-
-        # numpy scalars
-        if _np is not None and isinstance(val, (_np.integer, _np.floating, _np.bool_)):
-            return val.item()
-        # numpy arrays
-        if _np is not None and isinstance(val, _np.ndarray):
-            return val.tolist()
-        # pandas timestamp
-        if _pd is not None and isinstance(val, _pd.Timestamp):
-            return val.isoformat()
-        # datetime
-        from datetime import datetime as _dt
-
-        if isinstance(val, _dt):
-            return val.isoformat()
-        # fallback
-        try:
-            json_encodable = val if isinstance(val, (str, int, float, bool, type(None))) else str(val)
-            return json_encodable
-        except Exception:
-            return str(val)
-
-    def _serialize_hit(self, hit):
-        """
-        Take a single 'hit' returned from Milvus/DB and convert to a plain dict with serializable values.
-        Handles dict-like hits or objects with common attributes (entity, doi, distance, text, pubdate).
-        """
-        # If it's already a dict-like mapping, normalize values
-        if isinstance(hit, dict):
-            return {k: self._normalize_value(v) for k, v in hit.items()}
-
-        # Try typical attributes used in this codebase
-        serialized = {}
-        try:
-            # Some milvus clients expose the entity as hit.entity (dict-like)
-            entity = getattr(hit, "entity", None)
-            if isinstance(entity, dict):
-                for k, v in entity.items():
-                    serialized[k] = self._normalize_value(v)
-            # Common direct attributes
-            for attr in ("doi", "text", "pubdate", "id"):
-                if hasattr(hit, attr):
-                    serialized[attr] = self._normalize_value(getattr(hit, attr))
-            # distance usually present
-            if hasattr(hit, "distance"):
-                serialized["distance"] = self._normalize_value(getattr(hit, "distance"))
-        except Exception:
-            # As a last resort, include repr
-            serialized["repr"] = repr(hit)
-
-        # If no useful fields found, return repr
-        if not serialized:
-            return {"repr": repr(hit)}
-        return serialized
-
     def run(self):
         """
         Run the experiment with the producer on the main thread and consumer threads:
@@ -624,13 +553,10 @@ class Experiment:
             num_cpus = int(os.getenv("CPUS"))
         except ValueError:
             raise ValueError(f"Invalid value for CPUS environment variable.")
-
-        collection = Collection(name=self.target_table)
-        collection.load()
-        print(f"Collection {self.target_table} loaded.")
-
-        # Set up rank fusion
-        # rank_fuser = RankFuser(config=self.metrics_config) if self.metrics_config else None
+        if self.strategy != "50-50":
+            collection = Collection(name=self.target_table)
+            collection.load()
+            print(f"Collection {self.target_table} loaded.")
 
         # Create thread-safe queues for tasks and results
         task_queue = queue.Queue()
@@ -646,6 +572,7 @@ class Experiment:
         def consumer_thread():
             """Consumer thread that handles database queries and evaluations"""
             nonlocal consumer_progress
+            thread_client = MilvusDB()
 
             while True:
                 item = task_queue.get()
@@ -655,14 +582,14 @@ class Experiment:
                     batch_records, embeddings = item
 
                     # Query the database
-                    thread_client = MilvusDB()
-                    search_results = thread_client.search(
-                        collection_name=self.target_table,
-                        query_records=batch_records,
-                        query_vectors=embeddings,
-                        metric=self.metric,
-                        limit=self.top_k,
-                    )
+                    search_results = self.search(db=thread_client, records=batch_records, vectors=embeddings)
+                    # search_results = thread_client.search(
+                    #     collection_name=self.target_table,
+                    #     query_records=batch_records,
+                    #     query_vectors=embeddings,
+                    #     metric=self.metric,
+                    #     limit=self.top_k,
+                    # )
 
                     # TODO: fix logging within thread
 
@@ -676,9 +603,6 @@ class Experiment:
 
                     # Put the (records, results) pair on queue for stats computation later
                     results_queue.put((batch_records, search_results))
-
-                    # Thread-safe update of progress counter
-                    # if consumer_bar is not None:
                     consumer_bar.update(len(embeddings))
 
                 except Exception as e:
@@ -769,26 +693,7 @@ class Experiment:
             # Stream results line-by-line to file to avoid building a huge in-memory list / DataFrame
             if self.output_search_results and out_file is not None:
                 for rec, res in zip(batch_records, batch_results):
-                    # try:
-                    #     # Normalize the record (record likely already a dict)
-                    #     serial_rec = {k: self._normalize_value(v) for k, v in rec.items()}
-                    # except Exception:
-                    #     serial_rec = {"repr": str(rec)}
-
-                    # Normalize hits
-                    # serial_res = []
-                    # try:
-                    #     for hit in res:
-                    #         serial_res.append(self._serialize_hit(hit))
-                    # except Exception:
-                    #     # If res cannot be iterated (unexpected), store its repr
-                    #     serial_res = [{"repr": str(res)}]
-
-                    # Write single json line
                     try:
-                        # out_file.write(
-                        #     json.dumps({"record": serial_rec, "results": serial_res}, ensure_ascii=False) + "\n"
-                        # )
                         out_file.write(json.dumps({"record": rec, "results": res}, ensure_ascii=False) + "\n")
                     except Exception as e:
                         # If writing a particular line fails, log and continue
