@@ -350,7 +350,9 @@ class MilvusDB:
 
         self.client.create_collection(collection_name=name, schema=schema)
         print(f"Collection '{name}' created")
-        self.client.create_index(collection_name=name, index_params={"index_type": "FLAT", "metric_type": "IP"})
+        index_params = self.client.prepare_index_params()
+        index_params.add_index(field_name="vector", index_type="FLAT", metric_type="IP")
+        self.client.create_index(collection_name=name, index_params=index_params)
         print(f"Index created for collection '{name}'")
 
         # Count non-empty lines for progress bar

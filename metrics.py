@@ -86,26 +86,26 @@ class BGEReranker(Metric):
 
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
-        self.model_name = "BAAI/bge-reranker-large"
+        # self.model_name = "BAAI/bge-reranker-large"
+        self.model_name = "BAAI/bge-reranker-base"
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
-        self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name, device=device)
+        self.model = AutoModelForSequenceClassification.from_pretrained(self.model_name)
+        self.model.to(device)
         self.model.eval()
 
     def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
-        pairs = [[query, row.text] for row in results.itertuples()]
+        pairs = [[query.sent_no_cit, row.text] for row in results.itertuples()]
         with torch.no_grad():
             # TODO: is this max_length necessary, or optimal?
             inputs = self.tokenizer(pairs, return_tensors="pt", padding=True, truncation=True, max_length=512).to(
                 self.model.device
             )
-            scores = (
-                self.model(**inputs, return_dict=True)
-                .logits.view(
-                    -1,
-                )
-                .float
+            outputs = self.model(**inputs, return_dict=True)
+            logits = outputs.logits.view(
+                -1,
             )
+            scores = logits.detach().cpu().numpy().tolist()
         return pd.Series(scores, index=results.index)
 
 

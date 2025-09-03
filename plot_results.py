@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 import seaborn as sns
+import numpy as np
 import glob
 import json
 import os
@@ -50,6 +51,7 @@ def make_label_to_data_dict(json_files: list[str]) -> dict:
 def plot_results(data: dict, path: str, k: int = 1000):
     k_values = range(1, k + 1)
     plt.figure(figsize=(16, 16))
+
     ax = plt.gca()
     ax.set_axisbelow(True)
     ax.grid(which="major", linestyle="--", linewidth=0.6, color="gray", alpha=0.6)
@@ -64,7 +66,7 @@ def plot_results(data: dict, path: str, k: int = 1000):
     items = []
     for label, hitrates in sorted(data.items()):
         hitrates_trunc = hitrates[:k]
-        y = hitrates_trunc[99]  # value at k=100
+        y = hitrates_trunc[10]  # value at k=100
         items.append({"label": label, "hitrates": hitrates_trunc, "y": float(y)})
 
     # sort by y descending so high values labeled from top of the label band
@@ -102,7 +104,7 @@ def plot_results(data: dict, path: str, k: int = 1000):
         lines.append((line, label, hitrates_trunc))
         # label slightly to the right of k=200 (or at k if k<200)
         plt.text(
-            label_x + 2,
+            label_x,
             y_label,
             label,
             color=line.get_color(),
@@ -139,8 +141,9 @@ def main():
     directory = sys.argv[1]
     path = os.path.join(BASE_DIR, directory)
     json_files = get_json_files(path)
+    print(f"Found {len(json_files)} JSON files in {path}")
     data = make_label_to_data_dict(json_files)
-    plot_results(data, path=directory, k=1000)
+    plot_results(data, path=directory, k=50)
 
 
 if __name__ == "__main__":
