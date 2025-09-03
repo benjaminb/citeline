@@ -1,3 +1,4 @@
+import argparse
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 import seaborn as sns
@@ -7,6 +8,11 @@ import json
 import os
 from pprint import pprint
 import sys
+
+"""
+Provide this program a directory, and it will search for all .json files (assumed to be experiment results)
+and plot them together
+"""
 
 BASE_DIR = "experiments/"
 
@@ -48,7 +54,7 @@ def make_label_to_data_dict(json_files: list[str]) -> dict:
     return data
 
 
-def plot_results(data: dict, path: str, k: int = 1000):
+def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
     k_values = range(1, k + 1)
     plt.figure(figsize=(16, 16))
 
@@ -129,21 +135,30 @@ def plot_results(data: dict, path: str, k: int = 1000):
     plt.gca().xaxis.set_minor_locator(MultipleLocator(10))
 
     basename = path.split("/")[0]
-    plt.savefig(f"{basename}_k{k}.png")
+    outfile = name if name else f"{basename}_results.png"
+    save_path = os.path.join(BASE_DIR, path, outfile)
+    plt.savefig(save_path)
     plt.close()
 
 
 def main():
-    if not sys.argv[1:]:
-        print("Usage: python plot_results.py <results_directory>")
-        return
+    parser = argparse.ArgumentParser(description="Plot experiment results")
+    parser.add_argument("--dir", type=str, help="Directory containing experiment results JSON files")
+    parser.add_argument("--k", type=int, help="Value of k for top-k plotting")
+    parser.add_argument("--outfile", type=str, help="Output filename for the plot image")
+    args = parser.parse_args()
 
-    directory = sys.argv[1]
+    directory = args.dir if args.dir else sys.argv[1]
+    k = args.k if args.k else int(sys.argv[2]) if sys.argv[2] else 1000
+    outfile = args.outfile if args.outfile else sys.argv[3] if sys.argv[3] else None
+
+    # Establish what files will be included
     path = os.path.join(BASE_DIR, directory)
     json_files = get_json_files(path)
     print(f"Found {len(json_files)} JSON files in {path}")
     data = make_label_to_data_dict(json_files)
-    plot_results(data, path=directory, k=50)
+
+    plot_results(data, path=directory, k=k, name=outfile)
 
 
 if __name__ == "__main__":
