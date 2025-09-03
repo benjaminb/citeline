@@ -337,67 +337,6 @@ class Experiment:
         citation_dois = set(example["citation_dois"])
         return self.__jaccard_score(predicted_dois, citation_dois)
 
-    # def __compute_stats(self):
-    #     for example, results in tqdm(
-    #         self.query_results, desc="Computing Stats", position=2, total=len(self.query_results)
-    #     ):
-    #         # Compute stats by top k
-    #         for i in range(self.top_k):
-    #             k_idx = i + 1
-
-    #             # Get the hitrate percent for this example at this k
-    #             hitrate = self.__hit_rate(example, results[:k_idx])
-    #             self.stats_by_topk[k_idx]["hitrates"].append(hitrate)
-
-    #             # Get the Jaccard score for this example at this k
-    #             jaccard_score = self.__jaccard(example, results[:k_idx])
-    #             self.stats_by_topk[k_idx]["jaccards"].append(jaccard_score)
-
-    #             # Compute first and last ranks
-    #             example["first_rank"] = None
-    #             example["last_rank"] = None
-
-    #             target_dois = set(example["citation_dois"])
-    #             # Skip examples with no target DOIs
-    #             if not target_dois:
-    #                 continue
-
-    #             # Find the first rank
-    #             for i, result in enumerate(results):
-    #                 if result["doi"] in target_dois:
-    #                     example["first_rank"] = i + 1  # +1 because ranks are 1-indexed
-    #                     break
-
-    #             # If no first rank found, there won't be a last rank either
-    #             if example["first_rank"] is None:
-    #                 continue
-
-    #             # Special case: only 1 target DOI then first rank is also last rank
-    #             if len(set(example["citation_dois"])) == 1:
-    #                 example["last_rank"] = example["first_rank"]
-    #                 continue
-
-    #             # Find the last rank: first check the full results if all target DOIs are present
-    #             all_retrieved_dois = {result["doi"] for result in results}
-    #             if not target_dois.issubset(all_retrieved_dois):
-    #                 continue
-
-    #             retrieved_dois = set()
-    #             for i, result in enumerate(results):
-    #                 retrieved_dois.add(result["doi"])
-    #                 if target_dois.issubset(retrieved_dois):
-    #                     example["last_rank"] = i + 1
-    #                     break
-
-    #     # Compute summary stats by top k
-    #     for k in self.stats_by_topk:
-    #         avg_jaccard = sum(self.stats_by_topk[k]["jaccards"]) / len(self.stats_by_topk[k]["jaccards"])
-    #         avg_hitrate = sum(self.stats_by_topk[k]["hitrates"]) / len(self.stats_by_topk[k]["hitrates"])
-    #         self.stats_by_topk[k]["avg_jaccard"] = avg_jaccard
-    #         self.stats_by_topk[k]["avg_hitrate"] = avg_hitrate
-
-    # Compute other summary stats?
-
     def _get_output_filename_base(self):
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         reranker_str = f"_{self.reranker_to_use}" if self.reranker_to_use else ""
@@ -559,7 +498,7 @@ class Experiment:
             print(f"Collection {self.target_table} loaded.")
 
         # Create thread-safe queues for tasks and results
-        task_queue = queue.Queue()
+        task_queue = queue.Queue(maxsize=128)
         results_queue = queue.Queue()
         progress_lock = threading.Lock()
 
