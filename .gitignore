@@ -7,7 +7,7 @@
 database/milvus/volumes/
 
 # But do include .json files in experiments/results
-!experiments/results/**/*.json
+!experiments/**/*.json
 
 
 
