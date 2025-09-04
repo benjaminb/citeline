@@ -14,8 +14,6 @@ Provide this program a directory, and it will search for all .json files (assume
 and plot them together
 """
 
-BASE_DIR = "experiments/"
-
 
 def get_json_files(path):
     return glob.glob(os.path.join(path, "**/*.json"), recursive=True)
@@ -26,6 +24,7 @@ def path_to_label(path):
     filename = os.path.basename(path)
     pieces = filename.split("_")
     model = pieces[2]
+    strategy = "50-50" if "50-50" in filename else ""
     document_rep = pieces[3]
     query_expansion = ""
     if "title" in filename:
@@ -40,7 +39,7 @@ def path_to_label(path):
         query_expansion = "prev_7"
 
     # Filter out empty strings before joining
-    parts = [model, document_rep, query_expansion]
+    parts = [model, document_rep, strategy, query_expansion]
     return "+".join([part for part in parts if part and not part in ["basic"]])
 
 
@@ -109,34 +108,38 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
         )
         lines.append((line, label, hitrates_trunc))
         # label slightly to the right of k=200 (or at k if k<200)
-        plt.text(
-            label_x,
-            y_label,
-            label,
-            color=line.get_color(),
-            va="center",
-            ha="left",
-            fontsize=9,
-            bbox=dict(facecolor="white", alpha=0.6, edgecolor="none"),
-        )
+        # plt.text(
+        #     label_x,
+        #     y_label,
+        #     label,
+        #     color=line.get_color(),
+        #     va="center",
+        #     ha="left",
+        #     fontsize=9,
+        #     bbox=dict(facecolor="white", alpha=0.6, edgecolor="none"),
+        # )
 
     # ensure full k range is visible
     plt.xlim(1, k)
     plt.xlabel("Top-k")
     plt.ylabel("Score")
     plt.title("HitRate@k")
-    # Build legend sorted by score at k=200 (descending)
-    sorted_lines = sorted(lines, key=lambda t: t[2][-1], reverse=True)
+    # Build legend sorted by score at k=100 (descending)
+    sorted_lines = sorted(lines, key=lambda t: t[2][99], reverse=True)
     handles = [t[0] for t in sorted_lines]
     labels = [t[1] for t in sorted_lines]
-    # plt.legend(handles=handles, labels=labels)
+    custom_text = plt.Line2D([0], [0], color="none", label="Ranking@k=100")
+    handles.insert(0, custom_text)
+    labels.insert(0, "Ranking@k=100")
+    plt.legend(handles=handles, labels=labels)
+
     plt.grid(True)
     plt.gca().xaxis.set_major_locator(MultipleLocator(100))
     plt.gca().xaxis.set_minor_locator(MultipleLocator(10))
 
-    basename = path.split("/")[0]
-    outfile = name if name else f"{basename}_results.png"
-    save_path = os.path.join(BASE_DIR, path, outfile)
+    # basename = path.split("/")[0]
+    outfile = name if name else f"plot_results.png"
+    save_path = os.path.join(path, outfile)
     plt.savefig(save_path)
     plt.close()
 
@@ -153,9 +156,9 @@ def main():
     outfile = args.outfile if args.outfile else sys.argv[3] if sys.argv[3] else None
 
     # Establish what files will be included
-    path = os.path.join(BASE_DIR, directory)
-    json_files = get_json_files(path)
-    print(f"Found {len(json_files)} JSON files in {path}")
+    # path = os.path.join(BASE_DIR, directory)
+    json_files = get_json_files(directory)
+    print(f"Found {len(json_files)} JSON files in {directory}")
     data = make_label_to_data_dict(json_files)
 
     plot_results(data, path=directory, k=k, name=outfile)
