@@ -1,4 +1,5 @@
 import argparse
+from matplotlib.pylab import record
 from pymilvus import MilvusClient, Collection, DataType
 import os
 from dotenv import load_dotenv
@@ -394,7 +395,7 @@ class MilvusDB:
     def list_collections(self):
         collections = self.client.list_collections()
         collections.sort()
-        print(f"Collections: {collections}")
+        print("Collections:")
         for collection_name in collections:
             collection = Collection(collection_name)
             print(f" - {collection_name}: {collection.num_entities} entities")
@@ -459,6 +460,20 @@ class MilvusDB:
             formatted_hits = [hit["entity"] | {"metric": hit["distance"]} for hit in hits]
             formatted_results.append(formatted_hits)
         return formatted_results
+
+    def select_by_doi(self, doi: str, collection_name: str) -> pd.DataFrame:
+        """
+        Used in analyzing vector distributions.
+        Args:
+            doi: string of the DOI on which to filter
+            collection_name: The name of the collection to search.
+        """
+        results = self.client.query(
+            collection_name=collection_name,
+            filter=f"doi == '{doi}'",
+            output_fields=["text", "doi", "pubdate", "citation_count", "vector"],
+        )
+        return pd.DataFrame(results)
 
     def __embed_and_insert(
         self,

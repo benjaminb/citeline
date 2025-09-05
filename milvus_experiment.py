@@ -7,7 +7,6 @@ import yaml
 import numpy as np
 import pandas as pd
 
-# import matplotlib.pyplot as plt
 from time import time
 from datetime import datetime
 from dotenv import load_dotenv
@@ -17,12 +16,9 @@ from database.milvusdb import MilvusDB
 from query_expander import get_expander
 from embedders import Embedder
 
-# from rerankers import get_reranker
-# from metrics import RankFuser
 
 logger = logging.getLogger(__name__)
 load_dotenv()
-# DISTANCE_THRESHOLDS = np.arange(1.0, 0.0, -0.01)
 
 EXPANSION_DATA_PATH = "data/preprocessed/reviews.jsonl"
 
@@ -156,6 +152,7 @@ class Experiment:
         embedding_model_name: str,
         normalize: bool,
         query_expansion: str = "identity",
+        difference_vector_file: str = None,
         batch_size: int = 16,
         top_k: int = 100,
         strategy: str = None,
@@ -209,10 +206,12 @@ class Experiment:
         self.embedder = Embedder.create(
             model_name=embedding_model_name, device=self.device, normalize=normalize, for_queries=True
         )
+
+        # Set up query expansion, reranking, and difference vector (if used)
         self.query_expansion_name = query_expansion
         self.query_expander = get_expander(query_expansion, path_to_data=EXPANSION_DATA_PATH)
         self.reranker_to_use = reranker_to_use
-        # self.reranker = get_reranker(reranker_name=reranker_to_use, db=self.db) if reranker_to_use is not None else None
+        self.difference_vector = np.load(difference_vector_file) if difference_vector_file else None
         self.metrics_config = metrics_config
         self.output_path = output_path
 
@@ -289,7 +288,7 @@ class Experiment:
             limit=half_k,
         )
 
-        # Combine search results 
+        # Combine search results
         results = []
         for i in range(len(records)):  # batch size
             chunk_search_results = chunk_results[i]
@@ -500,7 +499,7 @@ class Experiment:
         # Create thread-safe queues for tasks and results
         task_queue = queue.Queue(maxsize=128)
         results_queue = queue.Queue()
-        progress_lock = threading.Lock()
+        progress_bar_lock = threading.Lock()
 
         # For tracking progress
         dataset_size = len(self.dataset)
@@ -518,17 +517,10 @@ class Experiment:
                 try:
                     if item is sentinel:
                         break
-                    batch_records, embeddings = item
 
                     # Query the database
+                    batch_records, embeddings = item
                     search_results = self.search(db=thread_client, records=batch_records, vectors=embeddings)
-                    # search_results = thread_client.search(
-                    #     collection_name=self.target_table,
-                    #     query_records=batch_records,
-                    #     query_vectors=embeddings,
-                    #     metric=self.metric,
-                    #     limit=self.top_k,
-                    # )
 
                     # TODO: fix logging within thread
 
@@ -542,7 +534,8 @@ class Experiment:
 
                     # Put the (records, results) pair on queue for stats computation later
                     results_queue.put((batch_records, search_results))
-                    consumer_bar.update(len(embeddings))
+                    with progress_bar_lock:
+                        consumer_bar.update(len(embeddings))
 
                 except Exception as e:
                     print(f"Consumer thread error: {str(e)}")
@@ -583,6 +576,8 @@ class Experiment:
                     batch = self.dataset.iloc[slice(i, i + self.batch_size)]
                     expanded_queries = self.query_expander(batch)
                     embeddings = self.embedder(expanded_queries)
+                    if self.difference_vector is not None:
+                        embeddings = embeddings + self.difference_vector
 
                     # Convert to dicts and put on consumer task_queue
                     batch_records = batch.to_dict(orient="records")
@@ -783,6 +778,7 @@ def main():
             embedding_model_name=config["embedder"],
             normalize=config["normalize"],
             query_expansion=config["query_expansion"],
+            difference_vector_file=config.get("difference_vector_file", None),
             batch_size=config.get("batch_size", 16),
             top_k=config.get("top_k", 100),
             probes=config.get("probes", 16),

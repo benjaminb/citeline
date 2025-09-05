@@ -59,9 +59,16 @@ class IsValidCitation(BaseModel):
 
     is_valid: bool = Field(description="True if the paper should be cited by the input sentence, False otherwise")
 
+
 class Findings(BaseModel):
     """
     A model to represent findings extracted from a scientific paper.
     """
 
     findings: list[str] = Field(description="List of original findings extracted from a scientific paper")
+
+
+class LLMResponse(RootModel[str]):
+    """
+    The text requested by the user
+    """
