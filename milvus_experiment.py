@@ -723,25 +723,25 @@ def main():
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    if args.build:
-        source, train_dest, test_dest, split, seed = (
-            args.source,
-            args.train_dest,
-            args.test_dest,
-            args.split,
-            args.seed,
-        )
-        print(f"Building dataset from {source}. Split: {split}:{train_dest}, {1 - split}:{test_dest}. Seed: {seed}")
-        if not os.path.exists(source):
-            raise FileNotFoundError(f"Source dataset {source} does not exist.")
-        build_train_test_split(
-            source_path=source,
-            train_save_path=train_dest,
-            test_save_path=test_dest,
-            seed=seed,
-        )
-        print(f"Train/test split written to {train_dest} and {test_dest}.")
-        return
+    # if args.build:
+    #     source, train_dest, test_dest, split, seed = (
+    #         args.source,
+    #         args.train_dest,
+    #         args.test_dest,
+    #         args.split,
+    #         args.seed,
+    #     )
+    #     print(f"Building dataset from {source}. Split: {split}:{train_dest}, {1 - split}:{test_dest}. Seed: {seed}")
+    #     if not os.path.exists(source):
+    #         raise FileNotFoundError(f"Source dataset {source} does not exist.")
+    #     build_train_test_split(
+    #         source_path=source,
+    #         train_save_path=train_dest,
+    #         test_save_path=test_dest,
+    #         seed=seed,
+    #     )
+    #     print(f"Train/test split written to {train_dest} and {test_dest}.")
+    #     return
 
     if args.run:
         # Load experiment configs
