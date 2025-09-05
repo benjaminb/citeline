@@ -9,7 +9,7 @@ from query_expander import get_expander
 tqdm.pandas()
 
 EMBEDDING_MODEL_NAME = "Qwen/Qwen3-Embedding-0.6B"
-COLLECTION_NAME = "qwen06_chunks"
+COLLECTION_NAME = "qwen06_contributions"
 QUERY_EXPANSION = "add_prev_3"
 
 # Globals
@@ -92,7 +92,8 @@ def compute_vector_stats(vectors: np.ndarray) -> dict:
 
 
 def main():
-    sample_df = get_sample_df(n=100, embedder=embedder)
+    print(f"Using device: {device}")
+    sample_df = get_sample_df(n=1000, embedder=embedder)
     diff_vectors = np.zeros((len(sample_df), embedder.dim))
     for i, row in tqdm(sample_df.iterrows(), total=len(sample_df)):
         diff_vectors[i] = compute_difference_vector(row, doi=row["target_doi"])
