@@ -26,19 +26,7 @@ EXPANSION_DATA_PATH = "data/preprocessed/reviews.jsonl"
 def argument_parser():
     """
     Example usage:
-
-    1. Run an experiment with specified configuration:
-       python milvus_experiment.py --run experiments/configs/bert_cosine.yaml
-
-    2. Build a train/test split by sampling from source:
-       python milvus_experiment.py --build --source data/dataset/full/nontrivial_llm.jsonl --train-dest data/dataset/sampled/train.jsonl --test-dest data/dataset/sample/test.jsonl --split=0.8 --seed 42
-
-    3. Run an experiment with a top-k scan:
-       python milvus_experiment.py --run-scan experiments/bert_cosine.yaml
-
-    4. Generate query plans and analyze database performance:
-       python milvus_experiment.py --query-plan --table-name bert_hnsw --embedder bert-base-uncased --top-k 50
-
+    python milvus_experiment.py --run experiments/configs/bert_cosine.yaml
     """
     # Set up argument parser
     parser = argparse.ArgumentParser(description="Run an experiment with specified configuration or build a dataset.")
@@ -51,34 +39,23 @@ def argument_parser():
         metavar="CONFIG_PATH",
         help="run an experiment with fixed top-k using the specified config file",
     )
-    operation_group.add_argument(
-        "--run-scan",
-        type=str,
-        metavar="CONFIG_PATH",
-        help="run an experiment with top-k scan using the specified config file",
-    )
-    operation_group.add_argument("--build", action="store_true", help="build a dataset")
-    operation_group.add_argument("--write", action="store_true", help="write out train/test datasets")
-    operation_group.add_argument(
-        "--query-plan", action="store_true", help="generate EXPLAIN/ANALYZE query plan for database"
-    )
 
     # Dataset building arguments
-    parser.add_argument("--num", type=int, help="number of examples to include")
-    parser.add_argument("--source", type=str, help="path to source dataset (jsonl)")
-    parser.add_argument("--train-dest", type=str, help="save path for training set (jsonl)")
-    parser.add_argument("--test-dest", type=str, help="save path for test set (jsonl)")
-    parser.add_argument("--split", type=float, default=0.8, help="train/test split ratio (default: 0.8)")
-    parser.add_argument("--seed", type=int, help="random seed for dataset sampling")
-    parser.add_argument("--table-name", type=str, help="name of the database table for query plan generation")
-    parser.add_argument("--embedder", type=str, help='embedding model name (e.g., "bert-base-uncased")')
-    parser.add_argument("--top-k", type=int, help="number of nearest neighbors to return from the database")
-    parser.add_argument(
-        "--rerankers",
-        nargs="+",
-        type=str,
-        help="List of reranker names to use (e.g., --rerankers deepseek_boolean entailment)",
-    )
+    # parser.add_argument("--num", type=int, help="number of examples to include")
+    # parser.add_argument("--source", type=str, help="path to source dataset (jsonl)")
+    # parser.add_argument("--train-dest", type=str, help="save path for training set (jsonl)")
+    # parser.add_argument("--test-dest", type=str, help="save path for test set (jsonl)")
+    # parser.add_argument("--split", type=float, default=0.8, help="train/test split ratio (default: 0.8)")
+    # parser.add_argument("--seed", type=int, help="random seed for dataset sampling")
+    # parser.add_argument("--table-name", type=str, help="name of the database table for query plan generation")
+    # parser.add_argument("--embedder", type=str, help='embedding model name (e.g., "bert-base-uncased")')
+    # parser.add_argument("--top-k", type=int, help="number of nearest neighbors to return from the database")
+    # parser.add_argument(
+    #     "--rerankers",
+    #     nargs="+",
+    #     type=str,
+    #     help="List of reranker names to use (e.g., --rerankers deepseek_boolean entailment)",
+    # )
 
     # Add a log level argument (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     parser.add_argument(
@@ -211,6 +188,7 @@ class Experiment:
         self.query_expansion_name = query_expansion
         self.query_expander = get_expander(query_expansion, path_to_data=EXPANSION_DATA_PATH)
         self.reranker_to_use = reranker_to_use
+        self.difference_vector_file = difference_vector_file
         self.difference_vector = np.load(difference_vector_file) if difference_vector_file else None
         self.metrics_config = metrics_config
         self.output_path = output_path
@@ -462,6 +440,7 @@ class Experiment:
             "embedder": self.embedder.model_name,
             "normalize": self.normalize,
             "query_expansion": self.query_expansion_name,
+            "difference_vector_file": self.difference_vector_file,
             "strategy": self.strategy,
             "use_index": self.use_index,
             "rerankers": self.reranker_to_use,
@@ -553,7 +532,6 @@ class Experiment:
         consumer_threads = []
 
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
-
             # Create progress bars
             with tqdm(total=dataset_size, desc="Embedding (GPU)", position=0) as producer_bar, tqdm(
                 total=dataset_size, desc="DB Queries", position=1
