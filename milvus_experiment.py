@@ -68,13 +68,6 @@ def argument_parser():
 
     args = parser.parse_args()
 
-    # Apply custom validation
-    if args.build and (not args.source or not args.test_dest or not args.train_dest):
-        parser.error("--build requires --num, --source, and --dest arguments")
-
-    if args.query_plan and (not args.target_table or not args.embedder or not args.top_k):
-        parser.error("--query-plan requires --table-name, --embeder, and --top-k arguments")
-
     return args
 
 
