@@ -40,23 +40,6 @@ def argument_parser():
         help="run an experiment with fixed top-k using the specified config file",
     )
 
-    # Dataset building arguments
-    # parser.add_argument("--num", type=int, help="number of examples to include")
-    # parser.add_argument("--source", type=str, help="path to source dataset (jsonl)")
-    # parser.add_argument("--train-dest", type=str, help="save path for training set (jsonl)")
-    # parser.add_argument("--test-dest", type=str, help="save path for test set (jsonl)")
-    # parser.add_argument("--split", type=float, default=0.8, help="train/test split ratio (default: 0.8)")
-    # parser.add_argument("--seed", type=int, help="random seed for dataset sampling")
-    # parser.add_argument("--table-name", type=str, help="name of the database table for query plan generation")
-    # parser.add_argument("--embedder", type=str, help='embedding model name (e.g., "bert-base-uncased")')
-    # parser.add_argument("--top-k", type=int, help="number of nearest neighbors to return from the database")
-    # parser.add_argument(
-    #     "--rerankers",
-    #     nargs="+",
-    #     type=str,
-    #     help="List of reranker names to use (e.g., --rerankers deepseek_boolean entailment)",
-    # )
-
     # Add a log level argument (DEBUG, INFO, WARNING, ERROR, CRITICAL)
     parser.add_argument(
         "--log",
@@ -135,9 +118,6 @@ class Experiment:
         output_path: str = "experiments/results/",
         output_search_results: bool = False,
     ):
-        # Set up configs
-        # self.device = device
-
         """
         Args:
             dataset_path: path to a jsonl file containing lines that hat at least these keys:
@@ -549,6 +529,12 @@ class Experiment:
                     embeddings = self.embedder(expanded_queries)
                     if self.difference_vector is not None:
                         embeddings = embeddings + self.difference_vector
+                        # Renormalize if needed
+                        if self.embedder.normalize:
+                            print("Re-normalizing embeddings after adding difference vector")
+                            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+                            embeddings = embeddings / norms
+                            print(np.linalg.norm(embeddings, axis=1))  # Should be all 1s
 
                     # Convert to dicts and put on consumer task_queue
                     batch_records = batch.to_dict(orient="records")
