@@ -65,7 +65,7 @@ def compute_difference_vector(example: pd.Series, doi: str) -> np.ndarray:
     candidates = db.select_by_doi(doi, collection_name=COLLECTION_NAME)
     most_similar = most_similar_to_query(example, candidates)
     # NOTE: be sure to remain consistent that query vector is first, target vector is 2nd in diff
-    return example["vector"] - most_similar
+    return most_similar - example["vector"]
 
 
 def compute_vector_stats(vectors: np.ndarray) -> dict:

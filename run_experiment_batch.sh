@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# This script runs all experiments defined in YAML files within a specified directory.
+# Usage: ./run_experiment_batch.sh <directory>
+# Example: ./run_experiment_batch.sh experiments/query_expansions
+
 # Check if directory argument is provided
 if [ $# -eq 0 ]; then
     echo "Usage: $0 <directory>"
