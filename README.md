@@ -7,8 +7,8 @@ Citeline is a research tool designed to help researchers automatically find and 
 The project focuses on astrophysics research, using approximately 50,000 research papers from the Astrophysics Data System (ADS) and 3,000 review papers as our dataset. Our approach leverages:
 
 - Vector embeddings to capture semantic relationships between text
-- PostgreSQL with the `pgvector` extension for efficient similarity search
-- Advanced reranking and rank fusion techniques beyond basic vector distance
+- Milvus DB for efficient similarity search
+- Advanced reranking and rank fusion techniques
 - LLM-based citation extraction for improved accuracy
 - Custom text segmentation to optimize document chunking
 
@@ -37,11 +37,7 @@ To develop the LLM-based workflow, we built a dataset of 100 example sentences a
 
 ### Chunking the Research Papers
 
-Originally, we chunked the research papers using the Python package `semantic_text_splitter`, which focuses on whitespace deliminations. Using a max length of 1500 chars and overlap of 150, this seemed to create chunks that were sometimes too long, other times too short to capture the true semantic content of a reference passage. In fact, the ideal length seemed to be the paragraph in the original paper. Unfortunately, the newline chars indicating new paragraphs are not present in the ADS dataset and must be inferred. Therefore we switched to a custom subclass of Langchain's `SemanticChunker`, that looks at changes in vector distances over sentences to determine where to split documents.
-
-To find the optimal parameters for the `SemanticChunker`, we took 3 papers at random and identified the lengths (in chars) of their paragraphs. We then used the Python package `segeval` to get the boundary similarity between the true paragraph lengths and the chunks produced by `SemanticChunker`. In fact, we subclassed `SemanticChunker` to override its behaviors that a) it consumes whitespaces it splits on and b) it inserts spaces at joins (from a call to `" ".join`), which mutates the total length of all chunks compared to the original document. However, boundary similarity is only defined on integer lists that add up to the same total. So in order to get `SemanticChunker`'s results to be comparable to the reference results, we overrode those behaviors such that the total lengths of chunks will equal the length of the original document.
-
-We are currently grid searching over multiple embedders, metrics, and other parameters to find the optimal arguments to create the chunker.
+After searching over various chunking configurations, we found TextSplitter with capacity 1500 chars and overlap of 150 seemed to produce the most semantically meaningful chunks.
 
 ## Data Preparation and Preprocessing
 
@@ -60,26 +56,23 @@ We are currently grid searching over multiple embedders, metrics, and other para
 
 ## Database
 
-One main table, '`lib`'
-Rows contain id, doi, title, abstract, chunk (of body text)
-This is denormalized a bit, to save on joins during query time
+We use Milvus as our vector database. See `database/milvusdb.py` for the implementation.
 
 ## Current Status
 
-- Preprocessing code complete; loads raw json records and processes them into jsonl with body sentences segmented
-- Implemented vector database with PostgreSQL and pgvector
+* `Qwen/Qwen3-Embedding-8B` is the top-performing embedding model. Second is the much smaller and faster `Qwen/Qwen3-Embedding-0.6B`. 
+* Between document representation 'chunks' and 'contributions', chunks tends to perform better although more effort can be put into constructing the contributions (prompt engineering or other methods)
+* The query expansion `add_prev_3` (adding the previous 3 sentences to the query) improves results in most cases
+* Interleaving chunks and contributions is the top performing approach so far (for top `k` retrieved results, take `k/2` from chunks and `k/2` from contributions, then interleave their rankings)
 
 ## Next Steps
+* 'All but the top' process on vectors (remove the top $k$ principle components from vectors)
+* Embed into database `summary(chunk)`, and `chunk + summary(chunk)` to see if this improves results
+* Experiment with other rerankers / rank fusion strategies (cross encoders, NLI models, etc)
+* Experiment with difference vectors between query and reference (computing the average difference vector between query and target, then adding back this average difference to query embedding during search)
 
-- Optimize chunking strategy for research papers
-- Complete citation extraction from review papers
-- Working on advanced reranking strategies
-- Refactor code to support rank fusion (multiple similarity metrics)
 
 ## Technology Stack
-
-- Python for data processing and model development
-- PostgreSQL with pgvector for vector similarity search
-- Langchain for document processing
-- Open-source LLMs (via Ollama) for citation extraction
-- Custom evaluation metrics for optimizing citation accuracy
+- Docker / Podman for standalone Milvus DB
+- HuggingFace, SentenceTransformers, and PyTorch for embeddings
+- Pandas for various stages of data processing
