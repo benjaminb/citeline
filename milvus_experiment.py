@@ -290,7 +290,8 @@ class Experiment:
     def _get_output_filename_base(self):
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         reranker_str = f"_{self.reranker_to_use}" if self.reranker_to_use else ""
-        return f"{self.strategy}_{self.target_table}_{self.query_expansion_name}{reranker_str}_norm{self.normalize}_{self.metric_to_str[self.metric]}_n{len(self.dataset)}_{current_time}"
+        diff = "_diff" if self.difference_vector_file else ""
+        return f"{self.strategy}_{self.target_table}_{self.query_expansion_name}{diff}{reranker_str}_norm{self.normalize}_{self.metric_to_str[self.metric]}_n{len(self.dataset)}_{current_time}"
 
     def __write_run_results(self):
         """
@@ -531,10 +532,8 @@ class Experiment:
                         embeddings = embeddings + self.difference_vector
                         # Renormalize if needed
                         if self.embedder.normalize:
-                            print("Re-normalizing embeddings after adding difference vector")
                             norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
                             embeddings = embeddings / norms
-                            print(np.linalg.norm(embeddings, axis=1))  # Should be all 1s
 
                     # Convert to dicts and put on consumer task_queue
                     batch_records = batch.to_dict(orient="records")

@@ -97,15 +97,19 @@ class BGEReranker(Metric):
     def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
         pairs = [[query.sent_no_cit, row.text] for row in results.itertuples()]
         with torch.no_grad():
-            # TODO: is this max_length necessary, or optimal?
-            inputs = self.tokenizer(pairs, return_tensors="pt", padding=True, truncation=True, max_length=512).to(
-                self.model.device
-            )
-            outputs = self.model(**inputs, return_dict=True)
-            logits = outputs.logits.view(
-                -1,
-            )
-            scores = logits.detach().cpu().numpy().tolist()
+            batch_size = 16
+            scores = []
+            for i in range(0, len(pairs), batch_size):
+                batch_pairs = pairs[i : i + batch_size]
+                # TODO: is this max_length necessary, or optimal?
+                batch_inputs = self.tokenizer(
+                    batch_pairs, return_tensors="pt", padding=True, truncation=True, max_length=1024
+                ).to(self.model.device)
+                outputs = self.model(**batch_inputs, return_dict=True)
+                logits = outputs.logits.view(
+                    -1,
+                )
+                scores.extend(logits.detach().cpu().numpy().tolist())
         return pd.Series(scores, index=results.index)
 
 
@@ -127,7 +131,7 @@ class RobertaNLI(Metric):
         texts = results["text"].tolist()
         input_pairs = [(query["sent_no_cit"], text) for text in texts]
         with torch.no_grad():
-            scores = self.model.predict(input_pairs, batch_size=32).tolist()
+            scores = self.model.predict(input_pairs).tolist()
         return pd.Series(scores, index=results.index)
 
 
@@ -146,10 +150,19 @@ class Similarity(Metric):
 
 
 def main():
-    queries = [
-        "If you want to go to France's capital go to Paris",
-        "There are larger planets than Mercury",
-    ]
+    docs = pd.DataFrame(
+        {
+            "text": [
+                "If you want to go to France's capital go to Paris",
+                "There are larger planets than Mercury",
+            ]
+            * 8
+        }
+    )
+    query = pd.Series({"sent_no_cit": "What is the capital of France?"})
+    bge = BGEReranker()
+    scores = bge(query, docs)
+    print(scores)
 
 
 if __name__ == "__main__":
