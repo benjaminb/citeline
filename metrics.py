@@ -101,9 +101,9 @@ class BGEReranker(Metric):
             scores = []
             for i in range(0, len(pairs), batch_size):
                 batch_pairs = pairs[i : i + batch_size]
-                # TODO: is this max_length necessary, or optimal?
+                # BGE reranker base model has max_position_embeddings=514, we set to 512 to be safe
                 batch_inputs = self.tokenizer(
-                    batch_pairs, return_tensors="pt", padding=True, truncation=True, max_length=1024
+                    batch_pairs, return_tensors="pt", padding=True, truncation=True, max_length=512
                 ).to(self.model.device)
                 outputs = self.model(**batch_inputs, return_dict=True)
                 logits = outputs.logits.view(

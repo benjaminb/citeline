@@ -1,15 +1,11 @@
 accelerate==1.1.1
 adapters==1.2.0
-asyncpg==0.30.0
-cohere==5.14.2
 dotenv
 ipykernel==6.29.5
 jupyter=1.1.1
 matplotlib==3.10.0
 openai==1.85.0
 pandas==2.2.3
-psycopg[binary]==3.2.6
-pgvector
 pymilvus==2.6.0
 torch==2.5.1
 sentence-transformers==3.3.1
