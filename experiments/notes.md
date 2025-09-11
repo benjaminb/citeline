@@ -1,5 +1,20 @@
 # Experimental Notes & Journal
 
+### 9.11.25
+
+#### Research
+* Worked on difference vector experiments
+  * On Qwen 0.6B + contributions, L2 space, no significant change when adding the difference vector (0.810 hitrate@100 with difference vector vs 0.813 without)
+
+
+#### 8.28.25
+
+##### Research
+* Compiled query expansion results for qwen 0.6 and bge. 
+  * For bge, chunks+title performed best. For both chunks and contributions doc expansions, +title, +prev_3 and +prev_5 all improved performance over baseline while +abstract and +prev_7 degraded performance.
+  * For qwen06 chunks+prev_3 performed best. However, all other query expansions paired with chunks degraded performance. Contributions benefitted from +prev_3, +prev_5, and +prev_7 but +title and +abstract hurt.
+
+
 ### Baseline
 
 #### 6.17.25
@@ -84,9 +99,5 @@ Still to do: Adapt experiment code that computes stats to run on a reranked data
 * Implemented rank fusion and various metric functions
 * Worked on a separate component to compute search results statistics, so we can quickly config and rerank along various strategies and get their performance metrics
 
-#### 8.28.25
 
-##### Research
-* Compiled query expansion results for qwen 0.6 and bge. 
-  * For bge, chunks+title performed best. For both chunks and contributions doc expansions, +title, +prev_3 and +prev_5 all improved performance over baseline while +abstract and +prev_7 degraded performance.
-  * For qwen06 chunks+prev_3 performed best. However, all other query expansions paired with chunks degraded performance. Contributions benefitted from +prev_3, +prev_5, and +prev_7 but +title and +abstract hurt.
+

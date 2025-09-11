@@ -9,7 +9,7 @@ from query_expander import get_expander
 tqdm.pandas()
 
 EMBEDDING_MODEL_NAME = "Qwen/Qwen3-Embedding-0.6B"
-COLLECTION_NAME = "qwen06_contributions"
+COLLECTION_NAME = "qwen06_chunks"
 QUERY_EXPANSION = "add_prev_3"
 
 # Globals

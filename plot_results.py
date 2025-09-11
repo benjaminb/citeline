@@ -37,9 +37,10 @@ def path_to_label(path):
         query_expansion = "prev_5"
     elif "prev_7" in filename:
         query_expansion = "prev_7"
+    diff = "diff" if "diff" in filename else ""
 
     # Filter out empty strings before joining
-    parts = [model, document_rep, strategy, query_expansion]
+    parts = [model, document_rep, strategy, query_expansion, diff]
     return "+".join([part for part in parts if part and not part in ["basic"]])
 
 
@@ -147,13 +148,13 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
 def main():
     parser = argparse.ArgumentParser(description="Plot experiment results")
     parser.add_argument("--dir", type=str, help="Directory containing experiment results JSON files")
-    parser.add_argument("--k", type=int, help="Value of k for top-k plotting")
+    parser.add_argument("--k", type=int, default=200, help="Value of k for top-k plotting")
     parser.add_argument("--outfile", type=str, help="Output filename for the plot image")
     args = parser.parse_args()
 
-    directory = args.dir if args.dir else sys.argv[1]
-    k = args.k if args.k else int(sys.argv[2]) if sys.argv[2] else 1000
-    outfile = args.outfile if args.outfile else sys.argv[3] if sys.argv[3] else None
+    directory = args.dir
+    k = args.k
+    outfile = args.outfile
 
     # Establish what files will be included
     # path = os.path.join(BASE_DIR, directory)
