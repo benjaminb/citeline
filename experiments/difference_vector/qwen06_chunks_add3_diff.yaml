@@ -9,5 +9,5 @@ difference_vector_file: 'qwen06_chunks_add_prev_3_diff_vector.npy'
 batch_size: 8
 top_k: 200
 strategy: 'basic'
-output_path: 'experiments/diff/results'
+output_path: 'experiments/difference_vector/results'
 output_search_results: False

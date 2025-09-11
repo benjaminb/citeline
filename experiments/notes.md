@@ -4,7 +4,8 @@
 
 #### Research
 * Worked on difference vector experiments
-  * On Qwen 0.6B + contributions, L2 space, no significant change when adding the difference vector (0.810 hitrate@100 with difference vector vs 0.813 without)
+  * Qwen 0.6B + contributions, L2 space, no significant change when adding the difference vector (0.810 hitrate@100 with difference vector vs 0.813 without)
+  * Qwen 0.6B + chunks, L2 space, no significant change
 
 
 #### 8.28.25

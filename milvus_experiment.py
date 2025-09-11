@@ -106,6 +106,7 @@ class Experiment:
         normalize: bool,
         query_expansion: str = "identity",
         difference_vector_file: str = None,
+        transform_matrix_file: str = None,
         batch_size: int = 16,
         top_k: int = 100,
         strategy: str = None,
@@ -163,6 +164,8 @@ class Experiment:
         self.reranker_to_use = reranker_to_use
         self.difference_vector_file = difference_vector_file
         self.difference_vector = np.load(difference_vector_file) if difference_vector_file else None
+        self.transform_matrix_file = transform_matrix_file
+        self.transform_matrix = np.load(transform_matrix_file) if transform_matrix_file else None
         self.metrics_config = metrics_config
         self.output_path = output_path
 
@@ -528,8 +531,16 @@ class Experiment:
                     batch = self.dataset.iloc[slice(i, i + self.batch_size)]
                     expanded_queries = self.query_expander(batch)
                     embeddings = self.embedder(expanded_queries)
+
+                    # Apply any vector transformation if specified
                     if self.difference_vector is not None:
                         embeddings = embeddings + self.difference_vector
+                        # Renormalize if needed
+                        if self.embedder.normalize:
+                            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+                            embeddings = embeddings / norms
+                    elif self.transform_matrix is not None:
+                        embeddings = embeddings @ self.transform_matrix
                         # Renormalize if needed
                         if self.embedder.normalize:
                             norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
@@ -735,6 +746,7 @@ def main():
             normalize=config["normalize"],
             query_expansion=config["query_expansion"],
             difference_vector_file=config.get("difference_vector_file", None),
+            transform_matrix_file=config.get("transform_matrix_file", None),
             batch_size=config.get("batch_size", 16),
             top_k=config.get("top_k", 100),
             probes=config.get("probes", 16),
@@ -743,7 +755,6 @@ def main():
             strategy=config.get("strategy", "basic"),
             reranker_to_use=config.get("reranker", None),
             metrics_config=config.get("metrics", None),
-            # distance_threshold=config["distance_threshold"],
             output_path=config.get("output_path", "experiments/results/"),
             output_search_results=config.get("output_search_results", False),
         )
