@@ -357,6 +357,26 @@ class SpecterEmbedder(Embedder):
         return embeddings.detach().cpu().numpy()
 
 
+"""
+Usage: how to instantiate and use an Embedder
+
+- Create an embedder via the factory: Embedder.create(model_name, device, normalize, for_queries)
+  * model_name: one of the keys returned by list_available_embedders() (e.g. "Qwen/Qwen3-Embedding-0.6B")
+  * device: "cuda" | "mps" | "cpu"
+  * normalize: bool, whether the returned vectors should be L2-normalized
+  * for_queries: bool, whether to use the query prompt/pipeline (some models use different pipelines for docs vs. queries)
+
+Example:
+    from embedders import Embedder
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
+    embedder = Embedder.create("Qwen/Qwen3-Embedding-0.6B", device=device, normalize=True, for_queries=True)
+
+How to call:
+    docs = ["First sentence.", "Second sentence."]
+    embeddings = embedder(docs)            # returns a numpy.ndarray of shape (len(docs), dim)
+"""
+
+
 def main():
     for name in list_available_embedders():
         print(f"- {name}")
