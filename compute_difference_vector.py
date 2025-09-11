@@ -61,10 +61,14 @@ def compute_difference_vector(example: pd.Series, doi: str) -> np.ndarray:
     """
     Computes the difference vector between the example's vector and the most similar vector
     from the candidates retrieved by doi
+
+    The difference vector gets computed as:
+        difference_vector = most_similar_vector - example_vector
+
+    This way, during query time, most_similar_vector ~ example_vector + difference_vector (hopefully!)
     """
     candidates = db.select_by_doi(doi, collection_name=COLLECTION_NAME)
     most_similar = most_similar_to_query(example, candidates)
-    # NOTE: be sure to remain consistent that query vector is first, target vector is 2nd in diff
     return most_similar - example["vector"]
 
 
