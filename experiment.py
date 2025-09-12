@@ -16,7 +16,6 @@ from database.milvusdb import MilvusDB
 from query_expander import get_expander
 from embedders import Embedder
 
-
 logger = logging.getLogger(__name__)
 load_dotenv()
 
@@ -188,8 +187,6 @@ class Experiment:
         self.avg_recall_at_k = None
         self.best_k_for_iou = None
 
-        # self.stats_by_topk = {k: {"hitrates": [], "jaccards": []} for k in range(1, top_k + 1)}
-        # self.jaccard_scores = {threshold: [] for threshold in DISTANCE_THRESHOLDS}
         """
         Dictionary of average Jaccard scores for each distance threshold
         {0.5: 0.1785} means after only keeping query results with distance < 0.5, the average IoU score for
@@ -253,23 +250,6 @@ class Experiment:
                 interleaved_results.append(contribution_search_results[j])
             results.append(interleaved_results)
         return results
-
-    # def __hit_rate(self, example, results: list[dict]):
-    #     target_dois = set(example["citation_dois"])
-    #     retrieved_dois = {result["doi"] for result in results}
-
-    #     num_hits = len(target_dois.intersection(retrieved_dois))
-    #     return num_hits / len(target_dois)
-
-    # def __jaccard(self, example: dict, results: list[dict]):
-    #     """
-    #     Takes an 'example' (a dict representing a row from the input dataset) and a list of
-    #     'results' (dicts representing VectorSearchResult objects) and computes the Jaccard score
-    #     between the predicted DOIs and the ground truth DOIs.
-    #     """
-    #     predicted_dois = {result["doi"] for result in results}
-    #     citation_dois = set(example["citation_dois"])
-    #     return self.__jaccard_score(predicted_dois, citation_dois)
 
     def _evaluate_prediction(self, example, results):
         unique_predicted_dois = set(result.doi for result in results)
@@ -598,46 +578,6 @@ class Experiment:
                 # Cleanup the producer
                 task_queue.join()
 
-        # Initialize the results matrices and compute stats
-        # start = time()
-        # self.hitrate_matrix = np.zeros((len(self.dataset), self.top_k))
-        # self.iou_matrix = np.zeros((len(self.dataset), self.top_k))
-        # self.recall_matrix = np.zeros((len(self.dataset), self.top_k))
-        # stats_idx = 0
-
-        # # If streaming search results to disk, prepare the output file now (single-threaded write)
-        # out_file = None
-        # if self.output_search_results:
-        #     try:
-        #         # Ensure output directory exists
-        #         os.makedirs(self.output_path, exist_ok=True)
-        #         out_path = os.path.join(self.output_path, "search_results.jsonl")
-        #         out_file = open(out_path, "w", encoding="utf-8")
-        #         print(f"Streaming search results to {out_path}")
-        #     except Exception as e:
-        #         logger.error(f"Could not open search results file for writing: {e}")
-        #         out_file = None
-
-        # # Drain queue and compute batch stats, writing each record+results row to disk as a JSON line
-        # while not results_queue.empty():
-        #     batch_records, batch_results = results_queue.get()
-        #     stats = self._compute_metrics_batch(batch_records, batch_results)
-
-        #     # Insert stats' B * self.top_k arrays onto the corresponding matrices
-        #     self.recall_matrix[stats_idx : stats_idx + len(batch_records), :] = stats["recall_at_k"]
-        #     self.iou_matrix[stats_idx : stats_idx + len(batch_records), :] = stats["iou_at_k"]
-        #     self.hitrate_matrix[stats_idx : stats_idx + len(batch_records), :] = stats["hitrate_at_k"]
-        #     stats_idx += len(batch_records)
-
-        #     # Stream results line-by-line to file to avoid building a huge in-memory list / DataFrame
-        #     if self.output_search_results and out_file is not None:
-        #         for rec, res in zip(batch_records, batch_results):
-        #             try:
-        #                 out_file.write(json.dumps({"record": rec, "results": res}, ensure_ascii=False) + "\n")
-        #             except Exception as e:
-        #                 # If writing a particular line fails, log and continue
-        #                 logger.error(f"Failed writing a search-result line: {e}")
-
         # Close the output file if used
         if out_file is not None:
             try:
@@ -743,7 +683,6 @@ class Experiment:
 def main():
 
     args = argument_parser()
-    # device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
 
     # Set up logging
     logging.basicConfig(
@@ -752,26 +691,6 @@ def main():
         level=getattr(logging, args.log.upper()),
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
-
-    # if args.build:
-    #     source, train_dest, test_dest, split, seed = (
-    #         args.source,
-    #         args.train_dest,
-    #         args.test_dest,
-    #         args.split,
-    #         args.seed,
-    #     )
-    #     print(f"Building dataset from {source}. Split: {split}:{train_dest}, {1 - split}:{test_dest}. Seed: {seed}")
-    #     if not os.path.exists(source):
-    #         raise FileNotFoundError(f"Source dataset {source} does not exist.")
-    #     build_train_test_split(
-    #         source_path=source,
-    #         train_save_path=train_dest,
-    #         test_save_path=test_dest,
-    #         seed=seed,
-    #     )
-    #     print(f"Train/test split written to {train_dest} and {test_dest}.")
-    #     return
 
     if args.run:
         # Load experiment configs
