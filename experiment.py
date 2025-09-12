@@ -418,6 +418,7 @@ class Experiment:
             "normalize": self.normalize,
             "query_expansion": self.query_expansion_name,
             "difference_vector_file": self.difference_vector_file,
+            "transform_matrix_file": self.transform_matrix_file,
             "strategy": self.strategy,
             "use_index": self.use_index,
             "rerankers": self.reranker_to_use,
@@ -643,7 +644,7 @@ class Experiment:
                 out_file.close()
             except Exception:
                 pass
-        
+
         print(f"Experiment computed in {time() - start:.2f} seconds")
 
         # Ensure we processed everything we enqueued
@@ -655,7 +656,6 @@ class Experiment:
         self.avg_hitrate_at_k = self.hitrate_matrix.mean(axis=0).tolist()
         self.avg_iou_at_k = self.iou_matrix.mean(axis=0).tolist()
         self.best_k_for_iou = int(np.argmax(self.avg_iou_at_k)) + 1  # +1 for 1-indexed k
-        print(f"Stats computed in {time() - start:.2f} seconds")
         self.__write_run_results()
 
     def __str__(self):
