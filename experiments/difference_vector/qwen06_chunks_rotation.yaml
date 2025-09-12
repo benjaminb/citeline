@@ -5,7 +5,7 @@ metric: 'IP'
 embedder: 'Qwen/Qwen3-Embedding-0.6B'
 normalize: True
 query_expansion: 'add_prev_3'
-transform_matrix_file: 'qwen06_chunks_r2.npy'
+transform_matrix_file: 'qwen06_chunks_r50.npy'
 batch_size: 8
 top_k: 200
 strategy: 'basic'
