@@ -9,4 +9,4 @@ batch_size: 16
 top_k: 200
 strategy: '50-50'
 output_path: 'experiments/5050/results'
-output_search_results: False
+output_search_results: True
