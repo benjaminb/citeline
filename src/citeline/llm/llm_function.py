@@ -29,7 +29,9 @@ class LLMFunction:
 
     def __call__(self, prompt_kwargs: dict) -> Union[BaseModel, RootModel]:
         formatted_prompt = self.prompt.format(**prompt_kwargs)
+        print(f"Formatted prompt: {formatted_prompt}")
         response = self.llm.invoke(formatted_prompt)
+        print(f"LLM response: {response}")
         return response
 
 
@@ -45,10 +47,12 @@ def main():
     with open("temp_paper.txt", "r") as f:
         paper = f.read()
     print(f"Loaded paper with {len(paper)} characters", flush=True)
+
     start = time()
     response = contribution_extractor({"paper": paper})
     print(f"LLM function took {time() - start:.4f} seconds")
     print(f"Got response with {len(response.findings)} findings:")
+    print(response)
     for finding in response.findings:
         print(f"- {finding}")
 
