@@ -44,10 +44,11 @@ def main():
     print(f"Initialized contribution extractor in {time() - start:.4f} seconds")
     with open("temp_paper.txt", "r") as f:
         paper = f.read()
-    print(f"Loaded paper with {len(paper)} characters")
+    print(f"Loaded paper with {len(paper)} characters", flush=True)
     start = time()
     response = contribution_extractor({"paper": paper})
     print(f"LLM function took {time() - start:.4f} seconds")
+    print(f"Got response with {len(response.findings)} findings:")
     for finding in response.findings:
         print(f"- {finding}")
 
