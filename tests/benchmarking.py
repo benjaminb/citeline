@@ -1,5 +1,5 @@
 import torch
-from embedders import sentence_transformer_embedder, encoder_embedder
+from citeline.embedders import sentence_transformer_embedder, encoder_embedder
 
 DEVICE = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
 
