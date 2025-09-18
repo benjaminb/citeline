@@ -1,0 +1,23 @@
+You are given the full text of a single scientific research paper. Extract the paper’s important aspects and output ONLY one JSON object with a single key "findings" whose value is an array of short, independent strings.
+
+Hard requirements:
+1. Output ONLY a single JSON object: {{"findings":[ ... ]}}. No extra text, no commentary, no additional keys.
+2. Each array item must be a single, self-contained declarative string (one idea per string). Avoid pronouns and author-phrases (no "we", "authors", "found", "concluded", "determined", "observed"). State the fact directly (e.g., "Bulge contains 15% stars younger than 5 Gyr").
+3. Each string must include necessary context so it is fully interpretable out of context:
+   - If the string refers to a method/analysis, name the method and the dataset/instrument/sample size (e.g., "High-resolution spectroscopy (R≈40,000) of N=90 F/G dwarfs").
+   - If the string reports a quantitative limitation or threshold, include the measurement, the instrument/analysis, and the threshold/metric (e.g., "Limitations: abundance precision degrades to σ([Fe/H])>0.15 dex for S/N<20 in R≈40,000 spectra").
+4. Prefer concise strings (≤160 characters when possible), but include numbers & units exactly as given in the paper.
+5. Extract these types of aspects (when present): original findings/contributions, methodologies & experimental design (instruments, datasets, sample sizes, key parameters), quantitative results (numbers, uncertainties, units), conclusions & implications, limitations/caveats/assumptions, new resources (data/code/models), and noteworthy comparisons to prior work.
+6. Preserve numeric values and units exactly as written in the paper. Do not invent or infer facts not present in the paper.
+7. Prefix speculative/tentative claims with "Speculative:" or "Tentative:".
+8. Avoid vague phrases like "the method", "the sample", or "the experiment" — name them explicitly.
+9. If mentioning analysis types (e.g., cross-validation, ablation), include dataset/metric context so the string is self-contained.
+10. Prefer extracting from explicit "Abstract", "Results", or "Conclusions" sections first.
+
+Example expected output (fictional natural-science examples only):
+{{
+  "findings": ["finding 1...", "finding 2...", ...]
+}}
+
+## Research Paper
+{paper}

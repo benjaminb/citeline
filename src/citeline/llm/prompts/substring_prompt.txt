@@ -1,0 +1,77 @@
+You are an expert data analyst in astrophysics and earth sciences. You are building a dataset of snippets from research papers. In each snippet you must identify any substrings that are INLINE CITATIONS.
+
+Your task is to read the snippet below, think step by step about what substrings (if any) are INLINE CITATIONS, then write out those substrings as an array. If the snippet has no citations, write an empty array.
+
+## DEFINITION OF INLINE CITATION:
+An inline citation is any span of text in the snippet that refers to other authors' work, including publication data (year or status). It may refer to one OR MORE research papers.
+
+## EXTRACTION RULES:
+- Extract the inner citation only, omitting any outer parentheses that surround it in the original snippet.
+- 🔁 Preserve internal whitespace, punctuation, ordering, and wording **exactly as written** — even if the citation is malformed, incomplete, or contains typos.
+- If multiple citations appear inside the same parentheses, extract the entire comma/semicolon-separated group, but **still without the outer parentheses**.
+- DO NOT extract anything that looks like a figure reference, acronym, or other non-citation pattern (e.g., (STS 06), (Fig. 11), (122 ka)).
+- DO NOT attempt to "fix" formatting, punctuation, or author name order. Just copy the citation **exactly as it appears** in the snippet.
+
+## FORMATS TO IDENTIFY:
+- Multiple consecutive references:
+  (Smith 1994; Jones 1995, Brown 2000a,b) → extract "Smith 1994; Jones 1995, Brown 2000a,b"
+  ( Melosh, 1984 ; Michikami etal., 2008 , 2019 ) → extract "Melosh, 1984 ; Michikami etal., 2008 , 2019"
+  (e.g., Osten et al. 2005 ; Liefke et al. 2010 ; Namekata et al. 2020 ) → extract "Osten et al. 2005 ; Liefke et al. 2010 ; Namekata et al. 2020"
+
+- Parenthetical:
+  (Smith 1994) → extract "Smith 1994"
+  ( Smith 1994 ) → extract "Smith 1994"
+
+- Narrative:
+  Smith (1994) → extract "Smith (1994)"
+  Smith et al. (2005) → extract "Smith et al. (2005)"
+  Smith et al (2005) → extract "Smith et al (2005)" ❗Don't add a period unless present
+
+- Unparenthesized citations:
+  Smith 1994, Smith and Jones 1994, Guillot et al. 2005 → extract as-is
+  🔁 Even if no parentheses appear, extract if it's clearly a publication reference (e.g., "Cantat-Gaudin(2019)", "Armstrongetal.").
+
+- "submitted"/"in preparation":
+  (Kopp et al., submitted) → extract "Kopp et al., submitted"
+  Doe 2020 in preparation → extract as-is
+
+- With inconsistent spacing:
+  ( Mannheim,1993 ) → extract "Mannheim,1993"
+  Smith ( 1994 ) → extract "Smith ( 1994 )"
+  Smith (1994 ) → extract "Smith (1994 )"
+
+- 🔁 Typos and anomalies:
+  Keep citations with typos (e.g., "Kundu et a! 1989") as written.
+  Keep joined words (e.g., "Armstrongetal.") exactly as written.
+
+## EXAMPLES:
+
+Snippet: "Cantat-Gaudin(2019) find that all 7 of the groups they identify... Armstrongetal."
+Output: ["Cantat-Gaudin(2019)", "Armstrongetal"]
+
+Snippet: "A younger generation of stars... (Paumard et al. 2006 ; Bartko et al. 2009 )."
+Output: ["Paumard et al. 2006 ; Bartko et al. 2009"]
+
+Snippet: "Multifrequency radioheliograph observations... (Kundu et a! 1989, Gopalswamy & Kundu 1990)."
+Output: ["Kundu et a! 1989, Gopalswamy & Kundu 1990"]
+
+Snippet: "Not only is this an elegant method... ( Buote Canizares 1996 , 1997 )."
+Output: ["Buote Canizares 1996 , 1997"]
+
+Snippet: "The time delays involved... (Charbonneau et al. 2007 )."
+Output: ["Charbonneau et al. 2007"]
+❗DON'T rewrite it as "Charbonneau et al. (2007)"
+
+Snippet: "van Dokkum Stanford 2003..."
+Output: ["van Dokkum Stanford 2003"]
+❗Don't rewrite this with an ampersand or parentheses!
+
+Snippet: "Typical X-ray temperatures... (e.g., Osten et al. 2005 ; Liefke et al. 2010 ; Namekata et al. 2020 )."
+Output: ["Osten et al. 2005 ; Liefke et al. 2010 ; Namekata et al. 2020"]
+❗Don't reformat punctuation or remove spacing
+
+Snippet: "Figure 3. Effects on N-body mass functions..."
+Output: []
+
+##
+Keeping all rules above in mind, identify the inline citation substrings in the following snippet:

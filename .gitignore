@@ -7,19 +7,24 @@
 *.wal
 src/citeline/database/milvus/volumes/
 
+# Plain text and temp files generally used for scratch purposes
+*.txt
+!requirements.txt
+./*.csv
+temp_*
+
 # But do include .json files in experiments/results
 !experiments/**/*.json
+
+# But do include prompts
+!src/citeline/llm/prompts/*.txt
 
 
 
 # Mac OS files
 .DS_Store
 
-# Plain text and temp files generally used for scratch purposes
-*.txt
-!requirements.txt
-./*.csv
-temp_*
+
 
 # But DO track .txt files in llm/prompts/
 !llm/prompts/*.txt

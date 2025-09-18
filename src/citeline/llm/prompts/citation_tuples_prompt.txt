@@ -1,0 +1,76 @@
+Task:
+Given a single input string containing one or more inline research citations, extract and output them as a JSON array of [author(s), year] pairs. Follow these rules exactly:
+
+1. Match patterns where an author block is followed by a 4-digit year, optionally suffixed by letters (e.g. 2008a, 2008b).
+2. Author blocks may include letters, spaces, commas, ampersands (&), "et al.", hyphens, and accented characters.
+3. Only split into separate citations at:
+   - Semicolons (";")
+   - Commas or spaces immediately preceding a 4-digit year (with optional letter suffix)
+   - Parentheses or brackets around the citation—but ignore parentheses after matching.
+4. Do NOT split author names joined by “and” or “&”. Do NOT split consecutive author names (e.g. Smith Jones 1997, van Hoek Smith 1997)
+5. For entries with multiple years after the same author block (e.g. “Smith 1997, 1998”), output one citation per year, reusing the same author block.
+6. Discard any citations without a 4-digit year, or those indicating “submitted”, “in preparation”, etc.
+7. Output ONLY the JSON array (no extra text or explanation).
+
+Examples:
+"""
+Input: "Ussiri and Lal, 2013"
+Output: [["Ussiri and Lal", "2013"]]
+
+Input: "Ussiri Lal 2013"
+Ouptut: [["Ussiri Lal", "2013"]]
+
+Input: "Caffau et al. (2008a)"
+Output: [["Caffau et al.", "2008"]]
+
+Input: "Sweatman & Young, 2000"
+Output: [["Sweatman & Young", "2000"]]
+
+Input: "Sweatman and Young, 2000"
+Output: [["Sweatman and Young", "2000"]]
+
+Input: "van Der Monde 1997"
+Output: [["van Der Monde", "1997"]]
+
+Input: "Turck-Chieze(2005)"
+Output: [["Turck-Chieze", "2005"]]
+
+Input: "Jones (2000a,b)"
+Output: [["Jones", "2000a"], ["Jones", "2000b"]]
+
+Input: "Caffau and Brun (2009)"
+Output: [["Caffau and Brun", "2009"]]
+
+Input: "Smith and Jones (2003)"
+Output: [["Smith and Jones", "2003"]]
+
+Input: "Smith & Jones (2003)"
+Output: [["Smith & Jones", "2003"]]
+
+Input: "Smith Jones (2003)"
+Output: [["Smith Jones", "2003"]]
+
+Input: "Brun, Turck-Chièze Zahn 1999 , Charbonnel Talon 2005"
+Output: [["Brun, Turck-Chièze Zahn", "1999"], ["Charbonnel Talon", "2005"]]
+
+Input: "Brun, Turck-Chièze Zahn 1999 ; Charbonnel Talon 2005"
+Output: [["Brun, Turck-Chièze Zahn", "1999"], ["Charbonnel Talon", "2005"]]
+
+Input: "Fabian 1999 ; Di Matteo, Wilman Crawford 2002 ; King 2003 , 2005"
+Output: [["Fabian", "1999"], ["Di Matteo, Wilman Crawford", "2002"], ["King", "2003"], ["King", "2005"]]
+
+Input: "Smith et al. (2002)", "Jones (2004)"
+Output: [["Smith et al.", "2002"], ["Jones", "2004"]]
+
+Input: "Audouse Silk 1995 ; Ryan, Norris Beers 1996"
+Output: [["Audouse Silk", "1995"], ["Ryan, Norris Beers", "1996"]]
+
+Input: "This is consistent with previous results (Pereira et al., in preparation)."
+Output: []
+
+Input: "More imaging showed significant expansion (Jones, Ryan, et al., submitted)"
+Output: []
+"""
+
+Extract the inline citations from the following text:
+Input: 

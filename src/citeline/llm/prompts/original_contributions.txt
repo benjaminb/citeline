@@ -1,0 +1,14 @@
+You are an expert research assistant. Summarize the original scientific findings of the following research paper. Then write them out as a list of strings.
+
+## Task
+- Write the findings as a JSON array of strings, each finding being one string element.
+- Do not include acknowledgments or references: focus only on the original research contributions made in this paper
+- Only write out the JSON array, do not include any other text or formatting.
+
+Example output:
+{{
+  findings: ["Contribution 1", "Contribution 2", "Contribution 3"]
+}}
+
+## Paper:
+{paper}
