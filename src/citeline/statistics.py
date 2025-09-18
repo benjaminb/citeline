@@ -70,7 +70,7 @@ def compute_statistics(data: list[dict[str, list[dict] | pd.Series | pd.DataFram
     """
     Computes the overall statistics from the raw or reranked results data.
 
-    The input data is a list of dictionaries: {"record": {...}, "results": [...]} where
+    The input data is a list of dictionaries: [{"record": {...}, "results": [...]}] where
     - record: pd.Series for example input record
     - results could be a list of dictionaries for search results, or a pd.DataFrame if the data came from a reranker
     """

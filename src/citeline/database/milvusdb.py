@@ -5,9 +5,9 @@ import os
 from dotenv import load_dotenv
 import json
 from tqdm import tqdm
-from embedders import Embedder
 import torch
 import pandas as pd
+from citeline.embedders import Embedder
 
 load_dotenv("../.env")
 

@@ -3,7 +3,9 @@
 *.json
 *.jsonl
 *.parquet
-database/milvus/volumes/
+*.snap
+*.wal
+src/citeline/database/milvus/volumes/
 
 # But do include .json files in experiments/results
 !experiments/**/*.json

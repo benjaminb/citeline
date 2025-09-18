@@ -13,8 +13,8 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 from pymilvus import Collection
 from database.milvusdb import MilvusDB
-from query_expander import get_expander
-from embedders import Embedder
+from citeline.query_expander import get_expander
+from citeline.embedders import Embedder
 
 logger = logging.getLogger(__name__)
 load_dotenv()

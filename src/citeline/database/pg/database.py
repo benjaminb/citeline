@@ -563,7 +563,7 @@ class Database:
             target_column (str): Column in the database where the vectors will be stored.
             batch_size (int): Number of expansions to process in each batch.
         """
-        from embedders import get_embedder
+        from citeline.embedders import get_embedder
 
         embedder = get_embedder(embedder_name, self.device, normalize)
         embeddings = embedder(expansions)

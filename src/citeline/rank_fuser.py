@@ -1,5 +1,5 @@
 import pandas as pd
-from metrics import Metric
+from citeline.metrics import Metric
 from tqdm import tqdm
 
 """

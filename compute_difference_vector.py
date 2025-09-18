@@ -2,9 +2,9 @@ import pandas as pd
 import numpy as np
 import torch
 from tqdm import tqdm
-from embedders import Embedder
+from citeline.embedders import Embedder
 from database.milvusdb import MilvusDB
-from query_expander import get_expander
+from citeline.query_expander import get_expander
 
 tqdm.pandas()
 

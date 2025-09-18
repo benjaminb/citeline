@@ -4,7 +4,7 @@ import cProfile
 import pstats
 from dotenv import load_dotenv
 from time import time
-from embedders import get_embedder, EMBEDDING_CLASS
+from citeline.embedders import get_embedder, EMBEDDING_CLASS
 from database.database import Database
 
 
