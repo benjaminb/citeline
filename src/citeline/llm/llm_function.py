@@ -30,20 +30,24 @@ class LLMFunction:
     def __call__(self, prompt_kwargs: dict) -> Union[BaseModel, RootModel]:
         formatted_prompt = self.prompt.format(**prompt_kwargs)
         response = self.llm.invoke(formatted_prompt)
-        print(response)
         return response
 
 
 def main():
     from citeline.llm.models import Findings
+    from time import time
 
+    start = time()
     contribution_extractor = LLMFunction(
         model_name="deepseek-r1:70b", prompt_path="prompts/original_contributions_revised.txt", output_model=Findings
     )
+    print(f"Initialized contribution extractor in {time() - start:.4f} seconds")
     with open("temp_paper.txt", "r") as f:
         paper = f.read()
     print(f"Loaded paper with {len(paper)} characters")
+    start = time()
     response = contribution_extractor({"paper": paper})
+    print(f"LLM function took {time() - start:.4f} seconds")
     for finding in response.findings:
         print(f"- {finding}")
 
