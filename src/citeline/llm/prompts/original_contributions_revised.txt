@@ -14,10 +14,11 @@ Hard requirements:
 9. If mentioning analysis types (e.g., cross-validation, ablation), include dataset/metric context so the string is self-contained.
 10. Prefer extracting from explicit "Abstract", "Results", or "Conclusions" sections first.
 
-Example expected output (fictional natural-science examples only):
+## Research Paper
+{paper}
+
+## Example expected output:
 {{
   "findings": ["finding 1...", "finding 2...", ...]
 }}
 
-## Research Paper
-{paper}
