@@ -24,7 +24,6 @@ class LLMFunction:
         self.llm = ChatOllama(
             model=model_name,
             temperature=0.0,
-            # )
         ).with_structured_output(output_model, method="json_schema")
 
     def __call__(self, prompt_kwargs: dict) -> Union[BaseModel, RootModel]:
