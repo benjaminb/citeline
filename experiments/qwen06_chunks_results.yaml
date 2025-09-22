@@ -4,8 +4,8 @@ target_column: 'vector'
 metric: 'IP'
 embedder: 'Qwen/Qwen3-Embedding-0.6B'
 normalize: True
-query_expansion: 'identity'
-batch_size: 8
-top_k: 5
-output_path: 'experiments/results/test/'
-output_search_results: False
+query_expansion: 'add_prev_3'
+batch_size: 16
+top_k: 200
+output_path: 'experiments/qwen06_results/'
+output_search_results: True
