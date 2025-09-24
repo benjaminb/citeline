@@ -328,6 +328,8 @@ class BGEEmbedder(Embedder):
         return self.encode(docs)
 
 
+# NOTE: Specter2 requires adapters modules, which requires transformers ~=4.51.3. I've upgraded
+# transformers to 4.56.2 to use gpt-oss models
 @Embedder.register("allenai/specter2")
 class SpecterEmbedder(Embedder):
 

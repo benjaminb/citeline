@@ -30,4 +30,5 @@ class PromptIteration:
         self.db.client.load_collection(db_collection)
 
 
-    def _get_hard_examples(example: pd.Serices, n: int=2) -> tuple[list[str], list[float]]
+    def _get_hard_examples(example: pd.Serices, n: int=2) -> tuple[list[str], list[float]]:
+        pass
