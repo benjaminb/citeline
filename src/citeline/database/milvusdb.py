@@ -602,29 +602,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    # db = MilvusDB()
-    # db.client.list_collections()
-    # data = "../testdata.jsonl"
-    # db.create_vector_collection(
-    #     name="test_collection", data_source=data, embedder_name="BAAI/bge-small-en", normalize=False
-    # )
-    # db.client.list_collections()
 
-    # import numpy as np
-
-    # query = np.random.rand(384).astype(np.float32)
-    # db.client.load_collection("test_collection")
-    # res = db.client.search(
-    #     collection_name="test_collection",
-    #     anns_field="vector",
-    #     data=[query],
-    #     output_fields=["text", "doi", "pubdate"],
-    #     limit=3,
-    #     search_params={"metric_type": "IP"},
-    # )
-    # print(f"Search results:")
-    # from pprint import pprint
-
-    # pprint(res[0])
-
-    # db.drop_collection("test_collection")

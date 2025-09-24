@@ -23,7 +23,7 @@ def main():
     # Build the input for gpt-oss
     messages = [{"role": "system", "content": prompt}]
 
-    response = llm(messages, max_new_tokens=1024, temperature=0.2)
+    response = llm(messages, max_new_tokens=256, temperature=0.2)
     from pprint import pprint
 
     pprint(response)
