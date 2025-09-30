@@ -22,6 +22,7 @@ Hard requirements:
   - open questions, unresolved problems, or acknowledged uncertainties. Prefix them with "Open question:"
 6. For each statement, write out findings at MULTIPLE levels of specificity:
    - High-level interpretations: a broader, more general, citation-style statement
+     - write multiple versions swapping different synonyms for key entities (e.g. "dust grains in cold interstellar regions" <-> "cold clouds", "nova" <-> "cataclysmic variable", "Alpha Centauri A" <-> "nearby stars")
    - Mid-level: General findings with key qualifiers (≤160 chars)
    - Detailed: Specific conditions, parameters, and quantitative results
    - If a finding can have multiple high-level interpretations, write out all of them
