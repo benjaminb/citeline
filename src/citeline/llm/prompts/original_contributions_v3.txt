@@ -7,12 +7,19 @@ Hard requirements:
    - If the string refers to a method/analysis, name the method and general dataset characteristics (e.g., "High-resolution spectroscopy of F/G dwarf stars").
    - Focus on general methodological approaches, broad findings, and conceptual contributions rather than specific numeric values.
 4. Prefer concise, general statements (≤160 characters when possible) that capture the essence of findings.
-5. Extract these types of aspects (when present): original findings/contributions, methodologies & experimental design (instruments, general datasets, analytical approaches), qualitative and broad quantitative results, conclusions & implications, limitations/caveats/assumptions, new resources (data/code/models), and noteworthy comparisons to prior work.
+5. Extract these types of aspects (when present): 
+  * original findings/contributions
+  * methodologies & experimental design (instruments, general datasets, analytical approaches)
+  * qualitative and broad quantitative results, conclusions & implications
+  * limitations/caveats/assumptions
+  * new resources (data/code/models)
+  * noteworthy comparisons to prior work
+  * open questions, unresolved problems, or acknowledged uncertainties. Prefix them with "Open question:"
 6. Focus on general trends, relationships, and patterns rather than exact numeric values. Use descriptive terms like "significant", "substantial", "moderate", "enhanced", "reduced" instead of precise measurements.
-7. Prefix speculative/tentative claims with "Speculative:" or "Tentative:".
-8. Avoid vague phrases like "the method", "the sample", or "the experiment" — name them explicitly but keep descriptions general.
-9. If mentioning analysis types, include general context about the approach rather than specific metrics.
-10. Prefer extracting from explicit "Abstract", "Results", or "Conclusions" sections first.
+8. Prefix speculative/tentative claims with "Speculative:".
+9. Avoid vague phrases like "the method", "the sample", or "the experiment" — name them explicitly but keep descriptions general.
+10. If mentioning analysis types, include general context about the approach rather than specific metrics.
+11. Prefer extracting from explicit "Abstract", "Results", or "Conclusions" sections first.
 
 ## Research Paper
 {paper}

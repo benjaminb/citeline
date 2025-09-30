@@ -191,7 +191,7 @@ class MilvusDB:
             "pubdate",
             "citation_count",
         }, f"DataFrame must contain 'text', 'doi', 'citation_count', and 'pubdate' columns (and no others). Dataset given has columns {data.columns}"
-        embedder = Embedder.create(model_name=embedder_name, device=self.device, normalize=normalize, for_queries=False)
+        embedder = Embedder.create(model_name=embedder_name, device=self.device, normalize=normalize)
 
         # Check if collection already exists and handle resumption
         if name in self.client.list_collections():
@@ -545,7 +545,7 @@ class MilvusDB:
                         self.clear_gpu_cache()
 
                     batch = data.iloc[slice(i, i + batch_size)]
-                    embeddings = embedder(batch["text"])
+                    embeddings = embedder(batch["text"], for_queries=False)  # Assuming we are embedding documents, not queries
 
                     batch_records = batch.to_dict(orient="records")
                     for record, vector in zip(batch_records, embeddings):

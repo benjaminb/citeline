@@ -137,6 +137,7 @@ def list_available_embedders() -> list[str]:
 
 
 @Embedder.register("Qwen/Qwen3-Embedding-8B")
+@Embedder.register("Qwen/Qwen3-Embedding-4B")
 @Embedder.register("Qwen/Qwen3-Embedding-0.6B")
 class QwenEmbedder(Embedder):
     def __init__(self, model_name: str, device: str, normalize: bool):
