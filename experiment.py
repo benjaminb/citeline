@@ -167,7 +167,11 @@ class Experiment:
         self.output_path = output_path
 
         # Strategy for using multiple document / query expansions
-        supported_strategies = {"50-50": self.__fifty_fifty_search, "basic": self.__basic_search}
+        supported_strategies = {
+            "50-50": self.__fifty_fifty_search,
+            "basic": self.__basic_search,
+            "mixed_expansion": self.__mixed_expansion_search,
+        }
         if strategy in supported_strategies:
             self.strategy = strategy
         else:
@@ -210,6 +214,45 @@ class Experiment:
             metric=self.metric,
             limit=self.top_k,
         )
+
+    def __mixed_expansion_search(self, db: MilvusDB, records: pd.DataFrame, vectors: None) -> list[dict]:
+        """
+        This function handles the "mixed_expansion" strategy where each record has two associated vectors:
+        the original and the expanded. It retrieves top-k/2 results for each vector and combines them.
+
+        Expects records to be a DataFrame with 'vector_original' and 'vector_expanded' columns
+        """
+        half_k = self.top_k // 2
+
+        original_vectors = records["vector_original"].tolist()
+        expanded_vectors = records["vector_expanded"].tolist()
+        batch_records = records.to_dict(orient="records")
+
+        original_results = db.search(
+            collection_name=self.target_table,
+            query_records=batch_records,
+            query_vectors=original_vectors,
+            metric=self.metric,
+            limit=half_k,
+        )
+
+        expanded_results = db.search(
+            collection_name=self.target_table,
+            query_records=batch_records,
+            query_vectors=expanded_vectors,
+            metric=self.metric,
+            limit=half_k,
+        )
+
+        # Combine search results and sort by metric
+        results = []
+        for i in range(len(records)):
+            original_search_results = original_results[i]
+            expanded_search_results = expanded_results[i]
+            combined_results = original_search_results + expanded_search_results
+            combined_results.sort(key=lambda x: x["metric"], reverse=True)  # Sorts by metric DESCENDING
+            results.append(combined_results)
+        return results
 
     def __fifty_fifty_search(self, db: MilvusDB, records: list[dict], vectors: list[list[float]]) -> list[dict]:
         """
@@ -473,8 +516,15 @@ class Experiment:
                         break
 
                     # Query the database
-                    batch_records, embeddings, start_idx = item
-                    search_results = self.search(db=thread_client, records=batch_records, vectors=embeddings)
+                    batch, embeddings, start_idx = item
+                    if self.strategy == "mixed_expansion":
+                        # TODO: this is just a patch for mixed expansion search. If we want to keep this strategy, come up with a cleaner design
+                        embeddings = batch['vector_original'].tolist()  # Dummy, not used
+                        search_results = self.search(db=thread_client, records=batch, vectors=None)
+                        batch_records = batch.to_dict(orient="records")
+                    else:
+                        batch_records = batch.to_dict(orient="records")
+                        search_results = self.search(db=thread_client, records=batch_records, vectors=embeddings)
 
                     # TODO: fix logging within thread
 
@@ -547,27 +597,37 @@ class Experiment:
 
                     # Get batch, perform any query expansion & generate embeddings
                     batch = self.dataset.iloc[slice(i, i + self.batch_size)]
-                    expanded_queries = self.query_expander(batch)
-                    embeddings = self.embedder(expanded_queries)
+                    if self.strategy == "mixed_expansion":
+                        """
+                        Hacky patch to handle mixed expansion strategy where we need to send two reps per query
+                        into the task queue
+                        """
+                        batch = batch.copy()  # Avoid modifying original dataset
+                        batch["expansion"] = self.query_expander(batch)
+                        batch["vector_original"] = [vector for vector in self.embedder(batch["sent_no_cit"])]
+                        batch["vector_expanded"] = [vector for vector in self.embedder(batch["expansion"])]
+                        task_queue.put((batch, None, i))
+                    else:
+                        expanded_queries = self.query_expander(batch)
+                        embeddings = self.embedder(expanded_queries)
 
-                    # Apply any vector transformation if specified
-                    if self.difference_vector is not None:
-                        embeddings = embeddings + self.difference_vector
-                        # Renormalize if needed
-                        if self.embedder.normalize:
-                            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-                            embeddings = embeddings / norms
-                    elif self.transform_matrix is not None:
-                        embeddings = embeddings @ self.transform_matrix
-                        # Renormalize if needed
-                        if self.embedder.normalize:
-                            norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-                            embeddings = embeddings / norms
+                        # Apply any vector transformation if specified
+                        if self.difference_vector is not None:
+                            embeddings = embeddings + self.difference_vector
+                            # Renormalize if needed
+                            if self.embedder.normalize:
+                                norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+                                embeddings = embeddings / norms
+                        elif self.transform_matrix is not None:
+                            embeddings = embeddings @ self.transform_matrix
+                            # Renormalize if needed
+                            if self.embedder.normalize:
+                                norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+                                embeddings = embeddings / norms
 
-                    # Convert to dicts and put on consumer task_queue
-                    batch_records = batch.to_dict(orient="records")
-                    task_queue.put((batch_records, embeddings.tolist(), i))
-                    producer_bar.update(len(batch_records))
+                        task_queue.put((batch, embeddings.tolist(), i))
+
+                    producer_bar.update(len(batch))
 
                 # Put sentinels on the task queue to signal consumer completion
                 for _ in range(num_workers):
