@@ -7,91 +7,72 @@ from langchain_deepseek import ChatDeepSeek
 from langchain_core.messages import SystemMessage
 from dotenv import load_dotenv
 import os
-from pydantic import BaseModel
-from llm.models import IsValidCitation
+from citeline.llm.models import Findings
 
 # Load environment variables from .env file from project root
-load_dotenv("../.env")
+load_dotenv("../../../.env")
 
 
-def deepseek_client():
-    assert "DEEPSEEK_API_KEY" in os.environ, "DEEPSEEK_API_KEY must be set in environment variables"
-    client = OpenAI(
-        api_key=os.environ["DEEPSEEK_API_KEY"],
-        base_url="https://api.deepseek.com",
-    )
-    return client
+def github_llm_client(model: str):
+    assert "GITHUB_TOKEN" in os.environ, "GITHUB_TOKEN must be set in environment variables"
+    print(f"Got GITHUB_TOKEN: {os.environ['GITHUB_TOKEN']}")
 
+    client = OpenAI(api_key=os.environ.get("GITHUB_TOKEN"), base_url="https://models.github.ai/inference")
 
-with open("llm/prompts/deepseek_citation_identification.txt", "r") as f:
-    DEEPSEEK_CITATION_IDENTIFICATION_PROMPT = f.read()
-
-deepseek_llm = ChatDeepSeek(
-    model="deepseek-chat", temperature=0.0, max_tokens=10, max_retries=2
-).with_structured_output(IsValidCitation, method="json_mode", strict=True)
-
-
-def deepseek_citation_validator_using_openai(query: str, candidates: list[str]) -> list[bool]:
-    """
-    Using the OpenAI client, returns a list of booleans indicating whether each candidate is a valid reference.
-    """
-    client = deepseek_client()
-    prompts = [
-        DEEPSEEK_CITATION_IDENTIFICATION_PROMPT.format(sentence=query, paper=paper)
-        for paper in candidates
-    ]
-    results = [
-        client.chat.completions.create(
-            model="deepseek-chat",
-            temperature=0.0,
-            messages=[{"role": "system", "content": prompt}],
+    def get_llm_response(prompt: str):
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": prompt},
+            ],
             stream=False,
+            max_tokens=60000
         )
-        for prompt in prompts
-    ]
-    return results
 
+        return response.choices[0].message.content
 
-def deepseek_citation_validator(query: str, candidates: list[str]) -> list[bool]:
-    """
-    Returns a list of booleans indicating whether each candidate is a valid reference.
-    """
-    results = []
-    prompts = [
-        DEEPSEEK_CITATION_IDENTIFICATION_PROMPT.format(sentence=query, paper=paper)
-        for paper in candidates
-    ]
-    messages = [[SystemMessage(content=prompt)] for prompt in prompts]
-    try:
-        responses = deepseek_llm.batch(messages)
-        results = [response.is_valid for response in responses]
-    except Exception as e:
-        print(f"Error during citation validation: {e}")
-        # If there's an error, we assume all candidates are invalid
-        results = [False] * len(candidates)
-    return results
+    return get_llm_response
+
+def openai_llm_client(model: str):
+    assert "OPENAI_API_KEY" in os.environ, "OPENAI_API_KEY must be set in environment variables"
+
+    client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+
+    def get_llm_response(prompt: str):
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": prompt},
+            ],
+            stream=False,
+            response_format={"type": "json_object"}
+        )
+
+        return response.choices[0].message.content
+
+    return get_llm_response
 
 
 def main():
-    assert "DEEPSEEK_API_KEY" in os.environ, "DEEPSEEK_API_KEY must be set in environment variables"
-    api_key = os.environ["DEEPSEEK_API_KEY"]
-    client = OpenAI(api_key="api_key", base_url="https://api.deepseek.com")
-    response = client.chat.completions.create(
-        model="deepseek-chat",
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant."},
-            {"role": "user", "content": "What is the capital of France?"},
-        ],
-        stream=False,
-    )
-    print(response.choices[0].message.content)
+    llm = openai_llm_client(model="gpt-5-nano")
+    with open("../llm/prompts/original_contributions_v3.txt", "r") as f:
+        prompt_template = f.read()
 
-    from pprint import pprint
-
-    print("Response object:")
-    pprint(response)
+    with open("../../../data/paper_bodies/lacey.txt", "r") as f:
+        paper = f.read()
+    prompt = prompt_template.format(paper=paper)
+    print(f"Prompt:\n{prompt}\n")
+    response = llm(prompt=prompt)
+    print("Raw response")
+    print(response)
 
     import json
+    try:
+        response = json.loads(response)
+        print(f"Parsed JSON: {response}")
+    except json.JSONDecodeError as e:
+        print(f"Failed to parse JSON: {e}")
+
 
     with open("deepseek_response_object.json", "w") as f:
         json.dump(response, f, indent=2)

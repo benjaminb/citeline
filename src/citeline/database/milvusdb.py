@@ -169,6 +169,7 @@ class MilvusDB:
             vector: the vector representation of the document
             text: the text content of the document (original text, contribution, or other document expansion)
             doi: the DOI of the research paper from which the text originates
+            citation_count: int
             pubdate: the publication date of the research paper (int YYYYMMDD format)
         Args:
             name: Name of the collection to create
@@ -307,6 +308,45 @@ class MilvusDB:
             iterator.close()
 
         print(f"Export completed. Data saved to '{output_file}'.")
+
+    def get_all_vectors(self, collection_name: str) -> list[list[float]]:
+        """
+        Retrieves all vectors from a collection.
+
+        Args:
+            collection_name: Name of the collection to retrieve vectors from.
+        Returns:
+            A list of vectors (each vector is a list of floats).
+        """
+        if not collection_name in self.client.list_collections():
+            print(f"Collection '{collection_name}' does not exist.")
+            return []
+
+        collection = Collection(collection_name)
+        collection.load()
+        if collection.num_entities == 0:
+            print(f"Collection '{collection_name}' is empty. No vectors to retrieve.")
+            return []
+
+        print(f"Retrieving all vectors from collection '{collection_name}' with {collection.num_entities} entities...")
+
+        iterator = collection.query_iterator(expr="", output_fields=["vector"], batch_size=1000)
+        all_vectors = []
+        progress_bar = tqdm(total=collection.num_entities, desc="Retrieving vectors")
+
+        while True:
+            batch = iterator.next()
+            if not batch:
+                break
+            for entity in batch:
+                all_vectors.append(entity["vector"])
+            progress_bar.update(len(batch))
+
+        progress_bar.close()
+        iterator.close()
+
+        print(f"Retrieved {len(all_vectors)} vectors from collection '{collection_name}'")
+        return all_vectors
 
     def import_collection(self, data_path: str, name: str, batch_size: int = 256) -> None:
         """

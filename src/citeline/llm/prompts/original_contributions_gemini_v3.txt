@@ -1,0 +1,49 @@
+You are given the full text of a single scientific research paper. Extract all factual statements asserted or utilized in this paper, including both novel contributions and descriptions of methods/instruments/data used.
+
+Hard requirements:
+
+1. Output ONLY a single JSON object: {{"findings":[ ... ]}}. No extra text, no commentary, no additional keys.
+2. Each array item must be a single, self-contained declarative sentence (one idea per sentence). Avoid pronouns and author-phrases (no "we", "authors", "found", "concluded", "determined", "observed"). State the fact directly (e.g., "Stellar bulge contains significant population of young stars").
+3. Ensure each statement is fully interpretable on its own. Include definitions or clarifying context for all domain-specific terms, abbreviations, or categories:
+  - Include the subject and scope (e.g., "in the galactic Bulge", "in sample of 200 patients", "in dataset X", "in cohort aged 50–70").
+  - If the sentence refers to a term defined within the paper, briefly include the definition or context so it is fully interpretable out of context
+  - If the sentence refers to a method/analysis, name the method and general dataset characteristics (e.g., "High-resolution spectroscopy of F/G dwarf stars").
+  - Focus on general methodological approaches, broad findings, and conceptual contributions rather than specific numeric values. Use descriptive terms like "significant", "substantial", "moderate", "enhanced", "reduced" instead of precise measurements.
+3. Ensure each statement is fully interpretable on its own. Include definitions or clarifying context for all domain-specific terms, abbreviations, or categories:
+  - Include the subject and scope (e.g., "in the galactic Bulge", "in sample of 200 patients", "in dataset X", "in cohort aged 50–70").
+  - If discussing a subset, subgroup, or category, ALWAYS include what it's a subset OF.
+    - BAD: "Outliers have masses from 9.4 to 11.1"
+    - GOOD: "Galaxies offset from mass-metallicity relation (MZR) have masses from 9.4 to 11.1"
+  - If the sentence refers to a term defined within the paper, briefly include the definition or context so it is fully interpretable out of context.
+  - For well-established acronyms and abbreviations in the field, include BOTH the full term and acronym on first use:
+    - Use the format: "full term (ACRONYM)" 
+    - Examples: "mass-metallicity relation (MZR)", "cosmic microwave background (CMB)", "supermassive black hole (SMBH)", "active galactic nucleus (AGN)", "asymptotic giant branch (AGB)", "second generation (2G)"
+     - Apply this to: major concepts, standard measurements, established relations, common astrophysical objects, and widely-recognized instruments
+     - If a term appears in multiple statements, include the acronym definition in each statement (since each must be independently interpretable)
+  - If the sentence refers to a method/analysis, name the method and general dataset characteristics (e.g., "High-resolution spectroscopy of F/G dwarf stars").
+  - Focus on general methodological approaches, broad findings, and conceptual contributions rather than specific numeric values. Use descriptive terms like "significant", "substantial", "moderate", "enhanced", "reduced" instead of precise measurements.
+4. Prefer concise, general statements (≤160 characters when possible) that capture the essence of findings.
+5. Extract these types of statements (when present): 
+  - original findings/contributions
+  - methodologies & experimental design (instruments, general datasets, analytical approaches)
+  - qualitative and broad quantitative results
+  - instruments/tools used (even if established), with their purpose and capabilities
+  - conclusions, interpretations, and statements motivated by the paper's findigns
+  - method-observation pairs (e.g. [Method X] shows/detects/etc. [Observation Y])
+  - limitations/caveats/assumptions
+  - new resources (data/code/models)
+  - noteworthy comparisons to prior work
+  - open questions, unresolved problems, or acknowledged uncertainties. Prefix them with "Open question:"
+6. For each statement, write out findings at MULTIPLE levels of specificity:
+   - High-level interpretations: a broader, more general, citation-style statement
+   - Mid-level: General findings with key qualifiers (≤160 chars)
+   - Detailed: Specific conditions, parameters, and quantitative results
+   - If a finding can have multiple high-level interpretations, write out all of them
+   - ALWAYS write statements with complete context
+7. Before finalizing each statement, verify: "If I gave this sentence to someone unfamiliar with the paper, would they understand what population/sample/reference frame is being discussed?" If no, add the missing context.
+   
+## Example expected output:
+
+{{
+  "findings": ["finding 1...", "finding 2...", ...]
+}}

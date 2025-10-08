@@ -1,4 +1,5 @@
 import argparse
+import itertools
 import json
 import logging
 import os
@@ -171,6 +172,7 @@ class Experiment:
             "50-50": self.__fifty_fifty_search,
             "basic": self.__basic_search,
             "mixed_expansion": self.__mixed_expansion_search,
+            "mixed_expansion_multiple": self.__mixed_expansion_multiple_search,
         }
         if strategy in supported_strategies:
             self.strategy = strategy
@@ -214,6 +216,78 @@ class Experiment:
             metric=self.metric,
             limit=self.top_k,
         )
+
+    def __mixed_expansion_multiple_search(
+        self,
+        db: MilvusDB,
+        records: pd.DataFrame,
+        vectors: None,
+        interleave=False,
+    ) -> list[dict]:
+        """
+        This function handles multiple mixed query expansions (e.g. adding previous 1, 2, or 3 sentences) plus identity (no expansion)
+        where each record has multiple associated vectors.
+
+        If interleave is True, it retrieves top-k/num_expansions results for each vector and interleaves them. Otherwise it sorts by metric.
+        """
+        num_expansions = 4  # identity + add_prev_1 + add_prev_2 + add_prev_3
+        per_expansion_k = self.top_k // num_expansions
+
+        batch_records = records.to_dict(orient="records")  # Convert once for db.search
+        all_results = []
+
+        # Do identity search first
+        batch_vectors = records["vector_original"].tolist()
+        results = db.search(
+            collection_name=self.target_table,
+            query_records=batch_records,
+            query_vectors=batch_vectors,
+            metric=self.metric,
+            limit=per_expansion_k,
+        )
+        all_results.append(results)
+
+        # Do expanded query searches (use DataFrame 'records' for column access)
+        for n in [1, 2, 3]:
+            batch_vectors = records[f"vector_add_prev_{n}"].tolist()
+            results = db.search(
+                collection_name=self.target_table,
+                query_records=batch_records,
+                query_vectors=batch_vectors,
+                metric=self.metric,
+                limit=per_expansion_k,
+            )
+            all_results.append(results)
+
+        # all_results is now a list of 4 search results (each is list of length batch_size)
+        # For each query index, interleave or merge the 4 expansion results
+        batch_size = len(records)
+        combined_results = []
+
+        for i in range(batch_size):
+            # Gather the i-th query's results from each expansion
+            per_expansion = [all_results[exp][i] if i < len(all_results[exp]) else [] for exp in range(num_expansions)]
+
+            if interleave:
+                # Interleave round-robin across expansions
+                merged = []
+                max_len = max((len(lst) for lst in per_expansion), default=0)
+                for j in range(max_len):
+                    for lst in per_expansion:
+                        if j < len(lst) and lst[j] is not None:
+                            merged.append(lst[j])
+                merged = merged[: self.top_k]
+            else:
+                # Combine all and sort by metric
+                merged = []
+                for lst in per_expansion:
+                    merged.extend([x for x in lst if x is not None])
+                merged.sort(key=lambda x: x["metric"], reverse=True)
+                merged = merged[: self.top_k]
+
+            combined_results.append(merged)
+
+        return combined_results
 
     def __mixed_expansion_search(self, db: MilvusDB, records: pd.DataFrame, vectors: None) -> list[dict]:
         """
@@ -517,9 +591,9 @@ class Experiment:
 
                     # Query the database
                     batch, embeddings, start_idx = item
-                    if self.strategy == "mixed_expansion":
+                    if self.strategy in ["mixed_expansion", "mixed_expansion_multiple"]:
                         # TODO: this is just a patch for mixed expansion search. If we want to keep this strategy, come up with a cleaner design
-                        embeddings = batch['vector_original'].tolist()  # Dummy, not used
+                        embeddings = batch["vector_original"].tolist()  # Dummy, not used
                         search_results = self.search(db=thread_client, records=batch, vectors=None)
                         batch_records = batch.to_dict(orient="records")
                     else:
@@ -606,6 +680,17 @@ class Experiment:
                         batch["expansion"] = self.query_expander(batch)
                         batch["vector_original"] = [vector for vector in self.embedder(batch["sent_no_cit"])]
                         batch["vector_expanded"] = [vector for vector in self.embedder(batch["expansion"])]
+                        task_queue.put((batch, None, i))
+                    elif self.strategy == "mixed_expansion_multiple":
+                        batch = batch.copy()
+                        # Embed the original (identity) expansion
+                        batch["vector_original"] = [vector for vector in self.embedder(batch["sent_no_cit"])]
+                        # Embed the "add previous n sentences" expansions
+                        for n in [1, 2, 3]:
+                            expander = get_expander(name=f"add_prev_{n}", path_to_data=EXPANSION_DATA_PATH)
+                            expansions = expander(batch)
+                            batch[f"add_prev_{n}"] = expansions
+                            batch[f"vector_add_prev_{n}"] = [vector for vector in self.embedder(expansions)]
                         task_queue.put((batch, None, i))
                     else:
                         expanded_queries = self.query_expander(batch)

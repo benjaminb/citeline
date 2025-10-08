@@ -47,14 +47,27 @@ def spherical_to_euclidean(vector: np.ndarray) -> np.ndarray:
 
 def main():
     # Tests
-    for vec in [np.array([1.0, 0.0]), np.array([0.0, 1.0]), np.array([0.0, -1.0]), np.array([1.0, 1.0]) / np.sqrt(2)]:
-        print("\n---\n")
-        print("Original Euclidean coordinates:", vec)
-        spherical = euclidean_to_spherical(vec)
-        print("Spherical coordinates:", spherical)
-        reconstructed = spherical_to_euclidean(spherical)
-        print("Reconstructed Euclidean coordinates:", reconstructed)
-        print("Reconstruction error:", np.linalg.norm(vec - reconstructed))
+    x = np.array([np.cos(np.pi / 10), np.sin(np.pi / 10)])
+    y = np.array([np.cos(99 * np.pi / 100), np.sin(99 * np.pi / 100)])
+    x_spherical, y_spherical = euclidean_to_spherical(x), euclidean_to_spherical(y)
+    print(f"x in spherical coordinates: {x_spherical}")
+    print(f"y in spherical coordinates: {y_spherical}")
+    diff = y_spherical - x_spherical
+    print(f"Difference in spherical coordinates: {diff}")
+    y_reconstructed_spherical = x_spherical + diff
+    print(f"Reconstructed y in spherical coordinates: {y_reconstructed_spherical}")
+    y_reconstructed = spherical_to_euclidean(y_reconstructed_spherical)
+    print(f"Reconstructed y in euclidean coordinates: {y_reconstructed}")
+    print(f"Reconstruction error: {np.linalg.norm(y - y_reconstructed)}")
+    
+    # for vec in [np.array([1.0, 0.0]), np.array([0.0, 1.0]), np.array([0.0, -1.0]), np.array([1.0, 1.0]) / np.sqrt(2)]:
+    #     print("\n---\n")
+    #     print("Original Euclidean coordinates:", vec)
+    #     spherical = euclidean_to_spherical(vec)
+    #     print("Spherical coordinates:", spherical)
+    #     reconstructed = spherical_to_euclidean(spherical)
+    #     print("Reconstructed Euclidean coordinates:", reconstructed)
+    #     print("Reconstruction error:", np.linalg.norm(vec - reconstructed))
 
 
 if __name__ == "__main__":

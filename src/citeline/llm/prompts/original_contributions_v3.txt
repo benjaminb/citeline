@@ -14,13 +14,11 @@ Hard requirements:
   - If discussing a subset, subgroup, or category, ALWAYS include what it's a subset OF.
     - BAD: "Outliers have masses from 9.4 to 11.1"
     - GOOD: "Galaxies offset from mass-metallicity relation (MZR) have masses from 9.4 to 11.1"
-    - BAD: "High-metallicity objects show enhanced star formation"
-    - GOOD: "Galaxies with metallicity above mass-metallicity relation show 
   - If the sentence refers to a term defined within the paper, briefly include the definition or context so it is fully interpretable out of context.
   - For well-established acronyms and abbreviations in the field, include BOTH the full term and acronym on first use:
     - Use the format: "full term (ACRONYM)" 
     - Examples: "mass-metallicity relation (MZR)", "cosmic microwave background (CMB)", "supermassive black hole (SMBH)", "active galactic nucleus (AGN)", "asymptotic giant branch (AGB)", "second generation (2G)"
-     - Apply this to: major concepts, standard measurements, established relations, commonastrophysical objects, and widely-recognized instruments
+     - Apply this to: major concepts, standard measurements, established relations, common astrophysical objects, and widely-recognized instruments
      - If a term appears in multiple statements, include the acronym definition in each statement (since each must be independently interpretable)
   - If the sentence refers to a method/analysis, name the method and general dataset characteristics (e.g., "High-resolution spectroscopy of F/G dwarf stars").
   - Focus on general methodological approaches, broad findings, and conceptual contributions rather than specific numeric values. Use descriptive terms like "significant", "substantial", "moderate", "enhanced", "reduced" instead of precise measurements.
