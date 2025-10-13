@@ -15,6 +15,7 @@ load_dotenv("../.env")
 def argument_parser():
     """
     python milvusdb.py --create-collection --name <collection_name> --data-source <data_source> --embedder <embedder_name> [--normalize] [--batch-size <16>]
+    python milvusdb.py --import-collection <data_path> <collection_name>
     """
     parser = argparse.ArgumentParser(description="Milvus DB Management")
 
