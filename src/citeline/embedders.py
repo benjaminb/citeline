@@ -161,6 +161,7 @@ class QwenEmbedder(Embedder):
         with torch.no_grad():
             kwargs = {"sentences": docs, "show_progress_bar": False}
             if for_queries:
+                # Adds the built-in prompt for query embedding
                 kwargs["prompt_name"] = "query"
             return self.model.encode(**kwargs)
 

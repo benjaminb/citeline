@@ -39,6 +39,7 @@ def argument_parser():
         metavar=("data_path", "collection_name"),
         help="Import a collection from a JSONL file",
     )
+
     operation_group.add_argument(
         "--rename-collection", nargs=2, metavar=("old_name", "new_name"), help="Rename a collection"
     )

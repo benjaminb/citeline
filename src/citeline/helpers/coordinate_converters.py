@@ -8,6 +8,8 @@ Reference: https://en.wikipedia.org/wiki/N-sphere#Spherical_coordinates
 def euclidean_to_spherical(vector: np.ndarray) -> np.ndarray:
     """
     Converts a unit vector in euclidean coordinates to spherical coordinates.
+    Using ata2, all angles should be in the range [-pi, pi].
+    The first coordinate is the radius r, which should be 1 for unit vectors.
     """
     dim = vector.shape[0]
     spherical = np.zeros(dim)
@@ -44,6 +46,27 @@ def spherical_to_euclidean(vector: np.ndarray) -> np.ndarray:
     euclidean[-1] *= np.prod(np.sin(vector[1:]))
     return euclidean
 
+def add_spherical(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    """
+    Takes vectors a and b in spherical coordinates and returns their vector sum in spherical coordinates.
+    This is done by adding all the angular components in a and b (assumed to be all but the first). 
+    This sets the radius to 1, to avoid floating imprecision.
+
+    It also mods the angles to be in the range [-pi, pi], which is the range used by atan2.
+    
+    """
+    # Check that all angular components are in [-pi, pi] and vectors have same dims
+    if np.any(a[1:] < -np.pi) or np.any(a[1:] > np.pi):
+        raise ValueError("All angular components of a must be in the range [-pi, pi]. Vector a has component(s) out of range.")
+    if np.any(b[1:] < -np.pi) or np.any(b[1:] > np.pi):
+        raise ValueError("All angular components of b must be in the range [-pi, pi]. Vector b has component(s) out of range.")
+    if a.shape != b.shape:
+        raise ValueError("Vectors a and b must have the same shape.")
+    
+    diff = np.zeros_like(a)
+    diff[0] = 1.0  # radius
+    diff[1:] = (a[1:] + b[1:] + np.pi) % (2 * np.pi) - np.pi
+    return diff
 
 def main():
     # Tests

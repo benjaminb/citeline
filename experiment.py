@@ -97,7 +97,6 @@ class Experiment:
 
     def __init__(
         self,
-        # device: str,
         dataset_path: str,
         target_table: str,
         target_column: str,
@@ -230,7 +229,8 @@ class Experiment:
 
         If interleave is True, it retrieves top-k/num_expansions results for each vector and interleaves them. Otherwise it sorts by metric.
         """
-        num_expansions = 4  # identity + add_prev_1 + add_prev_2 + add_prev_3
+        PREV_EXPANSIONS = [1, 2, 3]
+        num_expansions = len(PREV_EXPANSIONS) + 1  # +1 for identity
         per_expansion_k = self.top_k // num_expansions
 
         batch_records = records.to_dict(orient="records")  # Convert once for db.search
@@ -248,7 +248,7 @@ class Experiment:
         all_results.append(results)
 
         # Do expanded query searches (use DataFrame 'records' for column access)
-        for n in [1, 2, 3]:
+        for n in PREV_EXPANSIONS:
             batch_vectors = records[f"vector_add_prev_{n}"].tolist()
             results = db.search(
                 collection_name=self.target_table,

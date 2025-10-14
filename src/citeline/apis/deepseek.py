@@ -22,7 +22,7 @@ def bind_client(func):
 
 
 @bind_client
-def deepseek_formatted(client, prompt: str) -> str:
+def deepseek_formatted(client, prompt: str, model: str="deepseek-chat") -> str:
     """
     Sends a prompt to the DeepSeek API (using DeepSeek-V3.1 non-thinking model)
 
@@ -31,7 +31,7 @@ def deepseek_formatted(client, prompt: str) -> str:
     error handling in multiple passes without losing the original response
     """
     response = client.chat.completions.create(
-        model="deepseek-chat",
+        model=model,
         messages=[{"role": "system", "content": prompt}],
         stream=False,
         response_format={"type": "json_object"},
@@ -39,7 +39,7 @@ def deepseek_formatted(client, prompt: str) -> str:
     return response.choices[0].message.content
 
 
-def get_deepseek_formatted_response(prompt: str, model: BaseModel) -> BaseModel | None:
+def get_deepseek_formatted_response(prompt: str, parse_model: BaseModel, llm_model: str="deepseek-chat") -> BaseModel | None:
     """
     Sends a prompt to the DeepSeek API and attempts to parse the response into the provided Pydantic model.
     If parsing fails, logs the error and returns None.
