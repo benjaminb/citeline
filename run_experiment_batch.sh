@@ -30,7 +30,7 @@ for yaml_file in "$EXPERIMENT_DIR"/*.yaml; do
     fi
     
     echo "Running experiment: $yaml_file"
-    python milvus_experiment.py --run "$yaml_file"
+    python experiment.py --run "$yaml_file"
 done
 
 echo "All experiments in $EXPERIMENT_DIR completed!"

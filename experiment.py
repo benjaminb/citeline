@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 from pymilvus import Collection
 from citeline.database.milvusdb import MilvusDB
+
 # from citeline.query_expander import get_expander
 from citeline.query_expander import QueryExpander
 from citeline.embedders import Embedder
@@ -98,7 +99,8 @@ class Experiment:
     CLEAR_GPU_CACHE_FN = {"cuda": torch.cuda.empty_cache, "mps": torch.mps.empty_cache, "cpu": lambda: None}
 
     def __init__(
-        self, **kwargs
+        self,
+        **kwargs,
         # dataset_path: str,
         # target_table: str,
         # target_column: str,
@@ -147,7 +149,7 @@ class Experiment:
                 - batch_size: Batch size for processing.
 
                 - strategy: Search strategy to use.
-                - query_expanders: List of query expanders to use (for mixed_expansion_multiple strategy).
+                - query_expanders: List of query expanders to use (for multiple_query_expansion strategy).
                 - interleave: Boolean for mixed search strategies. If False, sorts all search results by metric. If true, interleaves round-robin.
                 - reranker_to_use: Reranker to use for results.
                 - metrics_config: Configuration for metrics.
@@ -155,9 +157,11 @@ class Experiment:
                 - output_path: Path to save results.
                 - output_search_results: Whether to output ALL search results (top k per query).
         """
+        self.config = kwargs
+
         # Dataset and results
         try:
-            dataset_path = kwargs.get("dataset_path", None)
+            dataset_path = kwargs.get("dataset", None)
             self.dataset = pd.read_json(dataset_path, lines=True)
             self.dataset_path = dataset_path
         except Exception as e:
@@ -177,20 +181,24 @@ class Experiment:
         self.query_results: list[dict] = []
         self.first_rank: int | None = None  # The rank of the first target doi to appear in the results
         self.last_rank: int | None = None  # Rank at which all target DOIs appear in the results
-        self.target_table = kwargs.get("target_table", None)
+        self.target_table = kwargs.get("table", None)
         self.target_column = kwargs.get("target_column", "vector")
         self.metric = kwargs.get("metric", "COSINE")
 
         # Embedding parameters
         self.batch_size = kwargs.get("batch_size", 16)
         self.normalize = kwargs.get("normalize", True)
-        embedding_model_name = kwargs.get("embedding_model_name", None)
+        embedding_model_name = kwargs.get("embedder", None)
         self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
         self.embedder = Embedder.create(model_name=embedding_model_name, device=self.device, normalize=self.normalize)
 
         # Query expansion & linalg transformations
-        self.query_expansion_name = kwargs.get("query_expansion", None)
-        self.query_expander = QueryExpander(self.query_expansion_name, reference_data_path=QUERY_EXPANSION_DATA)
+        query_expansion_name = kwargs.get("query_expansion", None)
+        self.query_expander = (
+            QueryExpander(query_expansion_name, reference_data_path=QUERY_EXPANSION_DATA)
+            if query_expansion_name
+            else None
+        )
         self.reranker_to_use = kwargs.get("reranker_to_use", None)
         self.difference_vector_file = kwargs.get("difference_vector_file", None)
         self.difference_vector = np.load(self.difference_vector_file) if self.difference_vector_file else None
@@ -207,7 +215,7 @@ class Experiment:
             "50-50": self.__fifty_fifty_search,
             "basic": self.__basic_search,
             "mixed_expansion": self.__mixed_expansion_search,
-            "mixed_expansion_multiple": self.__mixed_expansion_multiple_search,
+            "multiple_query_expansion": self.__multiple_query_expansion_search,
         }
 
         strategy = kwargs.get("strategy", None)
@@ -218,9 +226,9 @@ class Experiment:
                 f"'{strategy}' is not a supported strategy. Supported strategies: {[k for k in supported_strategies.keys()]}"
             )
         self.search = supported_strategies[strategy]  # Search function to use in .run()
-        query_expander_names = kwargs.get("query_expanders") if self.strategy == "mixed_expansion_multiple" else []
+        query_expander_names = kwargs.get("query_expanders") if self.strategy == "multiple_query_expansion" else []
         self.query_expanders = (
-            [QueryExpander(name, reference_data=QUERY_EXPANSION_DATA) for name in query_expander_names]
+            [QueryExpander(name, reference_data_path=QUERY_EXPANSION_DATA) for name in query_expander_names]
             if query_expander_names
             else None
         )
@@ -258,7 +266,7 @@ class Experiment:
             limit=self.top_k,
         )
 
-    def __mixed_expansion_multiple_search(
+    def __multiple_query_expansion_search(
         self,
         db: MilvusDB,
         records: pd.DataFrame,
@@ -276,10 +284,13 @@ class Experiment:
             interleave: If True, interleaves results round-robin from each expansion. If False, sorts all results by metric.
 
         Note:
-            Expects list of 2 or more expanders in the attribute self.query_expanders (specified by name in YAML config)
+            - Always includes identity (no expansion) as one of the searches (I don't have a use case yet for not including it)
+            - Expects list of 1 or more expanders in the attribute self.query_expanders (specified by name in YAML config)
         """
-        assert isinstance(self.query_expander_names, list) and len(self.query_expander_names) > 1, "query_expanders must be a list of length ≥ 2 to use 'mixed expansion multiple' search strategy"
-        num_expansions = len(self.query_expander_names) + 1  # +1 for identity
+        assert (
+            isinstance(self.query_expanders, list) and len(self.query_expanders) > 0
+        ), "query_expanders must be a list of length ≥ 1 to use 'multiple query expansion' search strategy"
+        num_expansions = len(self.query_expanders) + 1  # +1 for identity
         per_expansion_k = 1 + self.top_k // num_expansions
 
         batch_records = records.to_dict(orient="records")  # Convert once for db.search
@@ -297,9 +308,9 @@ class Experiment:
         all_results.append(results)
 
         # Do expanded query searches (use DataFrame 'records' for column access)
-        for expander_name in self.query_expander_names:
+        for expander in self.query_expanders:
             # Requires that the main thread in run() puts embeddings on the df using colnames "vector_{name of expander}
-            batch_vectors = records[f"vector_{expander_name}"].tolist()
+            batch_vectors = records[f"vector_{expander.name}"].tolist()
             results = db.search(
                 collection_name=self.target_table,
                 query_records=batch_records,
@@ -439,7 +450,12 @@ class Experiment:
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         reranker_str = f"_{self.reranker_to_use}" if self.reranker_to_use else ""
         diff = "_diff" if self.difference_vector_file else ""
-        return f"{self.strategy}_{self.target_table}_{self.query_expansion_name}{diff}{reranker_str}_norm{self.normalize}_{self.metric_to_str[self.metric]}_n{len(self.dataset)}_{current_time}"
+
+        if self.query_expander:  # Using a single query expander
+            query_expansion_str = "_" + self.query_expander.name
+        else:  # Using multiple query expanders (reflected in self.strategy)
+            query_expansion_str = ""
+        return f"{self.strategy}_{self.target_table}{query_expansion_str}{diff}{reranker_str}_norm{self.normalize}_{self.metric_to_str[self.metric]}_n{len(self.dataset)}_{current_time}"
 
     def __write_run_results(self):
         """
@@ -561,16 +577,21 @@ class Experiment:
             "metric": self.metric,
             "embedder": self.embedder.model_name,
             "normalize": self.normalize,
-            "query_expansion": self.query_expansion_name,
+            "device": self.device,
+            "query_expansion": self.query_expander.name if self.query_expander else None,
             "difference_vector_file": self.difference_vector_file,
             "transform_matrix_file": self.transform_matrix_file,
             "strategy": self.strategy,
+            "query_expanders": [qe.name for qe in self.query_expanders] if self.query_expanders else None,
             "use_index": self.use_index,
             "rerankers": self.reranker_to_use,
             "batch_size": self.batch_size,
             "top_k": self.top_k,
             "probes": self.probes,
             "ef_search": self.ef_search,
+            "distance_threshold": self.distance_threshold,
+            "metrics_config": self.metrics_config,
+            "output_path": self.output_path,
         }
 
     def run(self):
@@ -641,7 +662,7 @@ class Experiment:
 
                     # Query the database
                     batch, embeddings, start_idx = item
-                    if self.strategy in ["mixed_expansion", "mixed_expansion_multiple"]:
+                    if self.strategy in ["mixed_expansion", "multiple_query_expansion"]:
                         # TODO: this is just a patch for mixed expansion search. If we want to keep this strategy, come up with a cleaner design
                         embeddings = batch["vector_original"].tolist()  # Dummy, not used
                         search_results = self.search(db=thread_client, records=batch, vectors=None)
@@ -655,10 +676,12 @@ class Experiment:
                     # Log any anomalies in record retrieval
                     if len(search_results) != len(embeddings):
                         logger.warning(f"Expected {len(embeddings)} results, but got {len(search_results)} for batch")
-                        print(f"Expected {len(embeddings)} results, but got {len(search_results)} for batch")
+                        print(
+                            f"Expected {len(embeddings)} results, but got {len(search_results)} for batch", flush=True
+                        )
                     if len(search_results[0]) != self.top_k:
                         logger.warning(f"Expected {self.top_k} results, but got {len(search_results[0])} for batch.")
-                        print(f"Expected {self.top_k} results, but got {len(search_results[0])} for batch.")
+                        print(f"Expected {self.top_k} results, but got {len(search_results[0])} for batch.", flush=True)
 
                     # Compute batch metrics locally
                     stats = self._compute_metrics_batch(batch_records, search_results)
@@ -731,21 +754,20 @@ class Experiment:
                         batch["vector_original"] = [vector for vector in self.embedder(batch["sent_no_cit"])]
                         batch["vector_expanded"] = [vector for vector in self.embedder(batch["expansion"])]
                         task_queue.put((batch, None, i))
-                    elif self.strategy == "mixed_expansion_multiple":
+                    elif self.strategy == "multiple_query_expansion":
                         batch = batch.copy()
                         # Embed the original (identity) expansion
                         batch["vector_original"] = [vector for vector in self.embedder(batch["sent_no_cit"])]
                         # Embed the "add previous n sentences" expansions
-                        for expander in self.query_expanders:
+                        for idx, expander in enumerate(self.query_expanders):
                             expansions = expander(batch)
-                            expansion_name = expander.expansion_function_name
+                            expansion_name = expander.name
                             batch[expansion_name] = expansions
                             batch[f"vector_{expansion_name}"] = [vector for vector in self.embedder(expansions)]
                         task_queue.put((batch, None, i))
                     else:
                         expanded_queries = self.query_expander(batch)
                         embeddings = self.embedder(expanded_queries)
-
                         # Apply any vector transformation if specified
                         if self.difference_vector is not None:
                             embeddings = embeddings + self.difference_vector
@@ -792,27 +814,7 @@ class Experiment:
         self.__write_run_results()
 
     def __str__(self):
-        return (
-            f"{'='*40}\n"
-            f"{'Device':<20}: {self.device}\n"
-            f"{'Dataset Path':<20}: {self.dataset_path}\n"
-            f"{'Dataset Size':<20}: {len(self.dataset)}\n"
-            f"{'Table':<20}: {self.target_table}\n"
-            f"{'Target Column':<20}: {self.target_column}\n"
-            f"{'Metric':<20}: {self.metric_to_str.get(self.metric, self.metric)}\n"
-            f"{'Embedder':<20}: {self.embedder.model_name}\n"
-            f"{'Normalize':<20}: {self.normalize}\n"
-            f"{'Query Expansion':<20}: {self.query_expansion_name}\n"
-            f"{'Difference Vector':<20}: {self.difference_vector_file}\n"
-            f"{'Transform Matrix':<20}: {self.transform_matrix_file}\n"
-            f"{'Rank Fusers':<20}: {self.metrics_config}\n"
-            f"{'Search Strategy':<20}: {self.strategy}\n"
-            f"{'Batch Size':<20}: {self.batch_size}\n"
-            f"{'Top k':<20}: {self.top_k}\n"
-            f"{'Probes':<20}: {self.probes}\n"
-            f"{'ef_search':<20}: {self.ef_search}\n"
-            f"{'='*40}\n"
-        )
+        return str(self.get_config_dict())
 
     def _compute_metrics(self, example, results) -> dict[str, np.ndarray]:
         """
@@ -890,27 +892,28 @@ def main():
         with open(args.run, "r") as config_file:
             config = yaml.safe_load(config_file)
 
-        experiment = Experiment(
-            dataset_path=config["dataset"],
-            target_table=config["table"],
-            target_column=config["target_column"],
-            metric=config.get("metric", "vector_cosine_ops"),
-            embedding_model_name=config["embedder"],
-            normalize=config["normalize"],
-            query_expansion=config["query_expansion"],
-            difference_vector_file=config.get("difference_vector_file", None),
-            transform_matrix_file=config.get("transform_matrix_file", None),
-            batch_size=config.get("batch_size", 16),
-            top_k=config.get("top_k", 100),
-            probes=config.get("probes", 16),
-            ef_search=config.get("ef_search", 40),
-            use_index=config.get("use_index", False),
-            strategy=config.get("strategy", "basic"),
-            reranker_to_use=config.get("reranker", None),
-            metrics_config=config.get("metrics", None),
-            output_path=config.get("output_path", "experiments/results/"),
-            output_search_results=config.get("output_search_results", False),
-        )
+        # experiment = Experiment(
+        #     dataset_path=config["dataset"],
+        #     target_table=config["table"],
+        #     target_column=config["target_column"],
+        #     metric=config.get("metric", "vector_cosine_ops"),
+        #     embedding_model_name=config["embedder"],
+        #     normalize=config["normalize"],
+        #     query_expansion=config["query_expansion"],
+        #     difference_vector_file=config.get("difference_vector_file", None),
+        #     transform_matrix_file=config.get("transform_matrix_file", None),
+        #     batch_size=config.get("batch_size", 16),
+        #     top_k=config.get("top_k", 100),
+        #     probes=config.get("probes", 16),
+        #     ef_search=config.get("ef_search", 40),
+        #     use_index=config.get("use_index", False),
+        #     strategy=config.get("strategy", "basic"),
+        #     reranker_to_use=config.get("reranker", None),
+        #     metrics_config=config.get("metrics", None),
+        #     output_path=config.get("output_path", "experiments/results/"),
+        #     output_search_results=config.get("output_search_results", False),
+        # )
+        experiment = Experiment(**config)
         print(experiment)
         experiment.run()
 

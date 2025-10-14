@@ -1,15 +1,14 @@
-dataset: 'data/dataset/nontrivial_100.jsonl'
-table: 'qwen06_contributions'
+dataset: 'data/dataset/nontrivial_checked.jsonl'
+table: 'qwen06_chunks'
 target_column: 'vector'
 metric: 'IP'
 embedder: 'Qwen/Qwen3-Embedding-0.6B'
 normalize: True
-query_expansion: 'identity'
-batch_size: 16
-top_k: 30
 strategy: 'multiple_query_expansion'
 query_expanders:
   - add_prev_1
   - add_prev_2
-output_path: 'experiments/tests/'
+batch_size: 32
+top_k: 1000
+output_path: 'experiments/results/multiple_query_expansion/'
 output_search_results: False

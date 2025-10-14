@@ -4,9 +4,12 @@ target_column: 'vector'
 metric: 'IP'
 embedder: 'Qwen/Qwen3-Embedding-0.6B'
 normalize: True
-query_expansion: 'add_prev_3'
-strategy: 'mixed_expansion_multiple'
-batch_size: 4
+strategy: 'multiple_query_expansion'
+query_expanders:
+  - add_prev_1
+  - add_prev_2
+  - add_prev_3
+batch_size: 32
 top_k: 1000
-output_path: 'experiments/results/mixed_expansion/'
+output_path: 'experiments/results/multiple_query_expansion/'
 output_search_results: False
