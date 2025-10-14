@@ -14,13 +14,15 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 from pymilvus import Collection
 from citeline.database.milvusdb import MilvusDB
-from citeline.query_expander import get_expander
+# from citeline.query_expander import get_expander
+from citeline.query_expander import QueryExpander
 from citeline.embedders import Embedder
 
 logger = logging.getLogger(__name__)
 load_dotenv()
 
-EXPANSION_DATA_PATH = "data/preprocessed/reviews.jsonl"
+# Path to queries' full records, for query expansion
+QUERY_EXPANSION_DATA = "data/preprocessed/reviews.jsonl"
 
 
 def argument_parser():
@@ -96,75 +98,109 @@ class Experiment:
     CLEAR_GPU_CACHE_FN = {"cuda": torch.cuda.empty_cache, "mps": torch.mps.empty_cache, "cpu": lambda: None}
 
     def __init__(
-        self,
-        dataset_path: str,
-        target_table: str,
-        target_column: str,
-        metric: str,
-        embedding_model_name: str,
-        normalize: bool,
-        query_expansion: str = "identity",
-        difference_vector_file: str = None,
-        transform_matrix_file: str = None,
-        batch_size: int = 16,
-        top_k: int = 100,
-        strategy: str = None,
-        use_index: bool = True,
-        probes: int = 16,
-        ef_search: int = 1000,
-        reranker_to_use: str = None,
-        metrics_config: dict[str, float] = None,
-        distance_threshold: float = None,
-        output_path: str = "experiments/results/",
-        output_search_results: bool = False,
+        self, **kwargs
+        # dataset_path: str,
+        # target_table: str,
+        # target_column: str,
+        # metric: str,
+        # embedding_model_name: str,
+        # normalize: bool,
+        # query_expansion: str = "identity",
+        # difference_vector_file: str = None,
+        # transform_matrix_file: str = None,
+        # batch_size: int = 16,
+        # top_k: int = 100,
+        # strategy: str = None,
+        # use_index: bool = True,
+        # probes: int = 16,
+        # ef_search: int = 1000,
+        # reranker_to_use: str = None,
+        # metrics_config: dict[str, float] = None,
+        # distance_threshold: float = None,
+        # output_path: str = "experiments/results/",
+        # output_search_results: bool = False,
     ):
         """
         Args:
-            dataset_path: path to a jsonl file containing lines that hat at least these keys:
-                "sent_no_cit": the sentence with inline citations replaced by "[REF]"
-                "sent_idx": the index of the sentence in the original record's "body_sentences" list
-                "source_doi": "...",
-                "
-                "pubdate": int (YYYYMMDD)
+            kwargs: keyword arguments matching the parameters below
+                dataset_path: path to a jsonl file containing lines that hat at least these keys:
+                    "sent_no_cit": the sentence with inline citations replaced by "[REF]"
+                    "sent_idx": the index of the sentence in the original record's "body_sentences" list
+                    "source_doi": "...",
+                    "
+                    "pubdate": int (YYYYMMDD)
+                - target_table: Name of the target table in the database.
+                - target_column: Name of the target column.
+                - metric: Metric to use for similarity (e.g., "cosine").
+                - top_k: Number of top results to retrieve.
+                - use_index: (postgres) Whether to use an index for the database.
+                - probes: (postgres) Number of probes for the search.
+                - ef_search: (postgres) ef_search parameter for the database.
+                - distance_threshold: Distance threshold for filtering results.
+
+                - embedding_model_name: Name of the embedding model.
+                - normalize: Whether to normalize embeddings.
+
+                - query_expansion: Query expansion strategy.
+                - difference_vector_file: Path to the difference vector file.
+                - transform_matrix_file: Path to the transform matrix file.
+                - batch_size: Batch size for processing.
+
+                - strategy: Search strategy to use.
+                - query_expanders: List of query expanders to use (for mixed_expansion_multiple strategy).
+                - interleave: Boolean for mixed search strategies. If False, sorts all search results by metric. If true, interleaves round-robin.
+                - reranker_to_use: Reranker to use for results.
+                - metrics_config: Configuration for metrics.
+
+                - output_path: Path to save results.
+                - output_search_results: Whether to output ALL search results (top k per query).
         """
         # Dataset and results
         try:
+            dataset_path = kwargs.get("dataset_path", None)
             self.dataset = pd.read_json(dataset_path, lines=True)
+            self.dataset_path = dataset_path
         except Exception as e:
             raise ValueError(f"Error reading dataset from path '{dataset_path}': {e}")
 
-        # Initialize database
+        # Database parameters
         self.db = MilvusDB()
-        self.top_k = top_k
-        self.use_index = use_index
-        self.probes = probes
-        self.ef_search = ef_search
-        self.distance_threshold = distance_threshold
+        self.top_k = kwargs.get("top_k", None)
+        self.distance_threshold = kwargs.get("distance_threshold", None)
 
-        # Experiment configuration
-        self.dataset["expanded_query"] = None  # Placeholder for expanded queries
-        self.dataset_path = dataset_path
+        # Postgres vector search parameters
+        self.use_index = kwargs.get("use_index", True)
+        self.probes = kwargs.get("probes", 16)
+        self.ef_search = kwargs.get("ef_search", 40)
+
+        # Querying parameters
         self.query_results: list[dict] = []
         self.first_rank: int | None = None  # The rank of the first target doi to appear in the results
         self.last_rank: int | None = None  # Rank at which all target DOIs appear in the results
-        self.target_table = target_table
-        self.target_column = target_column
-        self.metric = metric
-        self.batch_size = batch_size
-        self.normalize = normalize
-        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
-        self.embedder = Embedder.create(model_name=embedding_model_name, device=self.device, normalize=normalize)
+        self.target_table = kwargs.get("target_table", None)
+        self.target_column = kwargs.get("target_column", "vector")
+        self.metric = kwargs.get("metric", "COSINE")
 
-        # Set up query expansion, reranking, and difference vector (if used)
-        self.query_expansion_name = query_expansion
-        self.query_expander = get_expander(query_expansion, path_to_data=EXPANSION_DATA_PATH)
-        self.reranker_to_use = reranker_to_use
-        self.difference_vector_file = difference_vector_file
-        self.difference_vector = np.load(difference_vector_file) if difference_vector_file else None
-        self.transform_matrix_file = transform_matrix_file
-        self.transform_matrix = np.load(transform_matrix_file) if transform_matrix_file else None
-        self.metrics_config = metrics_config
-        self.output_path = output_path
+        # Embedding parameters
+        self.batch_size = kwargs.get("batch_size", 16)
+        self.normalize = kwargs.get("normalize", True)
+        embedding_model_name = kwargs.get("embedding_model_name", None)
+        self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
+        self.embedder = Embedder.create(model_name=embedding_model_name, device=self.device, normalize=self.normalize)
+
+        # Query expansion & linalg transformations
+        self.query_expansion_name = kwargs.get("query_expansion", None)
+        self.query_expander = QueryExpander(self.query_expansion_name, reference_data_path=QUERY_EXPANSION_DATA)
+        self.reranker_to_use = kwargs.get("reranker_to_use", None)
+        self.difference_vector_file = kwargs.get("difference_vector_file", None)
+        self.difference_vector = np.load(self.difference_vector_file) if self.difference_vector_file else None
+        self.transform_matrix_file = kwargs.get("transform_matrix_file", None)
+        self.transform_matrix = np.load(self.transform_matrix_file) if self.transform_matrix_file else None
+        self.metrics_config = kwargs.get("metrics_config", None)
+
+        # Output parameters
+        self.output_path = kwargs.get("output_path", None)
+        self.output_search_results = kwargs.get("output_search_results", False)
 
         # Strategy for using multiple document / query expansions
         supported_strategies = {
@@ -173,6 +209,8 @@ class Experiment:
             "mixed_expansion": self.__mixed_expansion_search,
             "mixed_expansion_multiple": self.__mixed_expansion_multiple_search,
         }
+
+        strategy = kwargs.get("strategy", None)
         if strategy in supported_strategies:
             self.strategy = strategy
         else:
@@ -180,6 +218,12 @@ class Experiment:
                 f"'{strategy}' is not a supported strategy. Supported strategies: {[k for k in supported_strategies.keys()]}"
             )
         self.search = supported_strategies[strategy]  # Search function to use in .run()
+        query_expander_names = kwargs.get("query_expanders") if self.strategy == "mixed_expansion_multiple" else []
+        self.query_expanders = (
+            [QueryExpander(name, reference_data=QUERY_EXPANSION_DATA) for name in query_expander_names]
+            if query_expander_names
+            else None
+        )
 
         # Prepare attributes for results
         self.recall_matrix = None
@@ -205,8 +249,6 @@ class Experiment:
         self.hits = []
         self.recall_scores = []  # proportion of target DOIs that were retrieved in the top-k results
 
-        self.output_search_results = output_search_results
-
     def __basic_search(self, db: MilvusDB, records: list[dict], vectors: list[list[float]]) -> list[dict]:
         return db.search(
             collection_name=self.target_table,
@@ -227,11 +269,18 @@ class Experiment:
         This function handles multiple mixed query expansions (e.g. adding previous 1, 2, or 3 sentences) plus identity (no expansion)
         where each record has multiple associated vectors.
 
-        If interleave is True, it retrieves top-k/num_expansions results for each vector and interleaves them. Otherwise it sorts by metric.
+        Args:
+            db: MilvusDB
+            records: DataFrame with columns 'vector_original' and 'vector_{name of each expander}'
+            vectors: None (not used, kept for compatibility)
+            interleave: If True, interleaves results round-robin from each expansion. If False, sorts all results by metric.
+
+        Note:
+            Expects list of 2 or more expanders in the attribute self.query_expanders (specified by name in YAML config)
         """
-        PREV_EXPANSIONS = [1, 2, 3]
-        num_expansions = len(PREV_EXPANSIONS) + 1  # +1 for identity
-        per_expansion_k = self.top_k // num_expansions
+        assert isinstance(self.query_expander_names, list) and len(self.query_expander_names) > 1, "query_expanders must be a list of length ≥ 2 to use 'mixed expansion multiple' search strategy"
+        num_expansions = len(self.query_expander_names) + 1  # +1 for identity
+        per_expansion_k = 1 + self.top_k // num_expansions
 
         batch_records = records.to_dict(orient="records")  # Convert once for db.search
         all_results = []
@@ -248,8 +297,9 @@ class Experiment:
         all_results.append(results)
 
         # Do expanded query searches (use DataFrame 'records' for column access)
-        for n in PREV_EXPANSIONS:
-            batch_vectors = records[f"vector_add_prev_{n}"].tolist()
+        for expander_name in self.query_expander_names:
+            # Requires that the main thread in run() puts embeddings on the df using colnames "vector_{name of expander}
+            batch_vectors = records[f"vector_{expander_name}"].tolist()
             results = db.search(
                 collection_name=self.target_table,
                 query_records=batch_records,
@@ -686,11 +736,11 @@ class Experiment:
                         # Embed the original (identity) expansion
                         batch["vector_original"] = [vector for vector in self.embedder(batch["sent_no_cit"])]
                         # Embed the "add previous n sentences" expansions
-                        for n in [1, 2, 3]:
-                            expander = get_expander(name=f"add_prev_{n}", path_to_data=EXPANSION_DATA_PATH)
+                        for expander in self.query_expanders:
                             expansions = expander(batch)
-                            batch[f"add_prev_{n}"] = expansions
-                            batch[f"vector_add_prev_{n}"] = [vector for vector in self.embedder(expansions)]
+                            expansion_name = expander.expansion_function_name
+                            batch[expansion_name] = expansions
+                            batch[f"vector_{expansion_name}"] = [vector for vector in self.embedder(expansions)]
                         task_queue.put((batch, None, i))
                     else:
                         expanded_queries = self.query_expander(batch)

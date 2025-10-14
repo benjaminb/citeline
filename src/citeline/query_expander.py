@@ -14,7 +14,6 @@ resolves the record, then calls the enrichment function with the example and the
 
 import pandas as pd
 
-
 BGE_INSTRUCTION = "Represent this sentence for searching relevant passages: "
 
 
@@ -69,20 +68,21 @@ class QueryExpander:
         "add_prev_7": query_expander_factory([], prev_n=7),
     }
 
+    # Class-level cache for the reference dataset
+    _reference_data_cache: pd.DataFrame = None
+
     def __init__(
         self,
         expansion_function_name: str,
-        reference_data: None = pd.DataFrame,
+        reference_data_path: str,
     ):
         """
-        expansion_function: function
-            Takes an example and a record, and returns the expanded text.
-        query_data: pd.DataFrame
-            DataFrame containing the records to query against. These are the Reviews datasets
-            and are used to enrich examples during evaluation or query time.
-        reference_data: pd.DataFrame
-            DataFrame containing the reference records. These are all the non-Reviews datasets
-            and are used to enrich 'chunks' when creating enriched tables on the database
+        Args:
+            expansion_function_name: str
+                Used to look up function in class attr EXPANSION_FN
+            reference_data_path: str
+                Path to the JSONL file containing the reference records. These are all the non-Reviews datasets
+                and are used to enrich 'chunks' when creating enriched tables on the database
         """
         if not expansion_function_name in self.EXPANSION_FN:
             raise KeyError(
@@ -91,7 +91,11 @@ class QueryExpander:
 
         self.name = expansion_function_name
         self.enricher = self.EXPANSION_FN[expansion_function_name]
-        self.doi_to_record = reference_data.set_index("doi").to_dict(orient="index")
+
+        # Use the cached reference data if available, otherwise cache it
+        if QueryExpander._reference_data_cache is None:
+            QueryExpander._reference_data_cache = pd.read_json(reference_data_path, lines=True).set_index("doi").to_dict(orient="index")
+        self.doi_to_record = QueryExpander._reference_data_cache
 
     def __str__(self):
         return f"QueryExpander(name={self.name}, data_length={len(self.doi_to_record)})"
@@ -133,8 +137,11 @@ def get_expander(name: str, path_to_data: str) -> QueryExpander:
         Path to the JSONL file containing the reference data (the Reviews dataset).
     """
     try:
-        data = pd.read_json(path_to_data, lines=True)
-        return QueryExpander(expansion_function_name=name, reference_data=data)
+        # Load the data only once and reuse it for all expanders
+        if QueryExpander._reference_data_cache is None:
+            data = pd.read_json(path_to_data, lines=True)
+            QueryExpander._reference_data_cache = data
+        return QueryExpander(expansion_function_name=name, reference_data=QueryExpander._reference_data_cache)
     except Exception as e:
         print(f"Error loading data source: {e}")
 
