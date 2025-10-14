@@ -663,10 +663,17 @@ class Experiment:
 
                     # Query the database
                     batch, embeddings, start_idx = item
-                    if self.strategy in ["mixed_expansion", "multiple_query_expansion"]:
+                    if self.strategy in ["mixed_expansion"]:
                         # TODO: this is just a patch for mixed expansion search. If we want to keep this strategy, come up with a cleaner design
                         embeddings = batch["vector_original"].tolist()  # Dummy, not used
                         search_results = self.search(db=thread_client, records=batch, vectors=None)
+                        batch_records = batch.to_dict(orient="records")
+                    elif self.strategy == "multiple_query_expansion":
+                        # TODO: this is just a patch for mixed expansion search. If we want to keep this strategy, come up with a cleaner design
+                        embeddings = batch["vector_original"].tolist()  # Dummy, not used
+                        search_results = self.search(
+                            db=thread_client, records=batch, vectors=None, interleave=self.interleave
+                        )
                         batch_records = batch.to_dict(orient="records")
                     else:
                         batch_records = batch.to_dict(orient="records")
