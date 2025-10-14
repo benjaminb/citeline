@@ -232,6 +232,7 @@ class Experiment:
             if query_expander_names
             else None
         )
+        self.interleave = kwargs.get("interleave", False) if self.query_expanders else False
 
         # Prepare attributes for results
         self.recall_matrix = None

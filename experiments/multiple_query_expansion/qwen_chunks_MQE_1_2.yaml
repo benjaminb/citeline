@@ -7,7 +7,8 @@ normalize: True
 strategy: 'multiple_query_expansion'
 query_expanders:
   - add_prev_1
-batch_size: 32
+  - add_prev_2
+batch_size: 4
 top_k: 1000
-output_path: 'experiments/results/multiple_query_expansion/'
+output_path: 'experiments/multiple_query_expansion/results/'
 output_search_results: False
