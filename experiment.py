@@ -898,30 +898,11 @@ def main():
 
     if args.run:
         # Load experiment configs
-        with open(args.run, "r") as config_file:
+        config_filename = args.run
+        with open(config_filename, "r") as config_file:
             config = yaml.safe_load(config_file)
+            config['config_file'] = config_filename  # Add config filename to config dict
 
-        # experiment = Experiment(
-        #     dataset_path=config["dataset"],
-        #     target_table=config["table"],
-        #     target_column=config["target_column"],
-        #     metric=config.get("metric", "vector_cosine_ops"),
-        #     embedding_model_name=config["embedder"],
-        #     normalize=config["normalize"],
-        #     query_expansion=config["query_expansion"],
-        #     difference_vector_file=config.get("difference_vector_file", None),
-        #     transform_matrix_file=config.get("transform_matrix_file", None),
-        #     batch_size=config.get("batch_size", 16),
-        #     top_k=config.get("top_k", 100),
-        #     probes=config.get("probes", 16),
-        #     ef_search=config.get("ef_search", 40),
-        #     use_index=config.get("use_index", False),
-        #     strategy=config.get("strategy", "basic"),
-        #     reranker_to_use=config.get("reranker", None),
-        #     metrics_config=config.get("metrics", None),
-        #     output_path=config.get("output_path", "experiments/results/"),
-        #     output_search_results=config.get("output_search_results", False),
-        # )
         experiment = Experiment(**config)
         print(experiment)
         experiment.run()
