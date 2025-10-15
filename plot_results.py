@@ -126,6 +126,35 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
         #     bbox=dict(facecolor="white", alpha=0.6, edgecolor="none"),
         # )
 
+    # Add annotations for highest scoring line at k=100, 200, 300, etc.
+    for k_val in range(100, k + 1, 100):
+        k_idx = k_val - 1  # Convert to 0-indexed
+        # Find the line with the highest hitrate at this k value
+        max_hitrate = -1
+        best_line = None
+        best_color = None
+
+        for line, label, hitrates_trunc in lines:
+            if k_idx < len(hitrates_trunc):
+                hitrate_at_k = hitrates_trunc[k_idx]
+                if hitrate_at_k > max_hitrate:
+                    max_hitrate = hitrate_at_k
+                    best_line = label
+                    best_color = line.get_color()
+
+        # Annotate the highest scoring line at this k value
+        if best_line is not None and max_hitrate >= 0:
+            plt.annotate(
+                f"{max_hitrate:.3f}",
+                xy=(k_val, max_hitrate),
+                xytext=(0, 10),  # 10 points above
+                textcoords="offset points",
+                fontsize=9,
+                color=best_color,
+                ha="center",
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7),
+            )
+
     # ensure full k range is visible
     plt.xlim(1, k)
     plt.xlabel("Top-k")
