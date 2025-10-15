@@ -1,5 +1,5 @@
 {
-  "plot_label": "cosine sorted/previous 1 & 2",
+  "plot_label": "cosine sorted/previous 0,1,2",
   "config": {
     "dataset": "data/dataset/nontrivial_checked.jsonl",
     "table": "qwen06_chunks",
