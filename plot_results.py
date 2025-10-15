@@ -12,6 +12,9 @@ import sys
 """
 Provide this program a directory, and it will search for all .json files (assumed to be experiment results)
 and plot them together
+
+USAGE:
+python plot_results.py --dir <directory> --k <value of k> --outfile <output filename>
 """
 
 
@@ -52,7 +55,7 @@ def make_label_to_data_dict(json_files: list[str]) -> dict:
     for file in json_files:
         results = json.load(open(file))
         hitrates = results["average_hitrate_at_k"]
-        label = path_to_label(file)
+        label = results.get("plot_label", path_to_label(file))
         data[label] = hitrates
     return data
 
