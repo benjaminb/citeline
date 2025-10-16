@@ -37,11 +37,6 @@ class SentenceNoCitation(BaseModel):
     sentence: str = Field(description="A sentence with any inline citations replaced by '[REF]' placeholders")
 
 
-class CitationExtraction(BaseModel):
-    citations: CitationList = Field(description="List of inline citations extracted from the sentence, if any")
-    sentence: str = Field(description="A sentence with any inline citations replaced by '[REF]' placeholders")
-
-
 class IsValidReference(RootModel[bool]):
     """
     A model to infer if a sentence is a valid scientific sentence.

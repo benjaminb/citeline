@@ -4,9 +4,9 @@ from langchain_core.messages import SystemMessage, HumanMessage
 from pydantic import BaseModel
 
 try:
-    from llm.models import SentenceValidation, CitationExtraction, CitationSubstring, CitationList
+    from citeline.llm.models import SentenceValidation, CitationSubstring, CitationList
 except ImportError:
-    from models import SentenceValidation, CitationExtraction, CitationSubstring, CitationList
+    from citeline.llm.models import SentenceValidation, CitationSubstring, CitationList
 
 MODEL_NAME = "llama3.3:latest"  # Replace with your model name
 # MODEL_NAME = "mistral-nemo:latest"  # Replace with your model name
