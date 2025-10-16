@@ -10,16 +10,16 @@ except ImportError:
 
 MODEL_NAME = "llama3.3:latest"  # Replace with your model name
 # MODEL_NAME = "mistral-nemo:latest"  # Replace with your model name
-VALID_SENT_PROMPT = "llm/prompts/is_sentence_good_prompt.txt"
-CIT_SUBSTRING_PROMPT = "llm/prompts/substring_prompt.txt"
-CIT_EXTRACT_PROMPT = "llm/prompts/citation_tuples_prompt.txt"
+VALID_SENT_PROMPT = "src/citeline/llm/prompts/is_sentence_good_prompt.txt"
+CIT_SUBSTRING_PROMPT = "src/citeline/llm/prompts/substring_prompt.txt"
+CIT_EXTRACT_PROMPT = "src/citeline/llm/prompts/citation_tuples_prompt.txt"
 
-YEAR_PATTERN = r"^\d{4}"  # Matches a year that starts with 4 digits, e.g., "2023a", "1999", but not "in preparation" or similar
+YEAR_PATTERN = (
+    r"^\d{4}"  # Matches a year that starts with 4 digits, e.g., "2023a", "1999", but not "in preparation" or similar
+)
 
 
-def get_llm_function(
-    model_name: str = MODEL_NAME, system_prompt_path: str = None, output_model: BaseModel = None
-):
+def get_llm_function(model_name: str = MODEL_NAME, system_prompt_path: str = None, output_model: BaseModel = None):
     """
     Returns a function that invokes the LLM with the given model name and system prompt.
     """
@@ -109,7 +109,7 @@ def sentence_to_citations(text: str) -> tuple[list[tuple[str, str]], str]:
     print(is_valid_sentence, end=", ")
     if not is_valid_sentence:
         return None
-    
+
     # If the sentence is valid, identify citation substrings
     print("citation_substrings=", end="", flush=True)
     citation_substrings = []
