@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 #SBATCH --job-name=dataset_build
-#SBATCH -p gpu # partition (queue)
+#SBATCH -p seas_gpu # partition (queue)
 #SBATCH -c 2 # number of cores
 #SBATCH --gres=gpu:1 # number of GPUs
 #SBATCH --mem 64000 # memory pool for all cores

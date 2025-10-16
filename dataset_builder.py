@@ -70,8 +70,7 @@ def examples_from_record_with_index(record, bibcode_index):
                 desc=f"Processing {record['doi']} (# sentences: {num_sentences})",
             )
         )
-        if (example := sentence_to_example_with_index(record, sentence, i, bibcode_index))
-        is not None
+        if (example := sentence_to_example_with_index(record, sentence, i, bibcode_index)) is not None
     ]
 
 
@@ -94,9 +93,7 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
             if not bibcode in bibcode_index:
                 continue
             reference_authors = [name.lower() for name in bibcode_index[bibcode][0]["author"]]
-            matching_authors = [
-                name for name in reference_authors if name.startswith(author_prefix)
-            ]
+            matching_authors = [name for name in reference_authors if name.startswith(author_prefix)]
             if matching_authors:
                 print(matching_authors, end=", ")
                 remaining_candidates.append(bibcode)
