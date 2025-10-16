@@ -3,7 +3,7 @@ import os
 import pandas as pd
 import re
 from tqdm import tqdm
-from llm.citation_extraction import sentence_to_citations
+from citeline.llm.citation_extraction import sentence_to_citations
 
 
 REVIEW_JOURNAL_BIBCODES = {

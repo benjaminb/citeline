@@ -111,7 +111,7 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
         label = it["label"]
         hitrates_trunc = it["hitrates"]
         (line,) = plt.plot(
-            k_values, hitrates_trunc, drawstyle="steps-post", linestyle="-", lw=1.5, alpha=0.8, label=label
+            k_values, hitrates_trunc, drawstyle="steps-post", linestyle="-", lw=2.5, alpha=0.6, label=label
         )
         lines.append((line, label, hitrates_trunc))
         # label slightly to the right of k=200 (or at k if k<200)
@@ -167,7 +167,7 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
     custom_text = plt.Line2D([0], [0], color="none", label="Ranking@k=100")
     handles.insert(0, custom_text)
     labels.insert(0, "Ranking@k=100")
-    plt.legend(handles=handles, labels=labels)
+    plt.legend(handles=handles, labels=labels, fontsize=16)
 
     plt.grid(True)
     plt.gca().xaxis.set_major_locator(MultipleLocator(100))
