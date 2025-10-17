@@ -281,11 +281,15 @@ class MilvusDB:
     ):
         try:
             pca = pickle.load(open(pca_pickle, "rb"))
+        except Exception as e:
+            print(f"Error loading PCA pickle file: {e}")
+            return
+        try:
             mean_vector = pickle.load(open(mean_vector_pickle, "rb"))
         except Exception as e:
-            print(f"Error loading PCA or mean vector pickle files: {e}")
+            print(f"Error loading mean vector pickle file: {e}")
             return
-
+        
         def apply_xtop(vector: np.array, n: int = 10) -> np.array:
             """Applies All-but-the-Top transformation to a vector."""
             vector_centered = vector - mean_vector
