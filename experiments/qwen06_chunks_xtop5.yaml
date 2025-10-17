@@ -1,5 +1,5 @@
 dataset: 'data/dataset/nontrivial_checked.jsonl'
-table: 'qwen06_chunks'
+table: 'xtop_5'
 target_column: 'vector'
 metric: 'IP'
 embedder: 'Qwen/Qwen3-Embedding-0.6B'
