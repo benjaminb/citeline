@@ -450,7 +450,7 @@ class Experiment:
             os.makedirs(f"{self.output_path}/{filename_base}")
 
         output = {
-            "config": self.get_config_dict(),
+            "config": self.config,
             "average_score": self.average_score,
             "ef_search": self.ef_search,
             "average_hitrate_at_k": self.avg_hitrate_at_k,
@@ -550,32 +550,6 @@ class Experiment:
 
     def __clear_gpu_cache(self):
         self.CLEAR_GPU_CACHE_FN[self.device]()
-
-    def get_config_dict(self):
-        return {
-            "dataset": self.dataset_path,
-            "table": self.target_table,
-            "target_column": self.target_column,
-            "metric": self.metric,
-            "embedder": self.embedder.model_name,
-            "normalize": self.normalize,
-            "device": self.device,
-            "query_expansion": self.query_expander.name if self.query_expander else None,
-            "difference_vector_file": self.difference_vector_file,
-            "transform_matrix_file": self.transform_matrix_file,
-            "strategy": self.strategy,
-            "query_expanders": [qe.name for qe in self.query_expanders] if self.query_expanders else None,
-            "interleave": self.interleave,
-            "rerankers": self.reranker_to_use,
-            "batch_size": self.batch_size,
-            "top_k": self.top_k,
-            "use_index": self.use_index,
-            "probes": self.probes,
-            "ef_search": self.ef_search,
-            "distance_threshold": self.distance_threshold,
-            "metrics_config": self.metrics_config,
-            "output_path": self.output_path,
-        }
 
     def run(self):
         """
@@ -822,7 +796,7 @@ class Experiment:
         self.__write_run_results()
 
     def __str__(self):
-        return str(self.get_config_dict())
+        return str(self.config)
 
     def _compute_metrics(self, example, results) -> dict[str, np.ndarray]:
         """
