@@ -127,6 +127,7 @@ class Experiment:
                 - interleave: Boolean for mixed search strategies. If False, sorts all search results by metric. If true, interleaves round-robin.
                 - reranker_to_use: Reranker to use for results.
                 - metrics_config: Configuration for metrics.
+                - xtop: Use xtop transformation on embeddings.
 
                 - output_path: Path to save results.
                 - output_search_results: Whether to output ALL search results (top k per query).

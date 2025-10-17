@@ -1,0 +1,12 @@
+dataset: 'data/dataset/nontrivial_checked.jsonl'
+table: 'qwen06_chunks'
+target_column: 'vector'
+metric: 'IP'
+embedder: 'Qwen/Qwen3-Embedding-0.6B'
+normalize: True
+query_expansion: 'add_prev_3'
+batch_size: 16
+top_k: 1000
+output_path: 'experiments/qwen06_results/'
+output_search_results: False
+xtop: True
