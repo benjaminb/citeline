@@ -25,6 +25,27 @@ load_dotenv()
 # Path to queries' full records, for query expansion
 QUERY_EXPANSION_DATA = "data/preprocessed/reviews.jsonl"
 
+"""
+PATCH TO APPLY All-but-the-Top transformation to embeddings
+"""
+import pickle
+
+pca = pickle.load(open("xtop_pca_1000.pkl", "rb"))
+mean_vector = pickle.load(open("xtop_mean_vector_1000.pkl", "rb"))
+
+
+def xtop_transform(vector: np.array, n: int) -> np.array:
+    centered = vector - mean_vector
+    projection = pca.components_ @ centered
+    projection[:n] = 0  # Zero out the top-n components
+    reconstructed = pca.components_.T @ projection
+
+    norm = np.linalg.norm(reconstructed)
+    if norm < 1e-10:
+        print("Warning: Zero norm encountered in All-but-the-Top transformation.")
+        return reconstructed
+    return reconstructed / norm if norm else reconstructed
+
 
 def argument_parser():
     """
@@ -57,33 +78,6 @@ def argument_parser():
     return args
 
 
-def build_training_dataset(num_examples, source_path, dest_path, seed=None):
-    examples = pd.read_json(source_path, lines=True)
-    examples = examples.sample(num_examples, random_state=seed)
-    examples.to_json(dest_path, orient="records", lines=True)
-
-
-def build_train_test_split(source_path, train_save_path, test_save_path, seed=42):
-    examples = pd.read_json(source_path, lines=True)
-    train = examples.sample(frac=0.8, random_state=seed)
-    test = examples.drop(train.index)
-    train.to_json(train_save_path, orient="records", lines=True)
-    test.to_json(test_save_path, orient="records", lines=True)
-
-
-def train_test_split_nontrivial(path, split=0.8):
-    examples = pd.read_json(path, lines=True)
-    train = examples.sample(frac=split, random_state=42)
-    test = examples.drop(train.index)
-
-    return train, test
-
-
-def write_train_test_to_file(train: pd.DataFrame, test: pd.DataFrame, path: str):
-    train.to_json(path + "train.jsonl", orient="records", lines=True)
-    test.to_json(path + "test.jsonl", orient="records", lines=True)
-
-
 class Experiment:
     metric_to_str = {
         # PGVector metrics
@@ -101,26 +95,6 @@ class Experiment:
     def __init__(
         self,
         **kwargs,
-        # dataset_path: str,
-        # target_table: str,
-        # target_column: str,
-        # metric: str,
-        # embedding_model_name: str,
-        # normalize: bool,
-        # query_expansion: str = "identity",
-        # difference_vector_file: str = None,
-        # transform_matrix_file: str = None,
-        # batch_size: int = 16,
-        # top_k: int = 100,
-        # strategy: str = None,
-        # use_index: bool = True,
-        # probes: int = 16,
-        # ef_search: int = 1000,
-        # reranker_to_use: str = None,
-        # metrics_config: dict[str, float] = None,
-        # distance_threshold: float = None,
-        # output_path: str = "experiments/results/",
-        # output_search_results: bool = False,
     ):
         """
         Args:
@@ -668,6 +642,10 @@ class Experiment:
 
                     # Query the database
                     batch, embeddings, start_idx = item
+
+                    if self.xtop:
+                        # Apply All-but-the-Top transformation to each embedding
+                        embeddings = [xtop_transform(np.array(vec), self.xtop_n).tolist() for vec in embeddings]
                     if self.strategy in ["mixed_expansion"]:
                         # TODO: this is just a patch for mixed expansion search. If we want to keep this strategy, come up with a cleaner design
                         embeddings = batch["vector_original"].tolist()  # Dummy, not used

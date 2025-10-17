@@ -292,11 +292,16 @@ class MilvusDB:
         
         def apply_xtop(vector: np.array, n: int = 10) -> np.array:
             """Applies All-but-the-Top transformation to a vector."""
-            vector_centered = vector - mean_vector
-            components = pca.components_[:remove_top_n]
-            projection = sum(np.dot(vector_centered, comp) * comp for comp in components)
-            transformed_vector = vector_centered - projection + mean_vector
-            return transformed_vector
+            centered = vector - mean_vector
+            projection = pca.components_ @ centered
+            projection[:n] = 0  # Zero out the top-n components
+            reconstructed = pca.components_.T @ projection
+
+            norm = np.linalg.norm(reconstructed)
+            if norm < 1e-10:
+                print("Warning: Zero norm encountered in All-but-the-Top transformation.")
+                return reconstructed
+            return reconstructed / norm if norm else reconstructed
 
         embedder = Embedder.create(model_name=embedder_name, device=self.device, normalize=normalize)
 
