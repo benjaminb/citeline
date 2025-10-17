@@ -218,7 +218,7 @@ class Experiment:
             "multiple_query_expansion": self.__multiple_query_expansion_search,
         }
 
-        strategy = kwargs.get("strategy", None)
+        strategy = kwargs.get("strategy", "basic")
         if strategy in supported_strategies:
             self.strategy = strategy
         else:
@@ -449,6 +449,10 @@ class Experiment:
 
     def _get_output_filename_base(self):
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if label := self.config.get("plot_label"):
+            label = label.replace("/", "_")
+            return f"{label}_{current_time}"
+
         reranker_str = f"_{self.reranker_to_use}" if self.reranker_to_use else ""
         diff = "_diff" if self.difference_vector_file else ""
 
@@ -901,7 +905,7 @@ def main():
         config_filename = args.run
         with open(config_filename, "r") as config_file:
             config = yaml.safe_load(config_file)
-            config['config_file'] = config_filename  # Add config filename to config dict
+            config["config_file"] = config_filename  # Add config filename to config dict
 
         experiment = Experiment(**config)
         print(experiment)

@@ -55,7 +55,7 @@ def make_label_to_data_dict(json_files: list[str]) -> dict:
     for file in json_files:
         results = json.load(open(file))
         hitrates = results["average_hitrate_at_k"]
-        label = results.get("plot_label", path_to_label(file))
+        label = results['config'].get("plot_label", path_to_label(file))
         data[label] = hitrates
     return data
 
@@ -126,8 +126,13 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
         #     bbox=dict(facecolor="white", alpha=0.6, edgecolor="none"),
         # )
 
-    # Add annotations for highest scoring line at k=100, 200, 300, etc.
-    for k_val in range(100, k + 1, 100):
+    # Add annotations for highest scoring line at k=50 and at k=100, 200, 300, etc.
+    k_points = []
+    if k >= 50:
+        k_points.append(50)
+    k_points.extend(range(100, k + 1, 100))
+
+    for k_val in k_points:
         k_idx = k_val - 1  # Convert to 0-indexed
         # Find the line with the highest hitrate at this k value
         max_hitrate = -1
@@ -155,8 +160,10 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
                 bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7),
             )
 
-    # ensure full k range is visible
-    plt.xlim(1, k)
+    # ensure full k range is visible (start x-axis at 25)
+    plt.xlim(25, k)
+    plt.ylim(0.6, 1.0)
+
     plt.xlabel("Top-k")
     plt.ylabel("Score")
     plt.title("HitRate@k")
@@ -170,7 +177,7 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
     plt.legend(handles=handles, labels=labels, fontsize=16)
 
     plt.grid(True)
-    plt.gca().xaxis.set_major_locator(MultipleLocator(100))
+    plt.gca().xaxis.set_major_locator(MultipleLocator(50))
     plt.gca().xaxis.set_minor_locator(MultipleLocator(10))
 
     # basename = path.split("/")[0]

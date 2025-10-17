@@ -1,5 +1,5 @@
 {
-  "plot_label": "cosine sorted/previous 0,1,2,3",
+  "plot_label": "chunks/previous 0,1,2,3/interleave",
   "config": {
     "dataset": "data/dataset/nontrivial_checked.jsonl",
     "table": "qwen06_chunks",

@@ -1,5 +1,5 @@
 {
-  "plot_label": "interleaved/previous 0,3",
+  "plot_label": "chunks/previous 0,3/interleave",
   "config": {
     "dataset": "data/dataset/nontrivial_checked.jsonl",
     "table": "qwen06_chunks",
