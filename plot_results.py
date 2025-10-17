@@ -26,28 +26,6 @@ def path_to_label(path):
     # Convert a file path to a label by removing the base directory and file extension
     filename = os.path.basename(path)
     return filename.replace(".json", "")
-    # pieces = filename.split("_")
-    # model = pieces[2]
-    # strategy = "50-50" if "50-50" in filename else ""
-    # document_rep = pieces[3]
-    # query_expansion = ""
-    # if "mixed" in filename:
-    #     query_expansion = "mixed"
-    # if "title" in filename:
-    #     query_expansion = "title"
-    # elif "abstract" in filename:
-    #     query_expansion = "abstract"
-    # elif "prev_3" in filename:
-    #     query_expansion = "prev_3"
-    # elif "prev_5" in filename:
-    #     query_expansion = "prev_5"
-    # elif "prev_7" in filename:
-    #     query_expansion = "prev_7"
-    # diff = "diff" if "diff" in filename else ""
-
-    # # Filter out empty strings before joining
-    # parts = [model, document_rep, strategy, query_expansion, diff]
-    # return "+".join([part for part in parts if part and not part in ["basic"]])
 
 
 def make_label_to_data_dict(json_files: list[str]) -> dict:
