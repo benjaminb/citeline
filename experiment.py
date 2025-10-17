@@ -756,13 +756,13 @@ class Experiment:
                         self.__clear_gpu_cache()
 
                     # Get batch, perform any query expansion & generate embeddings
-                    batch = self.dataset.iloc[slice(i, i + self.batch_size)]
+                    # Avoid modifying original dataset
+                    batch = self.dataset.iloc[slice(i, i + self.batch_size)].copy()
                     if self.strategy == "mixed_expansion":
                         """
                         Hacky patch to handle mixed expansion strategy where we need to send two reps per query
                         into the task queue
                         """
-                        batch = batch.copy()  # Avoid modifying original dataset
                         batch["expansion"] = self.query_expander(batch)
                         batch["vector_original"] = [vector for vector in self.embedder(batch["sent_no_cit"])]
                         batch["vector_expanded"] = [vector for vector in self.embedder(batch["expansion"])]
