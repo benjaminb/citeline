@@ -4,9 +4,11 @@ from pymilvus import MilvusClient, Collection, DataType
 import os
 from dotenv import load_dotenv
 import json
+import numpy as np
 from tqdm import tqdm
 import torch
 import pandas as pd
+import pickle
 from citeline.embedders import Embedder
 
 load_dotenv("../.env")
@@ -15,6 +17,7 @@ load_dotenv("../.env")
 def argument_parser():
     """
     python milvusdb.py --create-collection --name <collection_name> --data-source <data_source> --embedder <embedder_name> [--normalize] [--batch-size <16>]
+    python milvusdb.py --create-xtop-collection --name <collection_name> --from-collection <from_collection> --pca-pickle <pca_pickle_path> --mean-vector-pickle <mean_vector_pickle_path> --remove-top-n <remove_top_n> --embedder <embedder_name> [--batch-size <16>]
     python milvusdb.py --import-collection <data_path> <collection_name>
     """
     parser = argparse.ArgumentParser(description="Milvus DB Management")
@@ -22,6 +25,13 @@ def argument_parser():
     operation_group = parser.add_mutually_exclusive_group(required=True)
     operation_group.add_argument("--drop-collection", type=str, help="Name of the collection to drop")
     operation_group.add_argument("--create-collection", action="store_true", help="Create a new collection")
+
+    # Create all-but-the-top collection
+    operation_group.add_argument(
+        "--create-xtop-collection", action="store_true", help="Create a new AllButTheTop collection"
+    )
+    parser.add_argument("--pca-pickle", type=str, help="Path to the PCA pickle file")
+    parser.add_argument("--mean-vector-pickle", type=str, help="Path to the mean vector pickle file")
     operation_group.add_argument("--list-collections", action="store_true", help="List all collections")
     operation_group.add_argument("--healthcheck", action="store_true", help="Check the health of the Milvus server")
     operation_group.add_argument("--describe-collection", type=str, help="Describe a collection")
@@ -46,6 +56,7 @@ def argument_parser():
 
     # Arguments required when creating a collection
     parser.add_argument("--name", type=str, help="Name to give the new collection")
+    parser.add_argument("--from-collection", type=str, help="Source collection name for xtop transformation")
     parser.add_argument("--data-source", type=str, help="Path to the JSONL data file")
     parser.add_argument("--embedder", type=str, help="Name of the embedder (e.g. 'BAAI/bge-en-large-v1.5')")
     parser.add_argument("--normalize", action="store_true", help="Whether to normalize the embeddings")
@@ -56,6 +67,12 @@ def argument_parser():
     parser.add_argument(
         "--metric-type", type=str, default="IP", help="Metric type for the index (e.g. 'IP', 'L2', etc.)"
     )
+    parser.add_argument(
+        "--remove-top-n",
+        type=int,
+        default=10,
+        help="Number of top elements to remove from each vector for xtop collection",
+    )
 
     parser.add_argument("--output-file", type=str, help="Path to the output JSONL file")
 
@@ -65,6 +82,11 @@ def argument_parser():
     if args.create_collection:
         if not all([args.name, args.data_source, args.embedder]):
             parser.error("--create-collection requires --name, --data-source, and --embedder arguments")
+
+    # Validate required arguments for create-xtop-collection
+    if args.create_xtop_collection:
+        if not all([args.name, args.from_collection, args.pca_pickle, args.mean_vector_pickle, args.embedder]):
+            parser.error("--create-xtop-collection requires --name, --from-collection, --pca-pickle, --mean-vector-pickle, and --embedder arguments")
 
     return args
 
@@ -245,6 +267,121 @@ class MilvusDB:
         )
 
         print(f"New collection {collection.name}: {collection.num_entities} entities")
+
+    def create_xtop_collection(
+        self,
+        name: str,
+        from_collection: str,
+        pca_pickle: str,
+        mean_vector_pickle: str,
+        remove_top_n: int,
+        embedder_name: str,
+        normalize: bool,
+        batch_size: int = 16,
+    ):
+        try:
+            pca = pickle.load(open(pca_pickle, "rb"))
+            mean_vector = pickle.load(open(mean_vector_pickle, "rb"))
+        except Exception as e:
+            print(f"Error loading PCA or mean vector pickle files: {e}")
+            return
+
+        def apply_xtop(vector: np.array, n: int = 10) -> np.array:
+            """Applies All-but-the-Top transformation to a vector."""
+            vector_centered = vector - mean_vector
+            components = pca.components_[:remove_top_n]
+            projection = sum(np.dot(vector_centered, comp) * comp for comp in components)
+            transformed_vector = vector_centered - projection + mean_vector
+            return transformed_vector
+
+        embedder = Embedder.create(model_name=embedder_name, device=self.device, normalize=normalize)
+
+        # Check if source collection exists
+        if from_collection not in self.client.list_collections():
+            print(f"Source collection '{from_collection}' does not exist.")
+            return
+
+        # Load source collection
+        source_collection = Collection(from_collection)
+        source_collection.load()
+
+        if source_collection.num_entities == 0:
+            print(f"Source collection '{from_collection}' is empty. Nothing to transform.")
+            return
+
+        # Check if target collection already exists
+        if name in self.client.list_collections():
+            print(f"Target collection '{name}' already exists.")
+            return
+
+        # Create new collection with same schema
+        print(f"Creating new collection '{name}' with All-but-the-Top transformation...")
+        schema = self.client.create_schema(
+            auto_id=True,
+            enable_dynamic_field=True,
+        )
+        vector_field = {"field_name": "vector", "datatype": DataType.FLOAT_VECTOR, "dim": embedder.dim}
+        for field in self.BASE_FIELDS + [vector_field]:
+            schema.add_field(**field)
+
+        self.client.create_collection(collection_name=name, schema=schema)
+        print(f"Collection '{name}' created")
+
+        target_collection = Collection(name)
+        target_collection.create_index(field_name="vector", index_params={"index_type": "FLAT", "metric_type": "IP"})
+
+        # Print summary
+        print("=" * 50)
+        print("XTOP COLLECTION CREATION SUMMARY")
+        print("=" * 50)
+        print(f"Source Collection   : {from_collection}")
+        print(f"Target Collection   : {name}")
+        print(f"Source Entities     : {source_collection.num_entities}")
+        print(f"Remove Top N        : {remove_top_n}")
+        print(f"Batch Size          : {batch_size}")
+        print("=" * 50)
+
+        # Iterate over source collection in batches and transform vectors
+        iterator = source_collection.query_iterator(
+            expr="",
+            output_fields=["text", "doi", "citation_count", "pubdate", "vector"],
+            batch_size=batch_size
+        )
+
+        total_inserted = 0
+        with tqdm(total=source_collection.num_entities, desc="Transforming and inserting", unit="entities") as pbar:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+
+                # Transform vectors and prepare records for insertion
+                transformed_batch = []
+                for entity in batch:
+                    # Apply transformation to the vector
+                    original_vector = np.array(entity["vector"])
+                    transformed_vector = apply_xtop(original_vector, n=remove_top_n)
+
+                    # Create new record with transformed vector and all other fields
+                    transformed_entity = {
+                        "text": entity["text"],
+                        "doi": entity["doi"],
+                        "citation_count": entity["citation_count"],
+                        "pubdate": entity["pubdate"],
+                        "vector": transformed_vector.tolist()
+                    }
+                    transformed_batch.append(transformed_entity)
+
+                # Insert transformed batch
+                self.client.insert(collection_name=name, data=transformed_batch)
+                total_inserted += len(transformed_batch)
+                pbar.update(len(transformed_batch))
+
+        iterator.close()
+
+        # Final flush
+        target_collection.flush()
+        print(f"Transformation complete. Created collection '{name}' with {total_inserted} entities.")
 
     def describe_collection(self, name: str):
         if not name in self.client.list_collections():
@@ -587,7 +724,9 @@ class MilvusDB:
                         self.clear_gpu_cache()
 
                     batch = data.iloc[slice(i, i + batch_size)]
-                    embeddings = embedder(batch["text"], for_queries=False)  # Assuming we are embedding documents, not queries
+                    embeddings = embedder(
+                        batch["text"], for_queries=False
+                    )  # Assuming we are embedding documents, not queries
 
                     batch_records = batch.to_dict(orient="records")
                     for record, vector in zip(batch_records, embeddings):
@@ -624,6 +763,17 @@ def main():
             normalize=args.normalize,
             batch_size=args.batch_size,
         )
+    elif args.create_xtop_collection:
+        db.create_xtop_collection(
+            name=args.name,
+            from_collection=args.from_collection,
+            pca_pickle=args.pca_pickle,
+            mean_vector_pickle=args.mean_vector_pickle,
+            remove_top_n=args.remove_top_n,
+            embedder_name=args.embedder,
+            normalize=args.normalize,
+            batch_size=args.batch_size,
+        )
     elif args.create_index:
         db.create_index(collection_name=args.create_index, index_type=args.index_type, metric_type=args.metric_type)
     elif args.describe_collection:
@@ -644,4 +794,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

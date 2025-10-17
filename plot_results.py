@@ -33,7 +33,7 @@ def make_label_to_data_dict(json_files: list[str]) -> dict:
     for file in json_files:
         results = json.load(open(file))
         hitrates = results["average_hitrate_at_k"]
-        label = results['config'].get("plot_label", path_to_label(file))
+        label = results["config"].get("plot_label", path_to_label(file))
         data[label] = hitrates
     return data
 
@@ -92,17 +92,6 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
             k_values, hitrates_trunc, drawstyle="steps-post", linestyle="-", lw=2.5, alpha=0.6, label=label
         )
         lines.append((line, label, hitrates_trunc))
-        # label slightly to the right of k=200 (or at k if k<200)
-        # plt.text(
-        #     label_x,
-        #     y_label,
-        #     label,
-        #     color=line.get_color(),
-        #     va="center",
-        #     ha="left",
-        #     fontsize=9,
-        #     bbox=dict(facecolor="white", alpha=0.6, edgecolor="none"),
-        # )
 
     # Add annotations for highest scoring line at k=50 and at k=100, 200, 300, etc.
     k_points = []
@@ -130,12 +119,12 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
             plt.annotate(
                 f"{max_hitrate:.3f}",
                 xy=(k_val, max_hitrate),
-                xytext=(0, 10),  # 10 points above
+                xytext=(0, 25),  # 25 points above
                 textcoords="offset points",
-                fontsize=9,
+                fontsize=14,
                 color=best_color,
                 ha="center",
-                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.7),
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.6),
             )
 
     # ensure full k range is visible (start x-axis at 25)
