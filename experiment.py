@@ -208,6 +208,7 @@ class Experiment:
             else None
         )
         self.interleave = kwargs.get("interleave", False) if self.query_expanders else False
+        self.xtop = kwargs.get("xtop", False)
 
         # Prepare attributes for results
         self.recall_matrix = None
