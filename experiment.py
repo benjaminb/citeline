@@ -646,9 +646,23 @@ class Experiment:
                     # Query the database
                     batch, embeddings, start_idx = item
 
-                    if self.xtop:
+                    # TODO: simplify this logic!!!
+                    if self.xtop and embeddings is not None:
                         # Apply All-but-the-Top transformation to each embedding
                         embeddings = [xtop_transform(np.array(vec), self.xtop_n).tolist() for vec in embeddings]
+                    elif self.xtop and self.strategy in ["mixed_expansion", "multiple_query_expansion"]:
+                        # For strategies that store vectors in the batch DataFrame, apply xtop to those
+                        if "vector_original" in batch.columns:
+                            batch["vector_original"] = [
+                                xtop_transform(np.array(vec), self.xtop_n).tolist() for vec in batch["vector_original"]
+                            ]
+                        if self.strategy == "multiple_query_expansion" and self.query_expanders:
+                            for expander in self.query_expanders:
+                                col_name = f"vector_{expander.name}"
+                                if col_name in batch.columns:
+                                    batch[col_name] = [
+                                        xtop_transform(np.array(vec), self.xtop_n).tolist() for vec in batch[col_name]
+                                    ]
                     if self.strategy in ["mixed_expansion"]:
                         # TODO: this is just a patch for mixed expansion search. If we want to keep this strategy, come up with a cleaner design
                         embeddings = batch["vector_original"].tolist()  # Dummy, not used
