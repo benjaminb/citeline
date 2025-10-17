@@ -209,6 +209,7 @@ class Experiment:
         )
         self.interleave = kwargs.get("interleave", False) if self.query_expanders else False
         self.xtop = kwargs.get("xtop", False)
+        self.xtop_n = kwargs.get("xtop_n", 0)  # Number of top components to remove (0 is falsey)
 
         # Prepare attributes for results
         self.recall_matrix = None

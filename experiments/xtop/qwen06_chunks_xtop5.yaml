@@ -7,6 +7,8 @@ normalize: True
 query_expansion: 'add_prev_3'
 batch_size: 16
 top_k: 1000
-output_path: 'experiments/qwen06_results/'
+output_path: 'experiments/xtop/results/'
 output_search_results: False
 xtop: True
+xtop_n: 5
+plot_label: 'xtop 5/previous 3'
