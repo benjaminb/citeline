@@ -1,5 +1,5 @@
 dataset: 'data/dataset/nontrivial_checked.jsonl'
-table: 'xtop_512'
+table: 'xtop_2'
 target_column: 'vector'
 metric: 'IP'
 embedder: 'Qwen/Qwen3-Embedding-0.6B'
@@ -12,5 +12,5 @@ top_k: 1000
 output_path: 'experiments/xtop/results/'
 output_search_results: False
 xtop: True
-xtop_n: 512
-plot_label: 'xtop 512/previous 0,2'
+xtop_n: 2
+plot_label: 'xtop 2/previous 0,2'

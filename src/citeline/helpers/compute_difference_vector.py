@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from tqdm import tqdm
 from citeline.embedders import Embedder
-from database.milvusdb import MilvusDB
+from citeline.database.milvusdb import MilvusDB
 from citeline.query_expander import get_expander
 
 tqdm.pandas()
@@ -11,6 +11,7 @@ tqdm.pandas()
 EMBEDDING_MODEL_NAME = "Qwen/Qwen3-Embedding-0.6B"
 COLLECTION_NAME = "qwen06_chunks"
 QUERY_EXPANSION = "add_prev_3"
+PATH_TO_DATA = "../../../data/preprocessed/reviews.jsonl"
 
 # Globals
 device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
@@ -29,7 +30,7 @@ def get_sample_df(n=1000, embedder=None):
     print(f"Loaded {len(examples)} examples")
 
     # Query Expansion on sent_no_cit
-    expander = get_expander(QUERY_EXPANSION, path_to_data="data/preprocessed/reviews.jsonl")
+    expander = get_expander(QUERY_EXPANSION, path_to_data=PATH_TO_DATA)
     print(f"Using query expansion: {expander}")
     examples["sent_no_cit"] = expander(examples)
 

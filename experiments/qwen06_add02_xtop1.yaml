@@ -1,14 +1,16 @@
 dataset: 'data/dataset/nontrivial_checked.jsonl'
-table: 'xtop_5'
+table: 'xtop_1'
 target_column: 'vector'
 metric: 'IP'
 embedder: 'Qwen/Qwen3-Embedding-0.6B'
 normalize: True
-query_expansion: 'add_prev_3'
+strategy: 'multiple_query_expansion'
+query_expanders:
+  - add_prev_1
 batch_size: 16
 top_k: 1000
 output_path: 'experiments/xtop/results/'
 output_search_results: False
 xtop: True
-xtop_n: 20
-plot_label: 'xtop 20/previous 3'
+xtop_n: 1
+plot_label: 'xtop 1/previous 0,2'
