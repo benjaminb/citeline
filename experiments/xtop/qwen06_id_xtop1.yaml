@@ -3,8 +3,8 @@ table: 'xtop_1'
 target_column: 'vector'
 metric: 'IP'
 embedder: 'Qwen/Qwen3-Embedding-0.6B'
+query_expansion: 'identity'
 normalize: True
-strategy: 'basic'
 batch_size: 16
 top_k: 1000
 output_path: 'experiments/xtop/results/'

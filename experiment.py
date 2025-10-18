@@ -168,7 +168,7 @@ class Experiment:
         self.embedder = Embedder.create(model_name=embedding_model_name, device=self.device, normalize=self.normalize)
 
         # Query expansion & linalg transformations
-        query_expansion_name = kwargs.get("query_expansion", None)
+        query_expansion_name = kwargs.get("query_expansion", "identity")
         self.query_expander = (
             QueryExpander(query_expansion_name, reference_data_path=QUERY_EXPANSION_DATA)
             if query_expansion_name
@@ -796,7 +796,11 @@ class Experiment:
         self.__write_run_results()
 
     def __str__(self):
-        return str(self.config)
+        s = "=" * 20 + " Experiment Configuration " + "=" * 20 + "\n"
+        for key, value in self.config.items():
+            s += f"{key}: {value}\n"
+        s += "=" * 60 + "\n"
+        return s
 
     def _compute_metrics(self, example, results) -> dict[str, np.ndarray]:
         """
