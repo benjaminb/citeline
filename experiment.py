@@ -680,8 +680,26 @@ class Experiment:
                         with file_lock:
                             for rec, res in zip(batch_records, search_results):
                                 try:
+                                    # Convert numpy arrays to lists for JSON serialization
+                                    rec_serializable = {}
+                                    for key, value in rec.items():
+                                        if isinstance(value, np.ndarray):
+                                            rec_serializable[key] = value.tolist()
+                                        elif (
+                                            isinstance(value, list)
+                                            and len(value) > 0
+                                            and isinstance(value[0], np.ndarray)
+                                        ):
+                                            # Handle lists of numpy arrays
+                                            rec_serializable[key] = [
+                                                v.tolist() if isinstance(v, np.ndarray) else v for v in value
+                                            ]
+                                        else:
+                                            rec_serializable[key] = value
+
                                     out_file.write(
-                                        json.dumps({"record": rec, "results": res}, ensure_ascii=False) + "\n"
+                                        json.dumps({"record": rec_serializable, "results": res}, ensure_ascii=False)
+                                        + "\n"
                                     )
                                     out_file.flush()  # Ensure data is written to disk
                                 except Exception as e:
