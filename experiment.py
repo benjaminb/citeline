@@ -683,8 +683,10 @@ class Experiment:
                                     out_file.write(
                                         json.dumps({"record": rec, "results": res}, ensure_ascii=False) + "\n"
                                     )
+                                    out_file.flush()  # Ensure data is written to disk
                                 except Exception as e:
                                     logger.error(f"Failed writing a search-result line: {e}")
+                                    print(f"Failed writing a search-result line: {e}", flush=True)
 
                     # Update DB-queries progress bar
                     with progress_bar_lock:
