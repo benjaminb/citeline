@@ -11,4 +11,4 @@ interleave: True
 batch_size: 16
 top_k: 1000
 output_path: 'experiments/multiple_query_expansion/results/'
-output_search_results: False
+output_search_results: True
