@@ -1,0 +1,14 @@
+dataset: 'data/dataset/nontrivial_checked.jsonl'
+table: 'xtop_1'
+target_column: 'vector'
+metric: 'IP'
+embedder: 'Qwen/Qwen3-Embedding-0.6B'
+normalize: True
+strategy: 'basic'
+batch_size: 16
+top_k: 1000
+output_path: 'experiments/xtop/results/'
+output_search_results: False
+xtop: True
+xtop_n: 1
+plot_label: 'xtop 1/identity'
