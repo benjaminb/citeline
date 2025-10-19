@@ -55,7 +55,7 @@ class Embedder(ABC):
         self.normalize = normalize
         self.dim = None
 
-    def __call__(self, docs: list[str] | pd.Series, for_queries: bool = True):
+    def __call__(self, docs: list[str] | pd.Series, for_queries: bool = True) -> np.ndarray:
         if isinstance(docs, pd.Series):
             docs = docs.tolist()
         return self._embed(docs, for_queries=for_queries)

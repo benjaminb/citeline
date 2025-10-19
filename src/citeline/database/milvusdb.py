@@ -1,5 +1,4 @@
 import argparse
-from matplotlib.pylab import record
 from pymilvus import MilvusClient, Collection, DataType
 import os
 from dotenv import load_dotenv
@@ -86,7 +85,9 @@ def argument_parser():
     # Validate required arguments for create-xtop-collection
     if args.create_xtop_collection:
         if not all([args.name, args.from_collection, args.pca_pickle, args.mean_vector_pickle, args.embedder]):
-            parser.error("--create-xtop-collection requires --name, --from-collection, --pca-pickle, --mean-vector-pickle, and --embedder arguments")
+            parser.error(
+                "--create-xtop-collection requires --name, --from-collection, --pca-pickle, --mean-vector-pickle, and --embedder arguments"
+            )
 
     return args
 
@@ -185,7 +186,9 @@ class MilvusDB:
             field_name="vector", index_params={"index_type": index_type, "metric_type": metric_type}
         )
 
-    def create_vector_collection(self, name: str, data_source: str, embedder_name: str, normalize: bool, batch_size=16):
+    def create_vector_collection_pd(
+        self, name: str, data: pd.DataFrame, embedder_name: str, normalize: bool, batch_size=16
+    ):
         """
         Creates a collection using the base fields and a single vector field inferred by the embedder.
 
@@ -197,7 +200,7 @@ class MilvusDB:
             pubdate: the publication date of the research paper (int YYYYMMDD format)
         Args:
             name: Name of the collection to create
-            data_source: path to a jsonl file with entities containing keys 'text', 'doi', 'citation_count', and 'pubdate' (int YYYYMMDD format)
+            data: DataFrame with columns {'text' (str), 'doi' (str), 'citation_count' (int), 'pubdate' (int YYYYMMDD format)}
             embedder_name: Name of the embedder to use for generating vector embeddings
             normalize: Whether to normalize the embeddings
         """
@@ -209,7 +212,6 @@ class MilvusDB:
             raise ValueError(f"Invalid value for CPUS environment variable.")
 
         # Load and check data, load embedder
-        data = pd.read_json(data_source, lines=True)
         assert set(data.columns) == {
             "text",
             "doi",
@@ -258,7 +260,6 @@ class MilvusDB:
         print(f"Normalize           : {normalize}")
         print(f"Batch Size          : {batch_size}")
         print(f"Device              : {self.device}")
-        print(f"Data source         : {data_source}")
         print(f"Data size           : {len(data)} rows")
         print("=" * 50)
 
@@ -267,6 +268,93 @@ class MilvusDB:
         )
 
         print(f"New collection {collection.name}: {collection.num_entities} entities")
+
+    def create_vector_collection(self, name: str, data_source: str, embedder_name: str, normalize: bool, batch_size=16):
+        """
+        Creates a collection using the base fields and a single vector field inferred by the embedder.
+
+        Note that all collections will have nearly identical schema:
+            vector: the vector representation of the document
+            text: the text content of the document (original text, contribution, or other document expansion)
+            doi: the DOI of the research paper from which the text originates
+            citation_count: int
+            pubdate: the publication date of the research paper (int YYYYMMDD format)
+        Args:
+            name: Name of the collection to create
+            data_source: path to a jsonl file with entities containing keys
+                {'text' (str), 'doi' (str), 'citation_count' (int), 'pubdate' (int YYYYMMDD format)}
+            embedder_name: Name of the embedder to use for generating vector embeddings
+            normalize: Whether to normalize the embeddings
+        """
+        # Make sure we have CPU count set
+        # assert "CPUS" in os.environ, "CPUS environment variable not set."
+        # try:
+        #     num_cpus = int(os.getenv("CPUS"))
+        # except ValueError:
+        #     raise ValueError(f"Invalid value for CPUS environment variable.")
+        try:
+            data = pd.read_json(data_source, lines=True)
+        except Exception as e:
+            print(f"Error reading data source {data_source}: {e}")
+            return
+        self.create_vector_collection_pd(name, data, embedder_name, normalize, batch_size)
+        # assert set(data.columns) == {
+        #     "text",
+        #     "doi",
+        #     "pubdate",
+        #     "citation_count",
+        # }, f"DataFrame must contain 'text', 'doi', 'citation_count', and 'pubdate' columns (and no others). Dataset given has columns {data.columns}"
+        # embedder = Embedder.create(model_name=embedder_name, device=self.device, normalize=normalize)
+
+        # # Check if collection already exists and handle resumption
+        # if name in self.client.list_collections():
+        #     print(f"Collection '{name}' already exists. Checking for existing data...")
+        #     collection = Collection(name)
+        #     collection.load()  # Ensure collection is loaded
+
+        #     if len(data) == collection.num_entities:
+        #         print("Data source length same as collection, there appears to be nothing to insert.")
+        #         return
+        #     data = self._filter_existing_data(collection, data)
+
+        # else:
+        #     # Create new collection
+        #     print(f"Creating new collection '{name}'...")
+        #     # Set up the schema
+        #     schema = self.client.create_schema(
+        #         auto_id=True,
+        #         enable_dynamic_field=True,
+        #     )
+        #     vector_field = {"field_name": "vector", "datatype": DataType.FLOAT_VECTOR, "dim": embedder.dim}
+        #     for field in self.BASE_FIELDS + [vector_field]:
+        #         schema.add_field(**field)
+
+        #     self.client.create_collection(collection_name=name, schema=schema)
+        #     print(f"Collection '{name}' created")
+        #     collection = Collection(name)
+        #     collection.create_index(field_name="vector", index_params={"index_type": "FLAT", "metric_type": "IP"})
+
+        # # Print a table of the collection to be created, num cpus, embedder name and its dimension
+        # print("=" * 50)
+        # print("COLLECTION CREATION SUMMARY")
+        # print("=" * 50)
+        # print(f"Collection Name     : {name}")
+        # print(f"Collection Entities : {collection.num_entities}")
+        # print(f"Num CPUs            : {num_cpus}")
+        # print(f"Embedder Name       : {embedder_name}")
+        # print(f"Embedder Dimension  : {embedder.dim}")
+        # print(f"Normalize           : {normalize}")
+        # print(f"Batch Size          : {batch_size}")
+        # print(f"Device              : {self.device}")
+        # print(f"Data source         : {data_source}")
+        # print(f"Data size           : {len(data)} rows")
+        # print("=" * 50)
+
+        # self.__embed_and_insert(
+        #     collection=collection, embedder=embedder, data=data, num_cpus=num_cpus, batch_size=batch_size
+        # )
+
+        # print(f"New collection {collection.name}: {collection.num_entities} entities")
 
     def create_xtop_collection(
         self,
@@ -289,7 +377,7 @@ class MilvusDB:
         except Exception as e:
             print(f"Error loading mean vector pickle file: {e}")
             return
-        
+
         def apply_xtop(vector: np.array, n: int = 10) -> np.array:
             """Applies All-but-the-Top transformation to a vector."""
             centered = vector - mean_vector
@@ -352,9 +440,7 @@ class MilvusDB:
 
         # Iterate over source collection in batches and transform vectors
         iterator = source_collection.query_iterator(
-            expr="",
-            output_fields=["text", "doi", "citation_count", "pubdate", "vector"],
-            batch_size=batch_size
+            expr="", output_fields=["text", "doi", "citation_count", "pubdate", "vector"], batch_size=batch_size
         )
 
         total_inserted = 0
@@ -377,7 +463,7 @@ class MilvusDB:
                         "doi": entity["doi"],
                         "citation_count": entity["citation_count"],
                         "pubdate": entity["pubdate"],
-                        "vector": transformed_vector.tolist()
+                        "vector": transformed_vector.tolist(),
                     }
                     transformed_batch.append(transformed_entity)
 
@@ -602,6 +688,7 @@ class MilvusDB:
         query_vectors: list[list[float]],
         metric: str = "IP",
         limit: int = 3,
+        output_fields: list[str] = ["text", "doi", "pubdate", "citation_count"],
     ) -> list[list[dict]]:
         """
         Searches a collection for top-k results based on the queries and metric.
@@ -631,7 +718,7 @@ class MilvusDB:
                 anns_field="vector",
                 search_params={"metric_type": metric},
                 limit=limit,
-                output_fields=["text", "doi", "pubdate", "citation_count"],
+                output_fields=output_fields,
                 filter=f"pubdate <= {record['pubdate']}",
             )
 
@@ -672,6 +759,8 @@ class MilvusDB:
         batch_size: int = 16,
     ):
         """
+        Uses multithreading to embed and insert data into the collection. All embeddings are done on the GPU
+        in the main thread, insertions handled by concurrent worker threads. 
 
         Args:
             collection: The collection to add the vector field to.
@@ -684,14 +773,14 @@ class MilvusDB:
         import queue
         import threading
 
-        insert_queue = queue.Queue(maxsize=num_cpus * batch_size * 2)
+        insert_queue = queue.Queue(maxsize=num_cpus * batch_size * 8)
         insertion_lock = threading.Lock()
-        flush_interval = int(os.getenv("FLUSH_INTERVAL", 1000))
-        print(f"Using disk flush interval: {flush_interval}", flush=True)
-        inserted_count = 0  # Counter the insert_workers use to determine when to flush
+        # flush_interval = int(os.getenv("FLUSH_INTERVAL", 5000))
+        # print(f"Using disk flush interval: {flush_interval}", flush=True)
+        # inserted_count = 0  # Counter the insert_workers use to determine when to flush
 
         def insert_worker():
-            nonlocal inserted_count
+            # nonlocal inserted_count
             while True:
                 try:
                     # Get batch and check if the queue is empty
@@ -703,17 +792,17 @@ class MilvusDB:
                     collection.insert(batch_records)
                     with insertion_lock:
                         insert_bar.update(len(batch_records))
-                        inserted_count += len(batch_records)
-                        if inserted_count >= flush_interval:
-                            collection.flush()
-                            inserted_count = 0
+                        # inserted_count += len(batch_records)
+                        # if inserted_count >= flush_interval:
+                        #     collection.flush()
+                        #     inserted_count = 0
 
                 except Exception as e:
                     print(f"Insertion worker encountered an error: {e}")
                 finally:
                     insert_queue.task_done()
 
-        num_workers = max(1, num_cpus - 1)
+        num_workers = max(1, num_cpus*4)
         num_entities = len(data)
         futures = []
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
@@ -727,7 +816,7 @@ class MilvusDB:
             ) as insert_bar:
 
                 # Main thread: producer (embed using gpu)
-                clear_cache_interval = 50 * batch_size  # Will clear GPU cache every 50 batches
+                clear_cache_interval = 100 * batch_size  # Will clear GPU cache every 50 batches
                 for i in range(0, num_entities, batch_size):
                     if i % clear_cache_interval == 0:
                         self.clear_gpu_cache()
