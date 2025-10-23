@@ -28,23 +28,26 @@ QUERY_EXPANSION_DATA = "data/preprocessed/reviews.jsonl"
 """
 PATCH TO APPLY All-but-the-Top transformation to embeddings
 """
-import pickle
+# import pickle
 
-pca = pickle.load(open("xtop_pca_1000.pkl", "rb"))
-mean_vector = pickle.load(open("xtop_mean_vector_1000.pkl", "rb"))
+# pca = pickle.load(open("xtop_pca_1000.pkl", "rb"))
+# mean_vector = pickle.load(open("xtop_mean_vector_1000.pkl", "rb"))
 
 
 def xtop_transform(vector: np.array, n: int) -> np.array:
-    centered = vector - mean_vector
-    projection = pca.components_ @ centered
-    projection[:n] = 0  # Zero out the top-n components
-    reconstructed = pca.components_.T @ projection
+    # centered = vector - mean_vector
+    centered = vector - pca.mean_
+    last_n_components = pca.components_[-n:]
+    # projection = pca.components_ @ centered
+    # projection[:n] = 0  # Zero out the top-n components
+    # reconstructed = pca.components_.T @ projection
+    projection = centered @ last_n_components.T
 
-    norm = np.linalg.norm(reconstructed)
+    norm = np.linalg.norm(projection)
     if norm < 1e-10:
         print("Warning: Zero norm encountered in All-but-the-Top transformation.")
-        return reconstructed
-    return reconstructed / norm if norm else reconstructed
+        return projection
+    return projection / norm if norm else projection
 
 
 def argument_parser():
@@ -99,7 +102,8 @@ class Experiment:
         """
         Args:
             kwargs: keyword arguments matching the parameters below
-                dataset_path: path to a jsonl file containing lines that hat at least these keys:
+                - experiment_name: name of the experiment, used to name the output files
+                - dataset_path: path to a jsonl file containing lines that hat at least these keys:
                     "sent_no_cit": the sentence with inline citations replaced by "[REF]"
                     "sent_idx": the index of the sentence in the original record's "body_sentences" list
                     "source_doi": "...",
@@ -133,6 +137,8 @@ class Experiment:
                 - output_search_results: Whether to output ALL search results (top k per query).
         """
         self.config = kwargs
+
+        self.experiment_name = kwargs.get("experiment_name", None)
 
         # Dataset and results
         try:
@@ -188,7 +194,7 @@ class Experiment:
         # Strategy for using multiple document / query expansions
         supported_strategies = {
             "50-50": self.__fifty_fifty_search,
-            "basic": self.__basic_search,
+            "basic": self.__basic_search_2,
             "mixed_expansion": self.__mixed_expansion_search,
             "multiple_query_expansion": self.__multiple_query_expansion_search,
         }
@@ -235,11 +241,24 @@ class Experiment:
         self.hits = []
         self.recall_scores = []  # proportion of target DOIs that were retrieved in the top-k results
 
+    # TODO: if __basic_search_2 works fine (passing vectors with the data records), remove this
     def __basic_search(self, db: MilvusDB, records: list[dict], vectors: list[list[float]]) -> list[dict]:
         return db.search(
             collection_name=self.target_table,
             query_records=records,
             query_vectors=vectors,
+            metric=self.metric,
+            limit=self.top_k,
+        )
+
+    def __basic_search_2(self, db: MilvusDB, records: list[dict]) -> list[dict]:
+        """
+        Basic search function; uses 'vector' field in records"""
+        query_vectors = [record["vector"] for record in records]
+        return db.search(
+            collection_name=self.target_table,
+            query_records=records,
+            query_vectors=query_vectors,
             metric=self.metric,
             limit=self.top_k,
         )
@@ -425,6 +444,9 @@ class Experiment:
         return float(intersection / union)
 
     def _get_output_filename_base(self):
+        if self.experiment_name:
+            return self.experiment_name
+        # If no experiment name set, generate one based on config
         current_time = datetime.now().strftime("%Y%m%d_%H%M%S")
         if label := self.config.get("plot_label"):
             label = label.replace("/", "_")
@@ -651,7 +673,8 @@ class Experiment:
                         batch_records = batch.to_dict(orient="records")
                     else:
                         batch_records = batch.to_dict(orient="records")
-                        search_results = self.search(db=thread_client, records=batch_records, vectors=embeddings)
+                        # search_results = self.search(db=thread_client, records=batch_records, vectors=embeddings)
+                        search_results = self.search(db=thread_client, records=batch_records, vectors=None)
 
                     # TODO: fix logging within thread
 
@@ -746,6 +769,8 @@ class Experiment:
 
                     # Get batch, perform any query expansion & generate embeddings
                     # Avoid modifying original dataset
+                    # TODO: one way to simplify this is have a postcondition for all strategies:
+                    # always end with a df called `batch` that has one or more 'vector*' columns
                     batch = self.dataset.iloc[slice(i, i + self.batch_size)].copy()
                     if self.strategy == "mixed_expansion":
                         """
@@ -767,6 +792,9 @@ class Experiment:
                             batch[expansion_name] = expansions
                             batch[f"vector_{expansion_name}"] = [vector for vector in self.embedder(expansions)]
                         task_queue.put((batch, None, i))
+                    elif self.precomputed_embeddings:
+                        # df has a 'vector' column with precomputed embeddings
+                        task_queue.put((batch, None, i))
                     else:
                         expanded_queries = self.query_expander(batch)
                         embeddings = self.embedder(expanded_queries)
@@ -784,7 +812,10 @@ class Experiment:
                                 norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
                                 embeddings = embeddings / norms
 
-                        task_queue.put((batch, embeddings.tolist(), i))
+                        batch["vector"] = embeddings.tolist()
+
+                        # task_queue.put((batch, embeddings.tolist(), i))
+                        task_queue.put((batch, None, i))
 
                     producer_bar.update(len(batch))
 
