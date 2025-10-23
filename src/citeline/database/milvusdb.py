@@ -760,7 +760,7 @@ class MilvusDB:
     ):
         """
         Uses multithreading to embed and insert data into the collection. All embeddings are done on the GPU
-        in the main thread, insertions handled by concurrent worker threads. 
+        in the main thread, insertions handled by concurrent worker threads.
 
         Args:
             collection: The collection to add the vector field to.
@@ -775,12 +775,8 @@ class MilvusDB:
 
         insert_queue = queue.Queue(maxsize=num_cpus * batch_size * 8)
         insertion_lock = threading.Lock()
-        # flush_interval = int(os.getenv("FLUSH_INTERVAL", 5000))
-        # print(f"Using disk flush interval: {flush_interval}", flush=True)
-        # inserted_count = 0  # Counter the insert_workers use to determine when to flush
 
         def insert_worker():
-            # nonlocal inserted_count
             while True:
                 try:
                     # Get batch and check if the queue is empty
@@ -792,22 +788,17 @@ class MilvusDB:
                     collection.insert(batch_records)
                     with insertion_lock:
                         insert_bar.update(len(batch_records))
-                        # inserted_count += len(batch_records)
-                        # if inserted_count >= flush_interval:
-                        #     collection.flush()
-                        #     inserted_count = 0
 
                 except Exception as e:
                     print(f"Insertion worker encountered an error: {e}")
                 finally:
                     insert_queue.task_done()
 
-        num_workers = max(1, num_cpus*4)
+        num_workers = max(1, num_cpus * 4)
         num_entities = len(data)
         futures = []
         with ThreadPoolExecutor(max_workers=num_workers) as executor:
             for _ in range(num_workers):
-                # thread = executor.submit(insert_worker)
                 futures.append(executor.submit(insert_worker))
 
             # Create progress bars

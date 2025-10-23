@@ -5,6 +5,7 @@
 *.parquet
 *.snap
 *.wal
+*.h5
 src/citeline/database/milvus/volumes/
 
 # Plain text and temp files generally used for scratch purposes
