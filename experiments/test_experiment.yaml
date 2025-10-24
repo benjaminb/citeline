@@ -7,9 +7,6 @@ normalize: True
 query_expansion: 'identity'
 batch_size: 16
 top_k: 30
-strategy: 'multiple_query_expansion'
-query_expanders:
-  - add_prev_1
-  - add_prev_2
+strategy: 'basic'
 output_path: 'experiments/tests/'
 output_search_results: False
