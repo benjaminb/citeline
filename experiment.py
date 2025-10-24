@@ -169,6 +169,7 @@ class Experiment:
         # Embedding parameters
         self.batch_size = kwargs.get("batch_size", 16)
         self.normalize = kwargs.get("normalize", True)
+        self.precomputed_embeddings = kwargs.get("has_precomputed_embeddings", False)
         embedding_model_name = kwargs.get("embedder", None)
         self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
         self.embedder = Embedder.create(model_name=embedding_model_name, device=self.device, normalize=self.normalize)
@@ -186,6 +187,13 @@ class Experiment:
         self.transform_matrix_file = kwargs.get("transform_matrix_file", None)
         self.transform_matrix = np.load(self.transform_matrix_file) if self.transform_matrix_file else None
         self.metrics_config = kwargs.get("metrics_config", None)
+        self.nn_path = kwargs.get("nn", None)
+        if self.nn_path:
+            # Load NN model to CPU to avoid GPU conflicts with embedder
+            self.nn_model = torch.jit.load(self.nn_path, map_location="cpu")
+            self.nn_model.eval()
+        else:
+            self.nn_model = None
 
         # Output parameters
         self.output_path = kwargs.get("output_path", None)
@@ -673,16 +681,18 @@ class Experiment:
                         batch_records = batch.to_dict(orient="records")
                     else:
                         batch_records = batch.to_dict(orient="records")
-                        # search_results = self.search(db=thread_client, records=batch_records, vectors=embeddings)
-                        search_results = self.search(db=thread_client, records=batch_records, vectors=None)
+                        search_results = self.search(db=thread_client, records=batch_records)
 
                     # TODO: fix logging within thread
 
                     # Log any anomalies in record retrieval
-                    if len(search_results) != len(embeddings):
-                        logger.warning(f"Expected {len(embeddings)} results, but got {len(search_results)} for batch")
+                    if len(search_results) != len(batch_records):
+                        logger.warning(
+                            f"Expected {len(batch_records)} results, but got {len(search_results)} for batch"
+                        )
                         print(
-                            f"Expected {len(embeddings)} results, but got {len(search_results)} for batch", flush=True
+                            f"Expected {len(batch_records)} results, but got {len(search_results)} for batch",
+                            flush=True,
                         )
                     if len(search_results[0]) != self.top_k:
                         logger.warning(f"Expected {self.top_k} results, but got {len(search_results[0])} for batch.")
@@ -731,10 +741,12 @@ class Experiment:
 
                     # Update DB-queries progress bar
                     with progress_bar_lock:
-                        consumer_bar.update(len(embeddings))
+                        consumer_bar.update(len(batch))
 
                 except Exception as e:
-                    print(f"Consumer thread error: {str(e)}")
+                    import traceback
+                    print(f"Consumer thread error: {str(e)}", flush=True)
+                    print(traceback.format_exc(), flush=True)
                 finally:
                     task_queue.task_done()
 
@@ -780,7 +792,6 @@ class Experiment:
                         batch["expansion"] = self.query_expander(batch)
                         batch["vector_original"] = [vector for vector in self.embedder(batch["sent_no_cit"])]
                         batch["vector_expanded"] = [vector for vector in self.embedder(batch["expansion"])]
-                        task_queue.put((batch, None, i))
                     elif self.strategy == "multiple_query_expansion":
                         batch = batch.copy()
                         # Embed the original (identity) expansion
@@ -791,10 +802,10 @@ class Experiment:
                             expansion_name = expander.name
                             batch[expansion_name] = expansions
                             batch[f"vector_{expansion_name}"] = [vector for vector in self.embedder(expansions)]
-                        task_queue.put((batch, None, i))
                     elif self.precomputed_embeddings:
                         # df has a 'vector' column with precomputed embeddings
-                        task_queue.put((batch, None, i))
+                        pass
+
                     else:
                         expanded_queries = self.query_expander(batch)
                         embeddings = self.embedder(expanded_queries)
@@ -814,9 +825,16 @@ class Experiment:
 
                         batch["vector"] = embeddings.tolist()
 
-                        # task_queue.put((batch, embeddings.tolist(), i))
-                        task_queue.put((batch, None, i))
+                    if self.nn_model is not None:
+                        with torch.no_grad():
+                            # Convert DataFrame Series to list for torch.tensor
+                            vectors_list = batch["vector"].tolist()
+                            input_vectors = torch.tensor(vectors_list, device="cpu", dtype=torch.float32)
+                            transformed = self.nn_model(input_vectors).numpy()
+                            batch["vector"] = transformed.tolist()
 
+                    # Put batch on queue for consumer threads to process
+                    task_queue.put((batch, None, i))
                     producer_bar.update(len(batch))
 
                 # Put sentinels on the task queue to signal consumer completion
