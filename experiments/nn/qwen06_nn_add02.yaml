@@ -1,0 +1,16 @@
+dataset: 'data/dataset/nontrivial_checked.jsonl'
+table: 'qwen06_chunks'
+target_column: 'vector'
+metric: 'IP'
+embedder: 'Qwen/Qwen3-Embedding-0.6B'
+normalize: True
+strategy: 'multiple_query_expansion'
+query_expanders:
+  - add_prev_2
+nn: 'notebooks/best_model_traced.pth'
+interleave: True
+batch_size: 4
+top_k: 1000
+output_path: 'experiments/nn/results/'
+output_search_results: True
+plot_label: 'chunks/previous 0,2/interleave'

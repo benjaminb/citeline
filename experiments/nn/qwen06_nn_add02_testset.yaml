@@ -1,0 +1,15 @@
+dataset: 'src/citeline/nn/np_vectors_test.jsonl'
+table: 'qwen06_chunks'
+target_column: 'vector'
+metric: 'IP'
+embedder: 'Qwen/Qwen3-Embedding-0.6B'
+normalize: True
+strategy: 'multiple_query_expansion'
+query_expanders:
+  - add_prev_2
+interleave: True
+batch_size: 4
+top_k: 1000
+output_path: 'experiments/nn/results/'
+output_search_results: True
+plot_label: 'Test set: chunks/previous 0,2/interleave'
