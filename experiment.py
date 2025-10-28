@@ -23,7 +23,9 @@ logger = logging.getLogger(__name__)
 load_dotenv()
 
 # Path to queries' full records, for query expansion
-QUERY_EXPANSION_DATA = "data/preprocessed/reviews.jsonl"
+# Use absolute path relative to this file's location
+_EXPERIMENT_DIR = os.path.dirname(os.path.abspath(__file__))
+QUERY_EXPANSION_DATA = os.path.join(_EXPERIMENT_DIR, "data/preprocessed/reviews.jsonl")
 
 """
 PATCH TO APPLY All-but-the-Top transformation to embeddings
@@ -190,7 +192,7 @@ class Experiment:
         self.nn_path = kwargs.get("nn", None)
         if self.nn_path:
             # Load NN model to CPU to avoid GPU conflicts with embedder
-            self.nn_model = torch.jit.load(self.nn_path, map_location="cpu")
+            self.nn_model = torch.jit.load(self.nn_path, map_location="cpu").to(self.device)
             self.nn_model.eval()
         else:
             self.nn_model = None
@@ -745,6 +747,7 @@ class Experiment:
 
                 except Exception as e:
                     import traceback
+
                     print(f"Consumer thread error: {str(e)}", flush=True)
                     print(traceback.format_exc(), flush=True)
                 finally:
@@ -827,11 +830,17 @@ class Experiment:
 
                     if self.nn_model is not None:
                         with torch.no_grad():
-                            # Convert DataFrame Series to list for torch.tensor
-                            vectors_list = batch["vector"].tolist()
-                            input_vectors = torch.tensor(vectors_list, device="cpu", dtype=torch.float32)
-                            transformed = self.nn_model(input_vectors).numpy()
-                            batch["vector"] = transformed.tolist()
+                            # Get vector columns
+                            vector_columns = [col for col in batch.columns if col.startswith("vector")]
+                            for col in vector_columns:
+                                # Convert DataFrame Series to list for torch.tensor
+                                vectors_list = batch[col].tolist()
+                                # input_vectors = torch.tensor(vectors_list, device="cpu", dtype=torch.float32)
+
+                                # transformed = self.nn_model(input_vectors).numpy()
+                                # batch[col] = transformed.tolist()
+                                input_vectors = torch.tensor(vectors_list, device=self.device, dtype=torch.float32)
+                                batch[col] = self.nn_model(input_vectors).tolist()
 
                     # Put batch on queue for consumer threads to process
                     task_queue.put((batch, None, i))
@@ -902,6 +911,13 @@ class Experiment:
             hitrate_at_k[i] = hitrate
             iou_at_k[i] = iou
 
+        # Forward-fill metrics if fewer than top_k results were returned
+        # (metrics should be monotonic: once you find a hit, it stays found)
+        if len(results) < self.top_k and len(results) > 0:
+            hitrate_at_k[len(results):] = hitrate_at_k[len(results) - 1]
+            recall_at_k[len(results):] = recall_at_k[len(results) - 1]
+            iou_at_k[len(results):] = iou_at_k[len(results) - 1]
+
         return {
             "recall_at_k": recall_at_k,
             "hitrate_at_k": hitrate_at_k,
@@ -953,11 +969,6 @@ def main():
         print(experiment)
         experiment.run()
 
-        return
-
-    if args.write:
-        train, test = train_test_split_nontrivial("data/dataset/full/nontrivial.jsonl")
-        write_train_test_to_file(train, test, "data/dataset/split/")
         return
 
 
