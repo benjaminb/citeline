@@ -8,6 +8,8 @@ from tqdm import tqdm
 from citeline.database.milvusdb import MilvusDB
 from citeline.embedders import Embedder
 import itertools
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend to avoid tkinter threading issues
 import matplotlib.pyplot as plt
 import json
 import glob
@@ -196,8 +198,8 @@ def main():
         splitter = TextSplitter((min_len, min_len + increment), overlap=overlap, trim=True)
 
         # Chunk the papers, prep the df for insertion
-        tqdm.pandas(desc=f"Chunking papers (min_len={min_len}, max_len={min_len + increment}, overlap={overlap})")
-        temp_df["text"] = temp_df["paper"].progress_apply(lambda x: chunk_text(x, splitter))
+        with tqdm(total=len(temp_df), desc=f"Chunking papers (min_len={min_len}, max_len={min_len + increment}, overlap={overlap})") as pbar:
+            temp_df["text"] = temp_df["paper"].apply(lambda x: (pbar.update(1), chunk_text(x, splitter))[1])
         temp_df.drop(columns=["paper"], inplace=True)
         temp_df = temp_df.explode("text")
 
