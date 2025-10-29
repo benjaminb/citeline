@@ -20,54 +20,83 @@ def embed_sentences(
     return df
 
 
-def get_hard_records(
-    example: pd.Series, n: int = 4, db: MilvusDB = None, collection: str = "qwen06_chunks"
+def get_hard_negatives(
+    search_results: list[dict],
+    target_dois: set = None,
+    n: int = 3,
 ) -> list[str]:
     """
-    Overfetches 10*n most similar records (bc if two reps from same doc are in top n, we won't have n distinct non-target dois)
-
-    Returns:
-      A list of doi's, ordered by their max similarity to the query
+    Iterates over search results and returns a tensor of the first (hardest) n non-target vectors
     """
+
+    vectors = []
+    for rec in search_results:
+        if rec["doi"] not in target_dois:
+            vectors.append(rec["vector"])
+        if len(vectors) == n:
+            break
+    else:
+        raise ValueError("Not enough hard negatives found in search results. Set top k higher?")
+
+    return torch.tensor(vectors)
+
+
+def get_soft_negatives(
+    search_results: list[dict],
+    target_dois: set = None,
+    n: int = 3,
+) -> torch.tensor:
+    """
+    Assuming search_results > 100, samples n vectors from those results ranked higher than 100
+    """
+
+    assert len(search_results) > 100, "search_results must contain more than 100 entries"
+
+    # Filter down to only far results that are not targets
+    far_results = search_results[100:]
+    far_results = [rec for rec in far_results if rec["doi"] not in target_dois]
+    assert len(far_results) > n, "Not enough far results to sample from"
+
+    sampled_results = np.random.choice(far_results, size=n, replace=False)
+    vectors = [r["vector"] for r in sampled_results]
+    return torch.tensor(vectors)
+
+
+def get_hard_and_soft_negatives(
+    example: pd.Series,
+    hard_n: int = 3,
+    soft_n: int = 3,
+    db: MilvusDB = None,
+    collection: str = "qwen06_chunks",
+    top_k: int = 500,
+) -> tuple[torch.tensor, torch.tensor]:
     results = db.search(
         collection_name=collection,
         query_records=[example.to_dict()],
         query_vectors=[example.vector],
-        limit=10 * n,
+        limit=top_k,
         output_fields=["text", "doi", "pubdate", "citation_count", "vector"],
     )
     results = results[0]  # db.search operates on lists of queries; we only need the first result
-
-    # Filter results to non-targets only, return the first n
-    target_dois = set(example.citation_dois)
-    non_target_results = [r for r in results if r["doi"] not in target_dois][:n]
-    vectors = [r["vector"] for r in non_target_results]
-    # return np.array(vectors)
-    return torch.tensor(vectors)
+    target_dois = set(example.citation_dois)  # All citation DOIs from original query (before explode)
+    hard_negatives = get_hard_negatives(results, target_dois=target_dois, n=hard_n)
+    soft_negatives = get_soft_negatives(results, target_dois=target_dois, n=soft_n)
+    return hard_negatives, soft_negatives
 
 
-def get_similar_targets(
-    example: pd.Series, n: int = 4, db: MilvusDB = None, collection: str = "qwen06_chunks"
-) -> list[str]:
+def get_positives(example: pd.Series, n: int = 3, db: MilvusDB = None, collection: str = "qwen06_chunks") -> np.ndarray:
     """
-    Returns:
-      A list of doi's, ordered by their max similarity to the query
+    Returns n positive vectors from the single target DOI, ranked by similarity to the query
     """
+    doi = example["target_doi"]  # Single target DOI after explode
+    records = db.select_by_doi(doi=doi, collection_name=collection)
+    target_vectors = np.array(records["vector"].tolist())
 
-    def get_similar_target_vectors_by_doi(doi: str) -> np.ndarray:
-        records = db.select_by_doi(doi=doi, collection_name=collection)
-        target_vectors = np.array(records["vector"].tolist())
-
-        # Get the top n most similar records
-        similarities = example["vector"] @ target_vectors.T
-        top_n_indices = np.argpartition(-similarities, n)[:n]
-        top_n_vectors = target_vectors[top_n_indices]
-        return top_n_vectors
-
-    blocks = []
-    for doi in example["citation_dois"]:
-        blocks.append(get_similar_target_vectors_by_doi(doi))
-    return np.vstack(blocks)
+    # Get the top n most similar records
+    similarities = example["vector"] @ target_vectors.T
+    top_n_indices = np.argpartition(-similarities, min(n, len(similarities)))[:n]
+    top_n_vectors = target_vectors[top_n_indices]
+    return top_n_vectors
 
 
 def append_query_expansion(df: pd.DataFrame, expander: str = "add_prev_2", batch_size: int = 32) -> pd.DataFrame:
@@ -79,59 +108,80 @@ def append_query_expansion(df: pd.DataFrame, expander: str = "add_prev_2", batch
 
     # Apply query expansion in batches
     for i in tqdm(range(0, len(df), batch_size), desc="Batch processing for query expansion"):
-        # end_idx = min(i + batch_size, len(df))
         df_expanded.loc[i : i + batch_size, "sent_no_cit"] = expander(df_expanded.loc[i : i + batch_size])
     df_out = pd.concat([df, df_expanded], ignore_index=True)
     return df_out
 
 
-def data_to_h5(df: pd.DataFrame, output_path: str, embedder: Embedder, db: MilvusDB, collection: str = "qwen06_chunks"):
+def data_to_h5(
+    df: pd.DataFrame,
+    output_path: str,
+    embedder: Embedder,
+    db: MilvusDB,
+    collection: str = "qwen06_chunks",
+    num_positives: int = 4,
+    num_hard_negatives: int = 4,
+    num_soft_negatives: int = 4,
+):
     df = embed_sentences(df, embedder)
+
+    queries = []
+    positives = []
+    hard_negatives = []
+    soft_negatives = []
+
+    for _, row in tqdm(df.iterrows(), total=len(df), desc="Building dataset"):
+        queries.append(row["vector"])
+        positives.append(get_positives(row, n=num_positives, db=db, collection=collection))
+        hard_negs, soft_negs = get_hard_and_soft_negatives(
+            row,
+            hard_n=num_hard_negatives,
+            soft_n=num_soft_negatives,
+            db=db,
+            collection=collection,
+        )
+        hard_negatives.append(hard_negs)
+        soft_negatives.append(soft_negs)
+
+    # Convert to numpy arrays
+    queries = np.array(queries)
+    positives = np.array(positives)
+    hard_negatives = np.array(hard_negatives)
+    soft_negatives = np.array(soft_negatives)
+
+    # Write to HDF5
     with h5py.File(output_path, "w") as f:
-        dset = f.create_dataset("triplets", shape=(0, 3, 1024), maxshape=(None, 3, 1024), dtype="float32")
-        triplet_buffer = []
-        for _, row in tqdm(df.iterrows(), total=len(df), desc="Creating triplets"):
-            query_vector = row["vector"]
-            positive_vectors = get_similar_targets(row, n=4, db=db, collection=collection)
-            negative_vectors = get_hard_records(row, n=4, db=db, collection=collection)
+        f.create_dataset("queries", data=queries)
+        f.create_dataset("positives", data=positives)
+        f.create_dataset("hard_negatives", data=hard_negatives)
+        f.create_dataset("soft_negatives", data=soft_negatives)
 
-            for pos_vec, neg_vec in product(positive_vectors, negative_vectors):
-                triplet_buffer.append(np.array([query_vector, pos_vec, neg_vec]))
-
-            if len(triplet_buffer) >= 1024:
-                new_size = dset.shape[0] + len(triplet_buffer)
-                dset.resize(new_size, axis=0)
-                dset[-len(triplet_buffer) :] = np.array(triplet_buffer)
-                triplet_buffer = []
-
-        # Write any remaining triplets in the buffer
-        if triplet_buffer:
-            new_size = dset.shape[0] + len(triplet_buffer)
-            dset.resize(new_size, axis=0)
-            dset[-len(triplet_buffer) :] = np.array(triplet_buffer)
-
-        num_samples = dset.shape[0]
-        print(f"Dataset (n={num_samples}) save to: {output_path}")  # (num_samples, 3, vector_dim)
+    print(f"Dataset saved to: {output_path}")
+    print(f"  Queries: {queries.shape}")
+    print(f"  Positives: {positives.shape}")
+    print(f"  Hard negatives: {hard_negatives.shape}")
+    print(f"  Soft negatives: {soft_negatives.shape}")
 
 
 def main():
     """
     This script creates a dataset for neural net contrastive learning. The task is to map queries'
-    embeddings close to their target documents' embeddings, and simultaneously far from hard negatives.
+    embeddings close to their target documents' embeddings, and simultaneously far from hard and soft negatives.
 
-    This creates a triplet dataset of numpy arrays [N * 3 * D], where each triplet is:
-      (query_vector, positive_vector, hard_vector)
-
-    From each original sentence in the dataset, we create multiple triplets by:
-        1. Representing the original sentence as-is plus with add_prev_2 query expansion, since this is a top-performing strategy
-        2. Retrieve the top 4 chunks by similarity and the top 4 hard negatives by similarity
-        3. Create all combinations of (query, positive, hard) triplets from these
     """
+    EXPANSION = "add_prev_2"
+    DATA_FILE = "../../../data/dataset/nontrivial_100.jsonl"
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
     embedder = Embedder.create("Qwen/Qwen3-Embedding-0.6B", device=device, normalize=True)
+    print(f"Using query expansion: {EXPANSION}")
     db = MilvusDB()
-    df = pd.read_json("../../../data/dataset/nontrivial_checked.jsonl", lines=True)
-    df = append_query_expansion(df, expander="add_prev_2")
+    df = pd.read_json(DATA_FILE, lines=True)
+
+    # Prepare dataframe: append query expansion, explode on citation_dois
+    if EXPANSION != "identity":
+        df = append_query_expansion(df, expander=EXPANSION)
+    df["target_doi"] = df["citation_dois"]
+    df = df.explode("target_doi").reset_index(drop=True)
 
     # Create train/val/test split: 70/15/15
     train_df = df.sample(frac=0.7, random_state=42)
@@ -142,7 +192,7 @@ def main():
     for split_name, split_df in zip(["train", "val", "test"], [train_df, val_df, test_df]):
         print(f"=== {split_name.upper()} SET ===")
         print(f"Building {split_name} dataset with {len(split_df)} records...")
-        output_path = f"../../../data/dataset/{split_name}_nn_triplet_dataset.h5"
+        output_path = f"../../../data/dataset/{split_name}_triplet_ds_{EXPANSION}.h5"
         data_to_h5(
             df=split_df,
             output_path=output_path,
