@@ -286,75 +286,12 @@ class MilvusDB:
             embedder_name: Name of the embedder to use for generating vector embeddings
             normalize: Whether to normalize the embeddings
         """
-        # Make sure we have CPU count set
-        # assert "CPUS" in os.environ, "CPUS environment variable not set."
-        # try:
-        #     num_cpus = int(os.getenv("CPUS"))
-        # except ValueError:
-        #     raise ValueError(f"Invalid value for CPUS environment variable.")
         try:
             data = pd.read_json(data_source, lines=True)
         except Exception as e:
             print(f"Error reading data source {data_source}: {e}")
             return
         self.create_vector_collection_pd(name, data, embedder_name, normalize, batch_size)
-        # assert set(data.columns) == {
-        #     "text",
-        #     "doi",
-        #     "pubdate",
-        #     "citation_count",
-        # }, f"DataFrame must contain 'text', 'doi', 'citation_count', and 'pubdate' columns (and no others). Dataset given has columns {data.columns}"
-        # embedder = Embedder.create(model_name=embedder_name, device=self.device, normalize=normalize)
-
-        # # Check if collection already exists and handle resumption
-        # if name in self.client.list_collections():
-        #     print(f"Collection '{name}' already exists. Checking for existing data...")
-        #     collection = Collection(name)
-        #     collection.load()  # Ensure collection is loaded
-
-        #     if len(data) == collection.num_entities:
-        #         print("Data source length same as collection, there appears to be nothing to insert.")
-        #         return
-        #     data = self._filter_existing_data(collection, data)
-
-        # else:
-        #     # Create new collection
-        #     print(f"Creating new collection '{name}'...")
-        #     # Set up the schema
-        #     schema = self.client.create_schema(
-        #         auto_id=True,
-        #         enable_dynamic_field=True,
-        #     )
-        #     vector_field = {"field_name": "vector", "datatype": DataType.FLOAT_VECTOR, "dim": embedder.dim}
-        #     for field in self.BASE_FIELDS + [vector_field]:
-        #         schema.add_field(**field)
-
-        #     self.client.create_collection(collection_name=name, schema=schema)
-        #     print(f"Collection '{name}' created")
-        #     collection = Collection(name)
-        #     collection.create_index(field_name="vector", index_params={"index_type": "FLAT", "metric_type": "IP"})
-
-        # # Print a table of the collection to be created, num cpus, embedder name and its dimension
-        # print("=" * 50)
-        # print("COLLECTION CREATION SUMMARY")
-        # print("=" * 50)
-        # print(f"Collection Name     : {name}")
-        # print(f"Collection Entities : {collection.num_entities}")
-        # print(f"Num CPUs            : {num_cpus}")
-        # print(f"Embedder Name       : {embedder_name}")
-        # print(f"Embedder Dimension  : {embedder.dim}")
-        # print(f"Normalize           : {normalize}")
-        # print(f"Batch Size          : {batch_size}")
-        # print(f"Device              : {self.device}")
-        # print(f"Data source         : {data_source}")
-        # print(f"Data size           : {len(data)} rows")
-        # print("=" * 50)
-
-        # self.__embed_and_insert(
-        #     collection=collection, embedder=embedder, data=data, num_cpus=num_cpus, batch_size=batch_size
-        # )
-
-        # print(f"New collection {collection.name}: {collection.num_entities} entities")
 
     def create_xtop_collection(
         self,

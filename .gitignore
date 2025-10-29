@@ -14,7 +14,7 @@ src/citeline/database/milvus/volumes/
 ./*.csv
 temp_*
 
-# But do include .json files in experiments/results
+# But do include .json files in experiments/results and similar dirs
 !experiments/**/*.json
 
 # But do include prompts
