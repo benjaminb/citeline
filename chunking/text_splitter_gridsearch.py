@@ -21,9 +21,9 @@ os.makedirs("gridsearch", exist_ok=True)
 os.makedirs("gridsearch/heatmaps", exist_ok=True)
 
 EMBEDDER_NAME = "Qwen/Qwen3-Embedding-0.6B"
-# TODO: run this with bigger dataset later
 QUERY_DATASET = "../data/dataset/nontrivial_checked.jsonl"
-TOP_K = 400
+N = 100
+TOP_K = 200
 
 
 def reconstruct_paper(example: pd.Series) -> str:
@@ -106,7 +106,7 @@ def create_heatmap(heatmap_data, min_lengths, increments, overlap_val, k_value, 
 
 
 def main():
-    sample_df = pd.read_json(QUERY_DATASET, lines=True).sample(n=1000, random_state=42)
+    sample_df = pd.read_json(QUERY_DATASET, lines=True).sample(n=N, random_state=42)
     target_dois = set(sample_df["citation_dois"].explode().unique())
     print(f"Testing text splitter grid search on {len(target_dois)} unique DOIs")
 
@@ -116,6 +116,11 @@ def main():
     tqdm.pandas(desc="Embedding sample queries")
     sample_df["vector"] = sample_df.progress_apply(lambda row: embedder([row["sent_no_cit"]])[0], axis=1)
     db = MilvusDB()
+
+    # Save the sampled queries to a temporary file so experiments use the correct subset
+    sample_queries_path = "gridsearch/temp_sample_queries.jsonl"
+    sample_df.to_json(sample_queries_path, orient="records", lines=True)
+    print(f"Saved {len(sample_df)} sampled queries to {sample_queries_path}")
 
     # Prep the full dataset (research papers)
     research = pd.read_json("../data/preprocessed/research.jsonl", lines=True)
@@ -204,7 +209,7 @@ def main():
 
         # Create experiment config (convert numpy types to Python types for JSON serialization)
         config = {
-            "dataset": QUERY_DATASET,
+            "dataset": sample_queries_path,  # Use the sampled queries, not the full dataset!
             "table": collection_name,
             "target_column": "vector",
             "metric": "IP",
@@ -219,6 +224,7 @@ def main():
             "min_length": int(min_len),
             "increment": int(increment),
             "overlap": int(overlap),
+            "has_precomputed_embeddings": True,  # Embeddings already computed above
         }
 
         # Run an experiment using the sample_df as query data and this collection as target table
