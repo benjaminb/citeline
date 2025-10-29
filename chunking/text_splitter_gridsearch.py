@@ -9,6 +9,8 @@ from citeline.database.milvusdb import MilvusDB
 from citeline.embedders import Embedder
 import itertools
 import matplotlib.pyplot as plt
+import json
+import glob
 
 # Add parent directory to sys.path to import Experiment
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -26,6 +28,37 @@ TOP_K = 400
 
 def reconstruct_paper(example: pd.Series) -> str:
     return f"{example['title']}\n\nAbstract: {example['abstract']}\n\n{example['body']}"
+
+
+def load_completed_results(gridsearch_dir="gridsearch"):
+    """
+    Scan the gridsearch directory for completed results and return:
+    1. A set of completed (overlap, min_len, increment) tuples
+    2. A dict mapping tuples to their result file paths
+    """
+    completed = set()
+    result_files = {}
+
+    # Find all result JSON files
+    pattern = os.path.join(gridsearch_dir, "**", "results_gs_*.json")
+    for filepath in glob.glob(pattern, recursive=True):
+        # Extract parameters from filename: results_gs_min{min}_inc{inc}_ov{ov}.json
+        filename = os.path.basename(filepath)
+        try:
+            # Parse: results_gs_min50_inc100_ov0.json
+            parts = filename.replace("results_gs_", "").replace(".json", "").split("_")
+            min_len = int(parts[0].replace("min", ""))
+            increment = int(parts[1].replace("inc", ""))
+            overlap = int(parts[2].replace("ov", ""))
+
+            param_tuple = (overlap, min_len, increment)
+            completed.add(param_tuple)
+            result_files[param_tuple] = filepath
+        except (ValueError, IndexError) as e:
+            print(f"Warning: Could not parse filename {filename}: {e}")
+            continue
+
+    return completed, result_files
 
 
 def chunk_text(text: str, splitter: TextSplitter) -> list[str]:
@@ -115,6 +148,27 @@ def main():
     min_len_to_idx = {v: i for i, v in enumerate(min_lengths)}
     inc_to_idx = {v: i for i, v in enumerate(increments)}
 
+    # Check for completed results to resume from
+    completed_params, result_files = load_completed_results("gridsearch")
+    print(f"Found {len(completed_params)} completed experiments, will skip these")
+
+    # Load existing results into arrays
+    for param_tuple, filepath in result_files.items():
+        overlap, min_len, increment = param_tuple
+        try:
+            with open(filepath, 'r') as f:
+                result_data = json.load(f)
+
+            ov_idx = overlap_to_idx[overlap]
+            min_len_idx = min_len_to_idx[min_len]
+            inc_idx = inc_to_idx[increment]
+
+            hitrate_results[ov_idx, min_len_idx, inc_idx] = np.array(result_data['average_hitrate_at_k'])
+            recall_results[ov_idx, min_len_idx, inc_idx] = np.array(result_data['average_recall_at_k'])
+            iou_results[ov_idx, min_len_idx, inc_idx] = np.array(result_data['average_iou_at_k'])
+        except Exception as e:
+            print(f"Warning: Could not load results from {filepath}: {e}")
+
     # Grid search over parameters with progress tracking
     total_combinations = len(overlaps) * len(min_lengths) * len(increments)
     for overlap, min_len, increment in tqdm(
@@ -124,6 +178,10 @@ def main():
     ):
         # Skip invalid parameter combinations where overlap is too large
         if overlap > min_len - overlap_stepsize:
+            continue
+
+        # Skip if already completed
+        if (overlap, min_len, increment) in completed_params:
             continue
 
         # Create temp df to insert into DB
