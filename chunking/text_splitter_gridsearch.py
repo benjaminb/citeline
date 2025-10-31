@@ -143,8 +143,8 @@ def main():
     """
     overlap_stepsize = 50
     overlaps = np.arange(0, 201, overlap_stepsize)
-    min_lengths = np.arange(100, 1001, 100)
-    increments = np.arange(100, 1001, 100)
+    min_lengths = np.arange(100, 1001, 200)
+    increments = np.arange(100, 1001, 200)
 
     hitrate_results = np.zeros((len(overlaps), len(min_lengths), len(increments), TOP_K))
     recall_results = np.zeros((len(overlaps), len(min_lengths), len(increments), TOP_K))
