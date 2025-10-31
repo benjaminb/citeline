@@ -143,8 +143,8 @@ def main():
     """
     overlap_stepsize = 50
     overlaps = np.arange(0, 201, overlap_stepsize)
-    min_lengths = np.arange(50, 1001, 50)
-    increments = np.arange(50, 1001, 50)
+    min_lengths = np.arange(100, 1001, 100)
+    increments = np.arange(100, 1001, 100)
 
     hitrate_results = np.zeros((len(overlaps), len(min_lengths), len(increments), TOP_K))
     recall_results = np.zeros((len(overlaps), len(min_lengths), len(increments), TOP_K))
@@ -200,6 +200,10 @@ def main():
         # Chunk the papers, prep the df for insertion
         with tqdm(total=len(temp_df), desc=f"Chunking papers (min_len={min_len}, max_len={min_len + increment}, overlap={overlap})") as pbar:
             temp_df["text"] = temp_df["paper"].apply(lambda x: (pbar.update(1), chunk_text(x, splitter))[1])
+
+        # Ensure tqdm output is fully flushed before any subsequent prints
+        sys.stdout.flush()
+
         temp_df.drop(columns=["paper"], inplace=True)
         temp_df = temp_df.explode("text")
 

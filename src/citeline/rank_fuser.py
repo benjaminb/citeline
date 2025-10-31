@@ -19,17 +19,19 @@ class RankFuser:
     then uses those weights to rerank a set of results
     """
 
-    def __init__(self, config: dict[str, float]):
+    def __init__(self, config: dict[str, float], k=60):
         """
         Initializes the RankFuser with a configuration dictionary that maps scoring function names to their weights.
 
         Args:
             config (dict[str, float]): A dictionary where keys are metric names and values are their respective weights.
                                         Find the metric names in the decorators preceding each Metric subclass in metrics.py
+            k (int): The damping parameter for Reciprocal Rank Fusion (RRF). Default is 60.
         """
         self.config = config
         self.metrics = [Metric.get_metric(name) for name in config.keys()]
         self.weights = list(config.values())
+        self.k = k
 
     def rerank(self, data: list[dict]) -> list[dict[str, pd.Series | pd.DataFrame]]:
         """
@@ -65,13 +67,14 @@ class RankFuser:
             pd.DataFrame: The reranked results.
         """
         results_df = results.copy()
-        results_df["weighted_score"] = 0
+        results_df["rrf"] = 0
 
-        # Compute metrics & build weighted score
+        # For each metric, compute scores, get ranks, and build weighted RRF
         for metric, weight in zip(self.metrics, self.weights):
-            scores = metric(query, results)
+            scores = metric(query, results_df)
             results_df[metric.name] = scores
-            results_df["weighted_score"] += scores * weight
+            ranks = scores.rank(ascending=False, method="first")
+            results_df["rrf"] += weight / (ranks + self.k)
 
         # Sort by the weighted score in descending order
-        return results_df.sort_values("weighted_score", ascending=False).reset_index(drop=True)
+        return results_df.sort_values("rrf", ascending=False).reset_index(drop=True)

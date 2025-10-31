@@ -39,10 +39,34 @@ class Metric(ABC):
         self.db = db
 
     @abstractmethod
-    def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
+    def __call__(self, query: pd.Series, results: list[dict]) -> pd.Series:
         pass
 
 
+@Metric.register("reciprocal_rank")
+class ReciprocalRank(Metric):
+    """
+    Returns the rank of each result (1/1, 1/2, 1/3, ...)
+
+    Can also be used to test the reranking pipeline doesn't break order inadvertently.
+    """
+
+    def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
+        return pd.Series([1 / n for n in range(1, len(results) + 1)], index=results.index)
+
+@Metric.register("retrieval_count")
+class RetrievalCount(Metric):
+    """
+    Assigns to each result entity the number of times that doi appears in the results
+    """
+    def __call__(self, query, results):
+        # Iterate over the results and build a dict mapping doi to count
+        # results_df = pd.DataFrame(results)
+        doi_counts = results['doi'].value_counts().to_dict()
+
+        # Create a list of counts corresponding to each result
+        return results['doi'].map(doi_counts)
+    
 @Metric.register("log_citations")
 class LogCitations(Metric):
 

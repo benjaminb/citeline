@@ -7,7 +7,7 @@ import torch
 import yaml
 import numpy as np
 import pandas as pd
-
+from matplotlib.ticker import MultipleLocator
 from time import time
 from datetime import datetime
 from dotenv import load_dotenv
@@ -191,9 +191,10 @@ class Experiment:
         self.metrics_config = kwargs.get("metrics_config", None)
         self.nn_path = kwargs.get("nn", None)
         if self.nn_path:
-            # Load NN model to CPU to avoid GPU conflicts with embedder
             self.nn_model = torch.jit.load(self.nn_path, map_location="cpu").to(self.device)
             self.nn_model.eval()
+            if self.device == "cuda":
+                self.nn_model = torch.compile(self.nn_model)
         else:
             self.nn_model = None
 
@@ -250,16 +251,6 @@ class Experiment:
         self.best_top_distances = []
         self.hits = []
         self.recall_scores = []  # proportion of target DOIs that were retrieved in the top-k results
-
-    # TODO: if __basic_search_2 works fine (passing vectors with the data records), remove this
-    def __basic_search(self, db: MilvusDB, records: list[dict], vectors: list[list[float]]) -> list[dict]:
-        return db.search(
-            collection_name=self.target_table,
-            query_records=records,
-            query_vectors=vectors,
-            metric=self.metric,
-            limit=self.top_k,
-        )
 
     def __basic_search_2(self, db: MilvusDB, records: list[dict]) -> list[dict]:
         """
@@ -525,8 +516,8 @@ class Experiment:
             arrowprops=dict(arrowstyle="->", color="green", lw=1.5),
         )
 
-        # Add annotations every 100 values
-        annotation_interval = 100
+        # Add annotations every 50 values
+        annotation_interval = 50
         for i in range(0, len(k_values), annotation_interval):
             k = k_values[i]
 
@@ -569,7 +560,7 @@ class Experiment:
         plt.legend()
 
         # Add grid lines at 0.05 intervals but labels every 0.1
-        from matplotlib.ticker import MultipleLocator
+
 
         ax = plt.gca()
         ax.yaxis.set_major_locator(MultipleLocator(0.1))  # Labels every 0.1
@@ -597,6 +588,7 @@ class Experiment:
         import queue
         import threading
 
+        print(self)
         # Make sure we have CPU count available
         assert "CPUS" in os.environ, "CPUS environment variable not set."
         try:
@@ -613,7 +605,6 @@ class Experiment:
         progress_bar_lock = threading.Lock()
         stats_lock = threading.Lock()
         file_lock = threading.Lock()
-        # results_queue = queue.Queue()
 
         # Preallocate result matrices so consumers can write into them directly
         dataset_size = len(self.dataset)
@@ -830,16 +821,11 @@ class Experiment:
 
                     if self.nn_model is not None:
                         with torch.no_grad():
-                            # Get vector columns
+                            # Get all "vector*" columns, in case there's more than one (e.g. mixed expansion)
                             vector_columns = [col for col in batch.columns if col.startswith("vector")]
                             for col in vector_columns:
-                                # Convert DataFrame Series to list for torch.tensor
-                                vectors_list = batch[col].tolist()
-                                # input_vectors = torch.tensor(vectors_list, device="cpu", dtype=torch.float32)
-
-                                # transformed = self.nn_model(input_vectors).numpy()
-                                # batch[col] = transformed.tolist()
-                                input_vectors = torch.tensor(vectors_list, device=self.device, dtype=torch.float32)
+                                vectors = np.array(batch[col].tolist())
+                                input_vectors = torch.from_numpy(vectors).to(device=self.device, dtype=torch.float32)
                                 batch[col] = self.nn_model(input_vectors).tolist()
 
                     # Put batch on queue for consumer threads to process
@@ -914,9 +900,9 @@ class Experiment:
         # Forward-fill metrics if fewer than top_k results were returned
         # (metrics should be monotonic: once you find a hit, it stays found)
         if len(results) < self.top_k and len(results) > 0:
-            hitrate_at_k[len(results):] = hitrate_at_k[len(results) - 1]
-            recall_at_k[len(results):] = recall_at_k[len(results) - 1]
-            iou_at_k[len(results):] = iou_at_k[len(results) - 1]
+            hitrate_at_k[len(results) :] = hitrate_at_k[len(results) - 1]
+            recall_at_k[len(results) :] = recall_at_k[len(results) - 1]
+            iou_at_k[len(results) :] = iou_at_k[len(results) - 1]
 
         return {
             "recall_at_k": recall_at_k,
@@ -966,7 +952,6 @@ def main():
             config["config_file"] = config_filename  # Add config filename to config dict
 
         experiment = Experiment(**config)
-        print(experiment)
         experiment.run()
 
         return

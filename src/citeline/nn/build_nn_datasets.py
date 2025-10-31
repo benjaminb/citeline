@@ -170,12 +170,17 @@ def main():
 
     """
     EXPANSION = "add_prev_2"
-    DATA_FILE = "../../../data/dataset/nontrivial_100.jsonl"
+    DATA_FILE = "../../../data/dataset/nontrivial_checked.jsonl"
+    N = 1000
+    OUTFILE_BASE = "../../../data/dataset/nn"
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
     embedder = Embedder.create("Qwen/Qwen3-Embedding-0.6B", device=device, normalize=True)
     print(f"Using query expansion: {EXPANSION}")
     db = MilvusDB()
     df = pd.read_json(DATA_FILE, lines=True)
+    
+    # Use this if you want to sample from full dataset
+    # df = pd.read_json(DATA_FILE, lines=True).sample(n=N, random_state=42).reset_index(drop=True)
 
     # Prepare dataframe: append query expansion, explode on citation_dois
     if EXPANSION != "identity":
@@ -192,13 +197,16 @@ def main():
     for split_name, split_df in zip(["train", "val", "test"], [train_df, val_df, test_df]):
         print(f"=== {split_name.upper()} SET ===")
         print(f"Building {split_name} dataset with {len(split_df)} records...")
-        output_path = f"../../../data/dataset/{split_name}_triplet_ds_{EXPANSION}.h5"
+        output_path = f"{OUTFILE_BASE}/{split_name}_triplet_ds_{EXPANSION}.h5"
         data_to_h5(
             df=split_df,
             output_path=output_path,
             embedder=embedder,
             db=db,
         )
+        df_output_path = f"{OUTFILE_BASE}/{split_name}_ds_{EXPANSION}.jsonl"
+        split_df.to_json(df_output_path, orient="records", lines=True)
+        print(f"Query dataset saved to: {df_output_path}")
 
 
 if __name__ == "__main__":

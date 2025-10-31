@@ -3,14 +3,14 @@ table: 'qwen06_chunks'
 target_column: 'vector'
 metric: 'IP'
 embedder: 'Qwen/Qwen3-Embedding-0.6B'
-normalize: True
+normalize: true
 strategy: 'multiple_query_expansion'
 query_expanders:
   - add_prev_2
 nn: 'notebooks/best_model_traced.pth'
-interleave: True
+interleave: true
 batch_size: 4
 top_k: 1000
 output_path: 'experiments/nn/results/'
-output_search_results: True
+output_search_results: true
 plot_label: 'chunks/previous 0,2/interleave'
