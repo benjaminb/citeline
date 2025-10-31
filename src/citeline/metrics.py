@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import math
 import numpy as np
 import pandas as pd
 import torch
@@ -54,19 +55,22 @@ class ReciprocalRank(Metric):
     def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
         return pd.Series([1 / n for n in range(1, len(results) + 1)], index=results.index)
 
+
 @Metric.register("retrieval_count")
 class RetrievalCount(Metric):
     """
     Assigns to each result entity the number of times that doi appears in the results
     """
+
     def __call__(self, query, results):
         # Iterate over the results and build a dict mapping doi to count
         # results_df = pd.DataFrame(results)
-        doi_counts = results['doi'].value_counts().to_dict()
+        doi_counts = results["doi"].value_counts().to_dict()
 
         # Create a list of counts corresponding to each result
-        return results['doi'].map(doi_counts)
-    
+        return results["doi"].map(doi_counts)
+
+
 @Metric.register("log_citations")
 class LogCitations(Metric):
 
@@ -137,6 +141,74 @@ class BGEReranker(Metric):
         return pd.Series(scores, index=results.index)
 
 
+@Metric.register("bm25")
+class BM25(Metric):
+    def __init__(self, db=None):
+        super().__init__(db=db)
+        import bm25s
+
+        self.bm25 = bm25s
+
+    def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
+        corpus = results["text"].tolist()
+        retriever = self.bm25.BM25(corpus=corpus, method="bm25+")
+        retriever.index(self.bm25.tokenize(corpus))
+
+        query_text = query["sent_no_cit"]
+        _, scores = retriever.retrieve(self.bm25.tokenize(query_text), k=len(corpus))
+
+        # scores is 2D with shape (1, k) for a single query, so we need to flatten it
+        # scores_flat = scores.flatten() if hasattr(scores, "flatten") else scores[0]
+
+        return pd.Series(scores[0], index=results.index)
+
+@Metric.register("bm25_scratch")
+class BM25Scratch(Metric):
+    def __init__(self, db=None):
+        super().__init__(db=db)
+        import re
+        self._WORD_RE = re.compile(r"[A-Za-z0-9_]+", re.UNICODE)
+
+    def tokenize(self, text: str) -> list[str]:
+        return [token.lower() for token in self._WORD_RE.findall(text or "")]
+
+    def okapi_bm25_scores(self, query_text: str, doc_texts: list[str], k1: float = 1.5, b: float = 0.75) -> np.ndarray:
+        q_tokens = self.tokenize(query_text)
+        docs_tokens = [self.tokenize(t) for t in doc_texts]
+        N = len(docs_tokens)
+        if N == 0:
+            return np.zeros((0,), dtype=float)
+        doc_len = np.array([len(toks) for toks in docs_tokens], dtype=float)
+        avgdl = doc_len.mean() if N else 0.0
+        tf_list = []
+        for toks in docs_tokens:
+            tf = {}
+            for token in toks:
+                tf[token] = tf.get(token, 0) + 1
+            tf_list.append(tf)
+        query_terms = set(q_tokens)
+        df = {token: sum(1 for tf in tf_list if token in tf) for token in query_terms}
+        scores = np.zeros(N, dtype=float)
+        for i, tf in enumerate(tf_list):
+            dl = doc_len[i]
+            norm = k1 * (1.0 - b + b * (dl / avgdl)) if avgdl > 0 else k1
+            score = 0.0
+            for token in query_terms:
+                f = tf.get(token, 0.0)
+                if f <= 0:
+                    continue
+                idf = math.log(1.0 + (N - df.get(token, 0) + 0.5) / (df.get(token, 0) + 0.5))
+                score += idf * ((f * (k1 + 1.0)) / (f + norm))
+            scores[i] = score
+        return scores
+
+    def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
+        corpus = results["text"].tolist()
+        query_text = query["sent_no_cit"]
+        scores = self.okapi_bm25_scores(query_text, corpus)
+        return pd.Series(scores, index=results.index)
+
+
 @Metric.register("roberta_nli")
 class RobertaNLI(Metric):
     def __init__(self, db=None):
@@ -171,6 +243,25 @@ class Similarity(Metric):
             raise ValueError("Results DataFrame must contain 'metric' column")
 
         return results["metric"]
+
+
+@Metric.register("position")
+class Position(Metric):
+    """
+    Returns a score based on the original position in the results list.
+    Higher positions (earlier in the list) get higher scores.
+
+    This is useful for preserving the original ranking order (e.g., when results
+    are interleaved from multiple query expansions) while still using RRF.
+
+    The score is simply the reciprocal of position: 1/1, 1/2, 1/3, ...
+    When used with rank(), this will produce ranks [1, 2, 3, ...].
+    """
+
+    def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
+        # Return scores that decrease with position: [1.0, 0.5, 0.333, 0.25, ...]
+        # When these are ranked with ascending=False, they'll produce ranks [1, 2, 3, ...]
+        return pd.Series([1.0 / (i + 1) for i in range(len(results))], index=results.index)
 
 
 def main():
