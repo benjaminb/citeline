@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 import json
 import numpy as np
+import time
 from tqdm import tqdm
 import torch
 import pandas as pd
@@ -46,7 +47,7 @@ def argument_parser():
         "--import-collection",
         nargs=2,
         metavar=("data_path", "collection_name"),
-        help="Import a collection from a JSONL file",
+        help="Import collection from a JSONL file",
     )
 
     operation_group.add_argument(
@@ -764,6 +765,9 @@ class MilvusDB:
                 for _ in range(num_workers):
                     insert_queue.put(None)
                 insert_queue.join()
+
+                # Give progress bars a moment to finish their final updates
+                time.sleep(0.1)
 
                 # Surface any worker exceptions
                 for f in futures:

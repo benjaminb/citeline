@@ -1,0 +1,16 @@
+dataset: 'data/dataset/nn/val_ds_add_prev_2.jsonl'
+table: 'qwen06_chunks'
+target_column: 'vector'
+metric: 'IP'
+embedder: 'Qwen/Qwen3-Embedding-0.6B'
+normalize: true
+nn: 'notebooks/BaselineEmbeddingMapper/cos_adam_40epochs_20251030_101744/BaselineEmbeddingMapper_traced.pth' # Replace with actual model trace path
+strategy: 'multiple_query_expansion'
+query_expanders:
+  - 'add_prev_2'
+interleave: true
+batch_size: 8
+top_k: 1000
+output_path: 'experiments/nn/results/'
+output_search_results: false
+plot_label: 'cos_adam_40epochs' # Replace with actual experiment name
