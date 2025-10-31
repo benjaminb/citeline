@@ -122,33 +122,33 @@ class RerankExperiment:
 def main():
     NUM_WORKERS = 11
     search_results_file = "experiments/multiple_query_expansion/results/search_results.jsonl"
-    for retrieval_weight in np.arange(0.0, 1.1, 0.1):
-        experiment_name = f"rrf_retrieval_{retrieval_weight:.1f}"
-        cos_weight = 1.0 - retrieval_weight
-        config = {
-            "retrieval_count": retrieval_weight,
-            "similarity": cos_weight,
-        }
-        experiment = RerankExperiment(
-            experiment_name=experiment_name,
-            search_results_file=search_results_file,
-            reranker_config=config,
-            k=60,
-            num_workers=NUM_WORKERS,
-        )
-        experiment.run()
-        
-    # experiment_name = "test_rrf_reciprocal_rank"
-    # config = {"reciprocal_rank": 1.0}
-    # search_results_file = "experiments/multiple_query_expansion/results/search_results.jsonl"
+    # for retrieval_weight in np.arange(0.0, 1.1, 0.1):
+    #     experiment_name = f"rrf_retrieval_{retrieval_weight:.1f}"
+    #     cos_weight = 1.0 - retrieval_weight
+    #     config = {
+    #         "retrieval_count": retrieval_weight,
+    #         "similarity": cos_weight,
+    #     }
+    #     experiment = RerankExperiment(
+    #         experiment_name=experiment_name,
+    #         search_results_file=search_results_file,
+    #         reranker_config=config,
+    #         k=60,
+    #         num_workers=NUM_WORKERS,
+    #     )
+    #     experiment.run()
 
-    # experiment = RerankExperiment(
-    #     experiment_name=experiment_name,
-    #     search_results_file=search_results_file,
-    #     reranker_config=config,
-    #     k=60,
-    #     num_workers=NUM_WORKERS,
-    # )
+    experiment_name = "bm25_scratch_0.42_position_0.58"
+    config = {"bm25_scratch": 0.42, "position": 0.58}
+    search_results_file = "experiments/multiple_query_expansion/results/search_results.jsonl"
+
+    experiment = RerankExperiment(
+        experiment_name=experiment_name,
+        search_results_file=search_results_file,
+        reranker_config=config,
+        k=60,
+        num_workers=NUM_WORKERS,
+    )
 
     experiment.run()
 
