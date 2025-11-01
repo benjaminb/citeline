@@ -24,6 +24,7 @@ os.makedirs("gridsearch/heatmaps", exist_ok=True)
 
 EMBEDDER_NAME = "Qwen/Qwen3-Embedding-0.6B"
 QUERY_DATASET = "../data/dataset/nontrivial_checked.jsonl"
+RESEARCH_SAMPLE_DATASET = "gridsearch/temp_research_dataset.jsonl"
 N = 1000
 TOP_K = 100
 
@@ -125,14 +126,31 @@ def main():
     print(f"Saved {len(sample_df)} sampled queries to {sample_queries_path}")
 
     # Prep the full dataset (research papers)
-    research = pd.read_json("../data/preprocessed/research.jsonl", lines=True)
-    # research = research[research["doi"].isin(target_dois)] # Filter only to DOIs in the target set
-    research["paper"] = research.apply(reconstruct_paper, axis=1)
-    research["pubdate"] = research["pubdate"].apply(lambda x: int(x.replace("-", "")))
+    if not os.path.exists(RESEARCH_SAMPLE_DATASET):
+        print(f"Preparing research dataset sample at {RESEARCH_SAMPLE_DATASET}...")
+        research = pd.read_json("../data/preprocessed/research.jsonl", lines=True)
 
-    # Filter to only needed columns
-    cols_to_keep = ["doi", "citation_count", "pubdate", "paper"]
-    research = research[cols_to_keep]
+        # Research in targets: needed for recall
+        research_targets = research[research["doi"].isin(target_dois)] # Filter only to DOIs in the target set
+        
+        # Add papers that are not targets (helps measure precision)
+        research_distractors = research[~research["doi"].isin(target_dois)]
+        research_distractors = research_distractors.sample(frac=0.2, random_state=42)
+
+        research = pd.concat([research_targets, research_distractors], ignore_index=True).drop_duplicates()
+        research["paper"] = research.apply(reconstruct_paper, axis=1)
+        research["pubdate"] = research["pubdate"].apply(lambda x: int(x.replace("-", "")))
+
+        # Filter to only needed columns
+        cols_to_keep = ["doi", "citation_count", "pubdate", "paper"]
+        research = research[cols_to_keep]
+
+        research.to_json("gridsearch/temp_research_dataset.jsonl", orient="records", lines=True)
+        print(f"Saved research dataset sample with {len(research)} papers")
+    else:
+        print(f"Loading existing research dataset sample from {RESEARCH_SAMPLE_DATASET}...")
+        research = pd.read_json(RESEARCH_SAMPLE_DATASET, lines=True)
+        print(f"Loaded research dataset sample with {len(research)} papers")
 
     overlap_stepsize = 50
     min_lengths = np.arange(100, 1001, 200)
