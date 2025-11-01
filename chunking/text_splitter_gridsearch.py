@@ -24,8 +24,8 @@ os.makedirs("gridsearch/heatmaps", exist_ok=True)
 
 EMBEDDER_NAME = "Qwen/Qwen3-Embedding-0.6B"
 QUERY_DATASET = "../data/dataset/nontrivial_checked.jsonl"
-N = 100
-TOP_K = 200
+N = 1000
+TOP_K = 100
 
 
 def reconstruct_paper(example: pd.Series) -> str:
@@ -126,7 +126,7 @@ def main():
 
     # Prep the full dataset (research papers)
     research = pd.read_json("../data/preprocessed/research.jsonl", lines=True)
-    research = research[research["doi"].isin(target_dois)]
+    # research = research[research["doi"].isin(target_dois)] # Filter only to DOIs in the target set
     research["paper"] = research.apply(reconstruct_paper, axis=1)
     research["pubdate"] = research["pubdate"].apply(lambda x: int(x.replace("-", "")))
 
@@ -134,20 +134,10 @@ def main():
     cols_to_keep = ["doi", "citation_count", "pubdate", "paper"]
     research = research[cols_to_keep]
 
-    # min_lengths = np.arange(50, 1001, 50)
-    # increments = np.arange(50, 1001, 50)
-    # overlaps = np.arange(0, 201, 25)
-
-    """
-    Fill in missing results only:
-    - overlap = 0
-    - min = 750
-    - increment = 650, 700, 750, 800, 850, 900, 950, 1000
-    """
     overlap_stepsize = 50
-    overlaps = np.array([0])  # Only overlap 0
-    min_lengths = np.array([750])  # Only min 750
-    increments = np.arange(650, 1001, 50)  # 650, 700, 750, ..., 1000
+    min_lengths = np.arange(100, 1001, 200)
+    increments = np.arange(100, 1001, 200)
+    overlaps = np.arange(0, 201, overlap_stepsize)
 
     hitrate_results = np.zeros((len(overlaps), len(min_lengths), len(increments), TOP_K))
     recall_results = np.zeros((len(overlaps), len(min_lengths), len(increments), TOP_K))
