@@ -4,6 +4,12 @@ Fill in missing grid search results for:
 - min_length = 750
 - increment = 650, 700, 750, 800, 850, 900, 950, 1000
 """
+
+# Set matplotlib to use non-interactive backend to avoid tkinter issues
+import matplotlib
+
+matplotlib.use("Agg")
+
 import numpy as np
 import os
 import pandas as pd
@@ -132,11 +138,7 @@ def main():
         # Have MilvusDB embed and insert
         collection_name = f"temp_min{min_len}_inc{increment}_ov{overlap}"
         db.create_vector_collection_pd(
-            name=collection_name,
-            data=temp_df,
-            embedder_name=EMBEDDER_NAME,
-            normalize=True,
-            batch_size=16
+            name=collection_name, data=temp_df, embedder_name=EMBEDDER_NAME, normalize=True, batch_size=16
         )
 
         # Create experiment config
