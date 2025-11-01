@@ -3,7 +3,7 @@
 #SBATCH --job-name=test_gpu_with_constraint
 #SBATCH -p gpu_requeue # partition (queue)
 #SBATCH --gres=gpu:1 # number of GPUs
-#SBATCH --constraint="A100|H200"
+#SBATCH --constraint="a100|h200"
 #SBATCH -c 24 # number of cores
 #SBATCH --mem=64GB # memory pool for all cores
 #SBATCH -t 0-01:00 # time (D-HH:MM)
