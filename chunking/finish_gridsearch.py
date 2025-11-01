@@ -55,7 +55,7 @@ def main():
     # Parameters to fill in
     overlap = 0
     min_len = 750
-    increments = np.arange(650, 1001, 50)  # 650, 700, 750, ..., 1000
+    increments = np.arange(850, 1001, 50)  # 850, 900, 950, 1000
 
     print(f"Fill-in Grid Search Parameters:")
     print(f"  Overlap: {overlap}")
