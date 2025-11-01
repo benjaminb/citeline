@@ -139,12 +139,15 @@ def main():
     # overlaps = np.arange(0, 201, 25)
 
     """
-    Shorter spans for testing
+    Fill in missing results only:
+    - overlap = 0
+    - min = 750
+    - increment = 650, 700, 750, 800, 850, 900, 950, 1000
     """
     overlap_stepsize = 50
-    overlaps = np.arange(0, 201, overlap_stepsize)
-    min_lengths = np.arange(100, 1001, 200)
-    increments = np.arange(100, 1001, 200)
+    overlaps = np.array([0])  # Only overlap 0
+    min_lengths = np.array([750])  # Only min 750
+    increments = np.arange(650, 1001, 50)  # 650, 700, 750, ..., 1000
 
     hitrate_results = np.zeros((len(overlaps), len(min_lengths), len(increments), TOP_K))
     recall_results = np.zeros((len(overlaps), len(min_lengths), len(increments), TOP_K))
