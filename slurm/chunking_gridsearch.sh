@@ -1,10 +1,11 @@
 #!/bin/zsh
 #
-#SBATCH --job-name=test_running_milvus_with_podman
-#SBATCH -p gpu # partition (queue)
+#SBATCH --job-name=test_gpu_with_constraint
+#SBATCH -p gpu_requeue # partition (queue)
 #SBATCH --gres=gpu:1 # number of GPUs
-#SBATCH -c 2 # number of cores
-#SBATCH --mem=16GB # memory pool for all cores
+#SBATCH --constraint="A100|H200"
+#SBATCH -c 24 # number of cores
+#SBATCH --mem=64GB # memory pool for all cores
 #SBATCH -t 0-01:00 # time (D-HH:MM)
 #SBATCH -o slurm.%x.%t.log # STDOUT
 #SBATCH -e slurm.%x.%t.log # STDERR
