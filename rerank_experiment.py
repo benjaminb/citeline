@@ -122,35 +122,35 @@ class RerankExperiment:
 def main():
     NUM_WORKERS = 11
     search_results_file = "experiments/multiple_query_expansion/results/search_results.jsonl"
-    for bm25_weight in np.arange(0.0, 1.1, 0.1):
-        experiment_name = f"rrf_reciprocal_rank_bm25_{bm25_weight:.1f}"
-        reciprocal_rank_weight = 1.0 - bm25_weight
-        config = {
-            "bm25_scratch": bm25_weight,
-            "reciprocal_rank": reciprocal_rank_weight,
-        }
-        experiment = RerankExperiment(
-            experiment_name=experiment_name,
-            search_results_file=search_results_file,
-            reranker_config=config,
-            k=60,
-            num_workers=NUM_WORKERS,
-        )
-        experiment.run()
+    # for bm25_weight in np.arange(0.0, 1.1, 0.1):
+    #     experiment_name = f"rrf_reciprocal_rank_bm25_{bm25_weight:.1f}"
+    #     reciprocal_rank_weight = 1.0 - bm25_weight
+    #     config = {
+    #         "bm25_scratch": bm25_weight,
+    #         "reciprocal_rank": reciprocal_rank_weight,
+    #     }
+    #     experiment = RerankExperiment(
+    #         experiment_name=experiment_name,
+    #         search_results_file=search_results_file,
+    #         reranker_config=config,
+    #         k=60,
+    #         num_workers=NUM_WORKERS,
+    #     )
+    #     experiment.run()
 
-    # experiment_name = "bm25_scratch_0.42_position_0.58"
-    # config = {"bm25_scratch": 0.42, "position": 0.58}
-    # search_results_file = "experiments/multiple_query_expansion/results/search_results.jsonl"
+    experiment_name = "bm25plus_0.4_reciprocal_rank_0.6"
+    config = {"bm25": 0.4, "reciprocal_rank": 0.6}
+    search_results_file = "experiments/multiple_query_expansion/results/search_results.jsonl"
 
-    # experiment = RerankExperiment(
-    #     experiment_name=experiment_name,
-    #     search_results_file=search_results_file,
-    #     reranker_config=config,
-    #     k=60,
-    #     num_workers=NUM_WORKERS,
-    # )
+    experiment = RerankExperiment(
+        experiment_name=experiment_name,
+        search_results_file=search_results_file,
+        reranker_config=config,
+        k=60,
+        num_workers=NUM_WORKERS,
+    )
 
-    # experiment.run()
+    experiment.run()
 
 
 if __name__ == "__main__":
