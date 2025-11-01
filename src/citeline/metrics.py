@@ -151,22 +151,21 @@ class BM25(Metric):
 
     def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
         corpus = results["text"].tolist()
-        retriever = self.bm25.BM25(corpus=corpus, method="bm25+")
+        retriever = self.bm25.BM25(corpus=corpus, method="bm25l")
         retriever.index(self.bm25.tokenize(corpus))
 
         query_text = query["sent_no_cit"]
         _, scores = retriever.retrieve(self.bm25.tokenize(query_text), k=len(corpus))
 
-        # scores is 2D with shape (1, k) for a single query, so we need to flatten it
-        # scores_flat = scores.flatten() if hasattr(scores, "flatten") else scores[0]
-
         return pd.Series(scores[0], index=results.index)
+
 
 @Metric.register("bm25_scratch")
 class BM25Scratch(Metric):
     def __init__(self, db=None):
         super().__init__(db=db)
         import re
+
         self._WORD_RE = re.compile(r"[A-Za-z0-9_]+", re.UNICODE)
 
     def tokenize(self, text: str) -> list[str]:
@@ -186,7 +185,7 @@ class BM25Scratch(Metric):
             for token in toks:
                 tf[token] = tf.get(token, 0) + 1
             tf_list.append(tf)
-        query_terms = set(q_tokens)
+        query_terms = set(q_tokens) 
         df = {token: sum(1 for tf in tf_list if token in tf) for token in query_terms}
         scores = np.zeros(N, dtype=float)
         for i, tf in enumerate(tf_list):
@@ -198,7 +197,8 @@ class BM25Scratch(Metric):
                 if f <= 0:
                     continue
                 idf = math.log(1.0 + (N - df.get(token, 0) + 0.5) / (df.get(token, 0) + 0.5))
-                score += idf * ((f * (k1 + 1.0)) / (f + norm))
+                # score += idf * ((f * (k1 + 1.0)) / (f + norm))
+                score += idf * (f / (f + norm))  # Testing no k1 + 1 multiplier
             scores[i] = score
         return scores
 
