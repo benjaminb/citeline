@@ -9,7 +9,8 @@ from citeline.database.milvusdb import MilvusDB
 from citeline.embedders import Embedder
 import itertools
 import matplotlib
-matplotlib.use('Agg')  # Use non-interactive backend to avoid tkinter threading issues
+
+matplotlib.use("Agg")  # Use non-interactive backend to avoid tkinter threading issues
 import matplotlib.pyplot as plt
 import json
 import glob
@@ -75,7 +76,7 @@ def create_heatmap(heatmap_data, min_lengths, increments, overlap_val, k_value, 
     fig, ax = plt.subplots(figsize=(10, 8))
 
     # Create heatmap with discrete cells
-    im = ax.imshow(heatmap_data, cmap='viridis', aspect='auto', origin='lower')
+    im = ax.imshow(heatmap_data, cmap="viridis", aspect="auto", origin="lower")
 
     # Set tick labels to actual parameter values
     ax.set_xticks(np.arange(len(min_lengths)))
@@ -84,24 +85,23 @@ def create_heatmap(heatmap_data, min_lengths, increments, overlap_val, k_value, 
     ax.set_yticklabels(increments)
 
     # Labels
-    ax.set_xlabel('Min Length', fontsize=12)
-    ax.set_ylabel('Increment (Max = Min + Inc)', fontsize=12)
-    ax.set_title(f'Hitrate@{k_value} (Overlap={overlap_val})', fontsize=14)
+    ax.set_xlabel("Min Length", fontsize=12)
+    ax.set_ylabel("Increment (Max = Min + Inc)", fontsize=12)
+    ax.set_title(f"Hitrate@{k_value} (Overlap={overlap_val})", fontsize=14)
 
     # Add colorbar
     cbar = plt.colorbar(im, ax=ax)
-    cbar.set_label(f'Hitrate@{k_value}', fontsize=12)
+    cbar.set_label(f"Hitrate@{k_value}", fontsize=12)
 
     # Add grid lines to emphasize discrete cells
     ax.set_xticks(np.arange(len(min_lengths)) - 0.5, minor=True)
     ax.set_yticks(np.arange(len(increments)) - 0.5, minor=True)
-    ax.grid(which='minor', color='white', linestyle='-', linewidth=1)
+    ax.grid(which="minor", color="white", linestyle="-", linewidth=1)
 
     # Add text annotations showing exact values
     for i in range(len(increments)):
         for j in range(len(min_lengths)):
-            ax.text(j, i, f'{heatmap_data[i, j]:.3f}',
-                   ha="center", va="center", color="white", fontsize=9)
+            ax.text(j, i, f"{heatmap_data[i, j]:.3f}", ha="center", va="center", color="white", fontsize=9)
 
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
@@ -131,13 +131,15 @@ def main():
         research = pd.read_json("../data/preprocessed/research.jsonl", lines=True)
 
         # Research in targets: needed for recall
-        research_targets = research[research["doi"].isin(target_dois)] # Filter only to DOIs in the target set
-        
+        research_targets = research[research["doi"].isin(target_dois)]  # Filter only to DOIs in the target set
+
         # Add papers that are not targets (helps measure precision)
         research_distractors = research[~research["doi"].isin(target_dois)]
         research_distractors = research_distractors.sample(frac=0.2, random_state=42)
 
-        research = pd.concat([research_targets, research_distractors], ignore_index=True).drop_duplicates()
+        research = pd.concat([research_targets, research_distractors], ignore_index=True).drop_duplicates(
+            subset=["doi"]
+        )
         research["paper"] = research.apply(reconstruct_paper, axis=1)
         research["pubdate"] = research["pubdate"].apply(lambda x: int(x.replace("-", "")))
 
@@ -174,25 +176,23 @@ def main():
     for param_tuple, filepath in result_files.items():
         overlap, min_len, increment = param_tuple
         try:
-            with open(filepath, 'r') as f:
+            with open(filepath, "r") as f:
                 result_data = json.load(f)
 
             ov_idx = overlap_to_idx[overlap]
             min_len_idx = min_len_to_idx[min_len]
             inc_idx = inc_to_idx[increment]
 
-            hitrate_results[ov_idx, min_len_idx, inc_idx] = np.array(result_data['average_hitrate_at_k'])
-            recall_results[ov_idx, min_len_idx, inc_idx] = np.array(result_data['average_recall_at_k'])
-            iou_results[ov_idx, min_len_idx, inc_idx] = np.array(result_data['average_iou_at_k'])
+            hitrate_results[ov_idx, min_len_idx, inc_idx] = np.array(result_data["average_hitrate_at_k"])
+            recall_results[ov_idx, min_len_idx, inc_idx] = np.array(result_data["average_recall_at_k"])
+            iou_results[ov_idx, min_len_idx, inc_idx] = np.array(result_data["average_iou_at_k"])
         except Exception as e:
             print(f"Warning: Could not load results from {filepath}: {e}")
 
     # Grid search over parameters with progress tracking
     total_combinations = len(overlaps) * len(min_lengths) * len(increments)
     for overlap, min_len, increment in tqdm(
-        itertools.product(overlaps, min_lengths, increments),
-        total=total_combinations,
-        desc="Grid search progress"
+        itertools.product(overlaps, min_lengths, increments), total=total_combinations, desc="Grid search progress"
     ):
         # Skip invalid parameter combinations where overlap is too large
         if overlap > min_len - overlap_stepsize:
@@ -209,7 +209,10 @@ def main():
         splitter = TextSplitter((min_len, min_len + increment), overlap=overlap, trim=True)
 
         # Chunk the papers, prep the df for insertion
-        with tqdm(total=len(temp_df), desc=f"Chunking papers (min_len={min_len}, max_len={min_len + increment}, overlap={overlap})") as pbar:
+        with tqdm(
+            total=len(temp_df),
+            desc=f"Chunking papers (min_len={min_len}, max_len={min_len + increment}, overlap={overlap})",
+        ) as pbar:
             temp_df["text"] = temp_df["paper"].apply(lambda x: (pbar.update(1), chunk_text(x, splitter))[1])
 
         # Ensure tqdm output is fully flushed before any subsequent prints
@@ -265,11 +268,9 @@ def main():
     np.save("gridsearch/text_splitter_gridsearch_iou.npy", iou_results)
 
     # Save parameter info for later analysis
-    np.savez("gridsearch/parameters.npz",
-             overlaps=overlaps,
-             min_lengths=min_lengths,
-             increments=increments,
-             top_k=TOP_K)
+    np.savez(
+        "gridsearch/parameters.npz", overlaps=overlaps, min_lengths=min_lengths, increments=increments, top_k=TOP_K
+    )
 
     # After saving results, before creating heatmaps
     k_idx = 49  # hitrate@50
@@ -292,7 +293,7 @@ def main():
         k_idx = k_value - 1  # k=50 is at index 49
         for ov_idx, overlap_val in enumerate(overlaps):
             heatmap_data = hitrate_results[ov_idx, :, :, k_idx]
-            output_path = f'gridsearch/heatmaps/hitrate{k_value}_overlap{overlap_val}.png'
+            output_path = f"gridsearch/heatmaps/hitrate{k_value}_overlap{overlap_val}.png"
             create_heatmap(heatmap_data, min_lengths, increments, overlap_val, k_value, output_path)
 
 
