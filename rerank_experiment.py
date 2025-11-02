@@ -138,8 +138,8 @@ def main():
     #     )
     #     experiment.run()
 
-    experiment_name = "bm25scratchmod_0.4_reciprocal_rank_0.6"
-    config = {"bm25_scratch": 0.4, "reciprocal_rank": 0.6}
+    experiment_name = "bge_reranker"
+    config = {"bge_reranker": 1.0}
     search_results_file = "experiments/multiple_query_expansion/results/search_results.jsonl"
 
     experiment = RerankExperiment(
