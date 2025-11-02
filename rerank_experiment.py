@@ -15,10 +15,10 @@ CHUNK_SIZE = 1000
 _rank_fuser = None
 
 
-def init_worker(config, k):
+def init_worker(config, top_k, rrf_k):
     """Initialize the rank fuser once per worker process."""
     global _rank_fuser
-    _rank_fuser = RankFuser(config, k=k)
+    _rank_fuser = RankFuser(config, top_k=top_k, rrf_k=rrf_k)
 
 
 def process_batch(batch):
@@ -53,14 +53,16 @@ class RerankExperiment:
         experiment_name,
         search_results_file,
         reranker_config: dict,
-        k=60,
+        top_k: int,
+        rrf_k: int = 60,
         outdir="experiments/rerankers/results/",
         num_workers=12,
     ):
         self.experiment_name = experiment_name
         self.search_results_file = search_results_file
         self.reranker_config = reranker_config
-        self.k = k
+        self.top_k = top_k
+        self.rrf_k = rrf_k
         self.num_workers = num_workers
         self.outdir = os.path.join(outdir, experiment_name)
         os.makedirs(self.outdir, exist_ok=True)
@@ -75,7 +77,9 @@ class RerankExperiment:
 
         # Process batches in parallel
         all_chunk_stats = []
-        with Pool(self.num_workers, initializer=init_worker, initargs=(self.reranker_config, self.k)) as pool:
+        with Pool(
+            self.num_workers, initializer=init_worker, initargs=(self.reranker_config, self.top_k, self.rrf_k)
+        ) as pool:
             # chunksize controls how many tasks are sent to workers at once
             # This allows I/O to happen while CPU work is being done
             for chunk_stats in tqdm(
@@ -102,7 +106,8 @@ class RerankExperiment:
         # Save stats
         data = {
             "config": self.reranker_config,
-            "k": self.k,
+            "top_k": self.top_k,
+            "rrf_k": self.rrf_k,
             "average_stats": {k: v.tolist() for k, v in average_stats.items()},
         }
         with open(os.path.join(self.outdir, "reranked_stats.json"), "w") as f:
@@ -120,6 +125,9 @@ class RerankExperiment:
 
 
 def main():
+    from time import time
+
+    start = time()
     NUM_WORKERS = 11
     search_results_file = "experiments/multiple_query_expansion/results/search_results.jsonl"
     # for bm25_weight in np.arange(0.0, 1.1, 0.1):
@@ -140,17 +148,22 @@ def main():
 
     experiment_name = "bge_reranker"
     config = {"bge_reranker": 1.0}
+    top_k = 200
     search_results_file = "experiments/multiple_query_expansion/results/search_results.jsonl"
 
     experiment = RerankExperiment(
         experiment_name=experiment_name,
         search_results_file=search_results_file,
         reranker_config=config,
-        k=60,
+        top_k=top_k,
+        rrf_k=60,
         num_workers=NUM_WORKERS,
     )
 
     experiment.run()
+
+    end = time()
+    print(f"Total time: {end - start:.2f} seconds")
 
 
 if __name__ == "__main__":
