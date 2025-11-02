@@ -19,19 +19,21 @@ class RankFuser:
     then uses those weights to rerank a set of results
     """
 
-    def __init__(self, config: dict[str, float], k=60):
+    def __init__(self, config: dict[str, float], top_k, rrf_k=60):
         """
         Initializes the RankFuser with a configuration dictionary that maps scoring function names to their weights.
 
         Args:
             config (dict[str, float]): A dictionary where keys are metric names and values are their respective weights.
                                         Find the metric names in the decorators preceding each Metric subclass in metrics.py
-            k (int): The damping parameter for Reciprocal Rank Fusion (RRF). Default is 60.
+            top_k (int): The number of top results to consider for reranking. If less than number of results, truncates search results to top_k before reranking.
+            rrf_k (int): The damping parameter for Reciprocal Rank Fusion (RRF). Default is 60.
         """
         self.config = config
         self.metrics = [Metric.get_metric(name) for name in config.keys()]
         self.weights = list(config.values())
-        self.k = k
+        self.top_k = top_k
+        self.rrf_k = rrf_k
 
     def rerank(self, data: list[dict]) -> list[dict[str, pd.Series | pd.DataFrame]]:
         """
@@ -49,7 +51,7 @@ class RankFuser:
 
         for row in tqdm(data, desc="Reranking results"):
             query = pd.Series(row["record"])
-            results = pd.DataFrame(row["results"])
+            results = pd.DataFrame(row["results"][: self.top_k])  # Truncate to top_k before reranking
             reranked_results = self._rerank_single(query, results)
             rows.append({"record": query, "results": reranked_results})
 
@@ -74,7 +76,7 @@ class RankFuser:
             scores = metric(query, results_df)
             results_df[metric.name] = scores
             ranks = scores.rank(ascending=False, method="first")
-            results_df["rrf"] += weight / (ranks + self.k)
+            results_df["rrf"] += weight / (ranks + self.rrf_k)
 
         # Sort by the weighted score in descending order
         return results_df.sort_values("rrf", ascending=False).reset_index(drop=True)

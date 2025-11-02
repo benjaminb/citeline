@@ -2,6 +2,7 @@
 Compare the RankFuser RRF implementation with the notebook RRF implementation
 to understand why they produce different hitrate@50 values.
 """
+
 import json
 import numpy as np
 import pandas as pd
@@ -12,8 +13,10 @@ from citeline.rank_fuser import RankFuser
 # Tokenizer (from notebook)
 _WORD_RE = re.compile(r"[A-Za-z0-9_]+", re.UNICODE)
 
+
 def tokenize(text):
     return [token.lower() for token in _WORD_RE.findall(text or "")]
+
 
 def okapi_bm25_scores(query_text, doc_texts, k1=1.5, b=0.75):
     """BM25 implementation from notebook"""
@@ -50,14 +53,15 @@ def okapi_bm25_scores(query_text, doc_texts, k1=1.5, b=0.75):
         scores[i] = score
     return scores
 
+
 def notebook_rrf_rerank(query, results_df, w_dataset=0.58, w_bm25=0.42, rrf_k=60):
     """Rerank using notebook's approach"""
     # Dataset ranks = position [1, 2, 3, ...]
     dataset_ranks = np.arange(1, len(results_df) + 1, dtype=float)
 
     # Compute BM25 scores
-    doc_texts = results_df['text'].tolist()
-    query_text = query['sent_no_cit']
+    doc_texts = results_df["text"].tolist()
+    query_text = query["sent_no_cit"]
     bm25_scores = okapi_bm25_scores(query_text, doc_texts)
 
     # Rank BM25 scores
@@ -73,41 +77,43 @@ def notebook_rrf_rerank(query, results_df, w_dataset=0.58, w_bm25=0.42, rrf_k=60
     # Sort by combined score
     sorted_idx = np.argsort(-combined)
     reranked_df = results_df.iloc[sorted_idx].reset_index(drop=True)
-    reranked_df['notebook_rrf'] = combined[sorted_idx]
-    reranked_df['dataset_rank'] = dataset_ranks[sorted_idx]
-    reranked_df['bm25_rank'] = bm25_ranks[sorted_idx]
+    reranked_df["notebook_rrf"] = combined[sorted_idx]
+    reranked_df["dataset_rank"] = dataset_ranks[sorted_idx]
+    reranked_df["bm25_rank"] = bm25_ranks[sorted_idx]
 
     return reranked_df
 
-def rankfuser_rerank(query, results_df, config={'bm25_scratch': 0.42, 'similarity': 0.58}, k=60):
+
+def rankfuser_rerank(query, results_df, config={"bm25_scratch": 0.42, "similarity": 0.58}, k=60):
     """Rerank using RankFuser approach"""
-    rf = RankFuser(config, k=k)
+    rf = RankFuser(config, rrf_k=k)
     return rf._rerank_single(query, results_df)
 
+
 def main():
-    search_results_file = 'experiments/multiple_query_expansion/results/search_results.jsonl'
+    search_results_file = "experiments/multiple_query_expansion/results/search_results.jsonl"
 
     print("Comparing RRF implementations on first 10 queries...")
-    print("="*80)
+    print("=" * 80)
 
     num_different = 0
 
-    with open(search_results_file, 'r') as f:
+    with open(search_results_file, "r") as f:
         for i, line in enumerate(f):
             if i >= 10:
                 break
 
             data = json.loads(line)
-            query = pd.Series(data['record'])
-            results_df = pd.DataFrame(data['results'])
+            query = pd.Series(data["record"])
+            results_df = pd.DataFrame(data["results"])
 
             # Method 1: RankFuser
             reranked_rf = rankfuser_rerank(query, results_df.copy())
-            top10_rf = reranked_rf['doi'].tolist()[:10]
+            top10_rf = reranked_rf["doi"].tolist()[:10]
 
             # Method 2: Notebook
             reranked_nb = notebook_rrf_rerank(query, results_df.copy())
-            top10_nb = reranked_nb['doi'].tolist()[:10]
+            top10_nb = reranked_nb["doi"].tolist()[:10]
 
             # Compare
             if top10_rf != top10_nb:
@@ -127,16 +133,20 @@ def main():
                 print(f"\n  RankFuser scores for top 3:")
                 for idx in range(3):
                     row = reranked_rf.iloc[idx]
-                    print(f"    {idx+1}. doi={row['doi'][:20]}... rrf={row['rrf']:.6f} sim={row['similarity']:.4f} bm25={row.get('bm25_scratch', 'N/A')}")
+                    print(
+                        f"    {idx+1}. doi={row['doi'][:20]}... rrf={row['rrf']:.6f} sim={row['similarity']:.4f} bm25={row.get('bm25_scratch', 'N/A')}"
+                    )
 
                 print(f"\n  Notebook scores for top 3:")
                 for idx in range(3):
                     row = reranked_nb.iloc[idx]
-                    print(f"    {idx+1}. doi={row['doi'][:20]}... rrf={row['notebook_rrf']:.6f} ds_rank={row['dataset_rank']:.0f} bm25_rank={row['bm25_rank']:.0f}")
+                    print(
+                        f"    {idx+1}. doi={row['doi'][:20]}... rrf={row['notebook_rrf']:.6f} ds_rank={row['dataset_rank']:.0f} bm25_rank={row['bm25_rank']:.0f}"
+                    )
             else:
                 print(f"Query {i}: ✓ Match")
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print(f"Summary: {num_different}/{i+1} queries had different top-10 rankings")
 
     if num_different == 0:
@@ -144,6 +154,7 @@ def main():
         print("The hitrate difference must come from something else (different data, aggregation, etc.)")
     else:
         print(f"\n{num_different} queries have different rankings. This explains the hitrate difference!")
+
 
 if __name__ == "__main__":
     main()
