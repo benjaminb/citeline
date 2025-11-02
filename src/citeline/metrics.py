@@ -245,25 +245,6 @@ class Similarity(Metric):
         return results["metric"]
 
 
-@Metric.register("position")
-class Position(Metric):
-    """
-    Returns a score based on the original position in the results list.
-    Higher positions (earlier in the list) get higher scores.
-
-    This is useful for preserving the original ranking order (e.g., when results
-    are interleaved from multiple query expansions) while still using RRF.
-
-    The score is simply the reciprocal of position: 1/1, 1/2, 1/3, ...
-    When used with rank(), this will produce ranks [1, 2, 3, ...].
-    """
-
-    def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
-        # Return scores that decrease with position: [1.0, 0.5, 0.333, 0.25, ...]
-        # When these are ranked with ascending=False, they'll produce ranks [1, 2, 3, ...]
-        return pd.Series([1.0 / (i + 1) for i in range(len(results))], index=results.index)
-
-
 def main():
     docs = pd.DataFrame(
         {
