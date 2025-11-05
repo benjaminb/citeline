@@ -1,0 +1,9 @@
+name: test_qwen8_bm25
+infile: data/qwen8_search_results.jsonl
+reranker_config:
+  score_bm25_scratch: 0.42
+  metric: 0.58
+top_k: 1000
+rrf_k: 60
+outdir: experiments/rerankers/results/qwen8_bm25
+plot_label: 'Qwen 8B RRF (BM25 (k=1, b=0.75)+Similarity)'
