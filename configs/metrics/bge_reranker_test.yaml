@@ -1,0 +1,4 @@
+infile: 'data/scored_3_search_results_add02_interleaved.jsonl'
+outfile: 'data/bge_scored_3_search_results_add02_interleaved.jsonl'
+metrics:
+  - bge_reranker
