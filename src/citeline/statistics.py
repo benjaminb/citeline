@@ -4,6 +4,13 @@ from tqdm import tqdm
 
 
 def compute_stat_matrices(data: list[dict[str, pd.Series | pd.DataFrame]]) -> list:
+    """
+    Takes a batch of search results as a list of dicts
+    Returns a dict of stat matrices:
+    { "hitrates": np.ndarray,
+      "ious": np.ndarray,
+      "recalls": np.ndarray }
+    """
 
     # NOTE: Assumes all results have the same top k / number of results
     top_k = len(data[0]["results"])
