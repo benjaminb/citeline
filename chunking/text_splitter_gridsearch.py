@@ -224,7 +224,7 @@ def main():
         # Have MilvusDB embed and insert
         collection_name = f"temp_min{min_len}_inc{increment}_ov{overlap}"
         # Drop collection if already exists; resuming insertion into existing collection can cause duplicate/missing data
-        existing_collections = db.list_collections()
+        existing_collections = db.client.list_collections()
         if collection_name in existing_collections:
             db.drop_collection(collection_name)
         db.create_vector_collection_pd(
