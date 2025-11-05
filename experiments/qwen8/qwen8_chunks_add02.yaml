@@ -11,5 +11,5 @@ interleave: True
 batch_size: 4
 top_k: 1000
 output_path: 'experiments/qwen8/results/'
-output_search_results: False
+output_search_results: True
 plot_label: 'chunks/previous 0,2/interleave'
