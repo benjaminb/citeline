@@ -1,5 +1,5 @@
 name: test_qwen8_bm25
-infile: data/qwen8_search_results.jsonl
+infile: data/qwen8_basic_search_results.jsonl
 reranker_config:
   score_bm25_scratch: 0.42
   metric: 0.58
