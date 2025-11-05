@@ -111,9 +111,9 @@ class RankFuser:
                 )
             )
         stat_matrices = {
-            "hitrate": np.vstack([item["hitrate"] for item in reranked_stats]),
-            "iou": np.vstack([item["iou"] for item in reranked_stats]),
-            "recall": np.vstack([item["recall"] for item in reranked_stats]),
+            "hitrates": np.vstack([item["hitrate"] for item in reranked_stats]),
+            "ious": np.vstack([item["iou"] for item in reranked_stats]),
+            "recalls": np.vstack([item["recall"] for item in reranked_stats]),
         }
         averages_np = compute_averages(stat_matrices)
 
