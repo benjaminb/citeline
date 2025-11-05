@@ -1,8 +1,9 @@
-name: test
-infile: data/scored_2_search_results_add02_interleaved.jsonl
+name: test_custom_bm25_k1
+infile: data/scored_3_search_results_add02_interleaved.jsonl
 reranker_config:
   score_bm25_scratch: 0.42
   metric: 0.58
 top_k: 1000
 rrf_k: 60
 outdir: experiments/rerankers/results/bm25_scratch
+plot_label: 'RRF: BM25 (k=1, b=0.75)+Similarity'

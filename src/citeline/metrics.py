@@ -313,8 +313,8 @@ class BM25Scratch(Metric):
                 if f <= 0:
                     continue
                 idf = math.log(1.0 + (N - df.get(token, 0) + 0.5) / (df.get(token, 0) + 0.5))
-                # score += idf * ((f * (k1 + 1.0)) / (f + norm))
-                score += idf * (f / (f + norm))  # Testing no k1 + 1 multiplier
+                score += idf * ((f * (k1 + 1.0)) / (f + norm))
+                # score += idf * (f / (f + norm))  # Testing no k1 + 1 multiplier
             scores[i] = score
         return scores
 
