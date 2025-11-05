@@ -111,11 +111,16 @@ class RankFuser:
                 )
             )
         stat_matrices = {
-            "average_hitrate_at_k": np.vstack([item["hitrate"] for item in reranked_stats]),
-            "average_iou_at_k": np.vstack([item["iou"] for item in reranked_stats]),
-            "average_recall_at_k": np.vstack([item["recall"] for item in reranked_stats]),
+            "hitrate": np.vstack([item["hitrate"] for item in reranked_stats]),
+            "iou": np.vstack([item["iou"] for item in reranked_stats]),
+            "recall": np.vstack([item["recall"] for item in reranked_stats]),
         }
         averages_np = compute_averages(stat_matrices)
+
+        # TODO: fix it so you don't need this patch (statistics.compute_averages should return these keys)
+        averages_np["average_hitrate_at_k"] = averages_np.pop("hitrate")
+        averages_np["average_iou_at_k"] = averages_np.pop("iou")
+        averages_np["average_recall_at_k"] = averages_np.pop("recall")
         return self._serialize_averages(averages_np)
 
 
