@@ -1,10 +1,11 @@
 import argparse
 import pandas as pd
 import json
+import torch
 import yaml
+from multiprocessing import Pool, Value, Lock
 from time import time
 from tqdm import tqdm
-from citeline.database.milvusdb import MilvusDB
 from citeline.metrics import Metric
 
 
@@ -16,6 +17,9 @@ def argument_parser():
     parser.add_argument("config", help="Path to the YAML config file")
     # add optional --dry-run flag
     parser.add_argument("--dry-run", action="store_true", help="Run on 2 rows without writing to file")
+
+    # add optional --multi-cuda flag
+    parser.add_argument("--multi-cuda", action="store_true", help="Use multiple CUDA devices if available")
     return parser.parse_args()
 
 
@@ -37,7 +41,6 @@ def check_file_preconditions(filepath: str):
         assert isinstance(record, dict), "'record' field must be a dict"
         query_columns = [key for key in record.keys() if key.startswith("query")]
         assert len(query_columns) > 0, "Record must have at least one column starting with 'query'"
-        assert any(key.startswith("query") for key in first_line["record"].keys()), "Record must have a 'query*' field"
 
         # Checks on the search results
         assert "results" in first_line, "Each line must have a 'results' field"
@@ -45,6 +48,44 @@ def check_file_preconditions(filepath: str):
         assert all(isinstance(result, dict) for result in first_line["results"]), "All results must be dicts"
     print("File preconditions met.")
 
+def init_multicuda_worker(metric_names, counter, lock):
+    # Initializes Metric instances for process_worker
+    global metrics
+    
+    # Resolves which CUDA device (0, 1, ..., n) this worker will use
+    global device_counter, device_lock
+    device_counter = counter
+    device_lock = lock
+
+    with device_lock:
+        device_id = device_counter.value
+        device_counter.value += 1
+
+    print(f"Worker initialized on device {device_id}")
+    metrics = []
+    for metric_name in metric_names:
+        metric = Metric.get_metric(metric_name)
+        if hasattr(metric, "model"):
+            metric.model = metric.model.to(f"cuda:{device_id}")
+        metrics.append(metric)
+
+def process_row(row: dict[str, dict | list]):
+    """Takes the raw row dict, applies all metrics, and returns the updated row."""
+    record = pd.Series(row["record"])
+    results = pd.DataFrame(row["results"])
+
+    for metric in metrics:
+        scores = metric(record, results)
+        colname = f"score_{metric.name}"
+        results[colname] = scores
+
+    row["results"] = results.to_dict(orient="records")
+    return row
+
+def yield_row(filepath):
+    with open(filepath, "r") as f:
+        for line in f:
+            yield json.loads(line)
 
 def main():
     start = time()
@@ -59,10 +100,37 @@ def main():
     outfile_path = config["outfile"]
     metric_names = config["metrics"]
 
+    check_file_preconditions(infile_path)
+
+
+    if args.multi_cuda:
+        num_devices = torch.cuda.device_count()
+        print(f"Using multi-CUDA with {num_devices} devices.")
+
+        device_counter = Value('i', 0)
+        device_lock = Lock()
+
+        with open(outfile_path, "w") as outfile:
+            with Pool(
+                processes=num_devices,
+                initializer=init_multicuda_worker,
+                initargs=(metric_names, device_counter, device_lock),
+            ) as pool:
+                for i, processed_row in enumerate(
+                    tqdm(
+                        pool.imap_unordered(process_row, yield_row(infile_path), chunksize=1),
+                        desc="Processing rows (multi-CUDA)"
+                    )
+                ):
+                    outfile.write(json.dumps(processed_row) + "\n")
+                    if i % 1000 == 0:  # Flush every 1000 lines
+                        outfile.flush()
+        end = time()
+        print(f"Total time (multi-CUDA): {end - start:.2f} seconds")
+        return
+    
     # Currently no metrics use db
     metrics = [Metric.get_metric(name, db=None) for name in metric_names]
-
-    check_file_preconditions(infile_path)
 
     if args.dry_run:
         print("Dry run mode: processing 2 rows without writing to file.")
