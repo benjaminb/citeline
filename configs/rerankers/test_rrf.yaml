@@ -1,0 +1,8 @@
+name: test
+infile: data/scored_2_search_results_add02_interleaved.jsonl
+reranker_config:
+  score_bm25_scratch: 0.42
+  metric: 0.58
+top_k: 1000
+rrf_k: 60
+outdir: experiments/rerankers/results/bm25_scratch

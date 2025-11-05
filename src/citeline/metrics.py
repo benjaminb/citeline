@@ -320,7 +320,7 @@ class BM25Scratch(Metric):
 
     def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
         corpus = results["text"].tolist()
-        query_text = query["sent_no_cit"]
+        query_text = query["query"] #TODO: use the expansions at all?
         scores = self.okapi_bm25_scores(query_text, corpus)
         return pd.Series(scores, index=results.index)
 
