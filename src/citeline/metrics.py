@@ -139,7 +139,6 @@ class BGEReranker(Metric):
         # Use the query expansions as context, followed by the original query
         expansion_texts = "\n".join(["* " + query[col] for col in expansion_cols])
         full_query_text = f"Context:\n{expansion_texts}\n\nQuery:\n{query_text}"
-        print(f"Using expanded query text:\n{full_query_text}", flush=True)
         return full_query_text
 
     def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
