@@ -1,0 +1,4 @@
+infile: 'data/scored_2_search_results_add02_interleaved.jsonl'
+outfile: 'data/scored_3_search_results_add02_interleaved.jsonl'
+metrics:
+  - bm25_scratch
