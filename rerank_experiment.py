@@ -146,9 +146,9 @@ def main():
     #     )
     #     experiment.run()
 
-    experiment_name = "bge_reranker"
-    config = {"bge_reranker": 1.0}
-    top_k = 200
+    experiment_name = "qwen06_reranker"
+    config = {"qwen06_reranker": 1.0}
+    top_k = 10
     search_results_file = "experiments/multiple_query_expansion/results/search_results.jsonl"
 
     experiment = RerankExperiment(
