@@ -1,0 +1,5 @@
+infile: 'data/scored_search_results_add02_interleaved.jsonl'
+outfile: 'data/scored_2_search_results_add02_interleaved.jsonl'
+metrics:
+  - retrieval_count
+  - bm25_robertson

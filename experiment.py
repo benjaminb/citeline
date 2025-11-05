@@ -1,5 +1,4 @@
 import argparse
-import itertools
 import json
 import logging
 import os
@@ -561,7 +560,6 @@ class Experiment:
 
         # Add grid lines at 0.05 intervals but labels every 0.1
 
-
         ax = plt.gca()
         ax.yaxis.set_major_locator(MultipleLocator(0.1))  # Labels every 0.1
         ax.yaxis.set_minor_locator(MultipleLocator(0.05))  # Grid lines every 0.05
@@ -774,9 +772,10 @@ class Experiment:
                         self.__clear_gpu_cache()
 
                     # Get batch, perform any query expansion & generate embeddings
-                    # Avoid modifying original dataset
+
                     # TODO: one way to simplify this is have a postcondition for all strategies:
                     # always end with a df called `batch` that has one or more 'vector*' columns
+                    # and one or more 'query*' columns representing the text used to generate each vector
                     batch = self.dataset.iloc[slice(i, i + self.batch_size)].copy()
                     if self.strategy == "mixed_expansion":
                         """
@@ -787,7 +786,6 @@ class Experiment:
                         batch["vector_original"] = [vector for vector in self.embedder(batch["sent_no_cit"])]
                         batch["vector_expanded"] = [vector for vector in self.embedder(batch["expansion"])]
                     elif self.strategy == "multiple_query_expansion":
-                        batch = batch.copy()
                         # Embed the original (identity) expansion
                         batch["vector_original"] = [vector for vector in self.embedder(batch["sent_no_cit"])]
                         # Embed the "add previous n sentences" expansions

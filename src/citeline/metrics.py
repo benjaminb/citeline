@@ -26,6 +26,7 @@ class Metric(ABC):
 
         return decorator
 
+    # TODO remove db if not needed
     @classmethod
     def get_metric(cls, metric_name: str, db=None):
         """
@@ -122,8 +123,27 @@ class BGEReranker(Metric):
         self.model.to(device)
         self.model.eval()
 
+    def prepare_input(self, query):
+        """
+        The query (originally 'sent_no_cit') can have additional representations, e.g. query expansions.
+        The original sent_no_cit should be under the 'query' key while expansion will be under 'query*' keys.
+
+        This function takes the query pd.Series and returns all the representations in a single string"""
+        query_text = query["query"]
+        expansion_cols = [col for col in query.keys() if col.startswith("query") and col != "query"]
+
+        # No expansion, just use the original query text
+        if not expansion_cols:
+            return query_text
+
+        # Use the query expansions as context, followed by the original query
+        expansion_texts = "\n".join(["* " + query[col] for col in expansion_cols])
+        full_query_text = f"Context:\n{expansion_texts}\n\nQuery:\n{query_text}"
+        print(f"Using expanded query text:\n{full_query_text}", flush=True)
+        return full_query_text
+
     def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
-        pairs = [[query.sent_no_cit, row.text] for row in results.itertuples()]
+        pairs = [[self.prepare_input(query), row.text] for row in results.itertuples()]
         with torch.no_grad():
             batch_size = 16
             scores = []
@@ -141,8 +161,104 @@ class BGEReranker(Metric):
         return pd.Series(scores, index=results.index)
 
 
-@Metric.register("bm25")
+@Metric.register("qwen06_reranker")
+class Qwen06Reranker(Metric):
+
+    def __init__(self, db=None):
+        super().__init__(db=db)
+
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+
+        self.model_name = "Qwen/Qwen3-Reranker-0.6B"
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.false_token_id = self.tokenizer.convert_tokens_to_ids("no")
+        self.true_token_id = self.tokenizer.convert_tokens_to_ids("yes")
+
+        device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
+        self.model = AutoModelForCausalLM.from_pretrained(self.model_name, dtype=torch.float16)
+        self.model.to(device)
+        self.model.eval()
+        self.batch_size = 16
+
+        # Precompute tokens
+        self.token_true_id = self.tokenizer.convert_tokens_to_ids("▁True")
+        self.token_false_id = self.tokenizer.convert_tokens_to_ids("▁False")
+        self.prefix = '<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be "yes" or "no".<|im_end|>\n<|im_start|>user\n'
+        self.suffix = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+        self.prefix_tokens = self.tokenizer.encode(self.prefix, add_special_tokens=False)
+        self.suffix_tokens = self.tokenizer.encode(self.suffix, add_special_tokens=False)
+        self.max_length = self.tokenizer.model_max_length  # Should be 8192
+        self.task = "You are a passage retrieval model that scores the relevance of a document to a query."
+
+    def format_instruction(self, query, doc):
+        return f"<Instruct>: {self.task}\n<Query>: {query}\n<Document>: {doc}"
+
+    def format_prompt(self, query, doc):
+        return f"{self.prefix}<Instruct>: {self.task}\n<Query>: {query}\n<Document>: {doc}{self.suffix}"
+
+    def process_inputs(self, pairs):
+        """Attaches the prefix and suffix text, pads, tokenizes, and moves to device"""
+        inputs = self.tokenizer(
+            pairs,
+            padding=False,
+            truncation="longest_first",
+            return_attention_mask=False,
+            max_length=self.max_length - len(self.prefix_tokens) - len(self.suffix_tokens),
+        )
+        for i, ele in enumerate(inputs["input_ids"]):
+            inputs["input_ids"][i] = self.prefix_tokens + ele + self.suffix_tokens
+        # inputs = self.tokenizer.pad(inputs, padding=True, return_tensors="pt", max_length=self.max_length)
+        inputs = self.tokenizer.pad(inputs, padding=True, return_tensors="pt")
+        for key in inputs:
+            inputs[key] = inputs[key].to(self.model.device)
+        return inputs
+
+    def process_prompts(self, pairs):
+        inputs = self.tokenizer(
+            pairs,
+            padding=True,
+            truncation="longest_first",
+            return_attention_mask=False,
+            max_length=self.max_length - len(self.prefix_tokens) - len(self.suffix_tokens),
+            return_tensors="pt",
+        )
+        for key in inputs:
+            inputs[key] = inputs[key].to(self.model.device)
+        return inputs
+
+    def compute_scores(self, inputs, **kwargs):
+        with torch.no_grad():
+            batch_scores = self.model(**inputs).logits[:, -1, :]
+            true_vector = batch_scores[:, self.token_true_id]
+            false_vector = batch_scores[:, self.token_false_id]
+            batch_scores = torch.stack([false_vector, true_vector], dim=1)
+            batch_scores = torch.nn.functional.softmax(batch_scores, dim=1)
+            scores = batch_scores[:, 1].tolist()
+            return scores
+
+    def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
+        if "text" not in results.columns:
+            raise ValueError("Results DataFrame must contain 'text' column")
+
+        # Check if using sent_no_cit or expansion
+        query_text = query["add_prev_2"] if "add_prev_2" in query else query["sent_no_cit"]
+        print(f"Has expansion col: {'add_prev_2' in query}, using query text: {query_text}", flush=True)
+
+        prompts = [self.format_prompt(query_text, row.text) for row in results.itertuples()]
+        scores = []
+        for i in range(0, len(prompts), self.batch_size):
+            batch_prompts = prompts[i : i + self.batch_size]
+            batch_inputs = self.process_prompts(batch_prompts)
+            batch_scores = self.compute_scores(batch_inputs)
+            scores.extend(batch_scores)
+        return pd.Series(scores, index=results.index)
+
+
+@Metric.register("bm25_robertson")
 class BM25(Metric):
+    """
+    BM25 implementation using only the original query text (no expansions)
+    """
     def __init__(self, db=None):
         super().__init__(db=db)
         import bm25s
@@ -151,10 +267,10 @@ class BM25(Metric):
 
     def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
         corpus = results["text"].tolist()
-        retriever = self.bm25.BM25(corpus=corpus, method="bm25l")
+        retriever = self.bm25.BM25(corpus=corpus, method="robertson", k1=1.5, b=0.75)
         retriever.index(self.bm25.tokenize(corpus))
 
-        query_text = query["sent_no_cit"]
+        query_text = query["query"]
         _, scores = retriever.retrieve(self.bm25.tokenize(query_text), k=len(corpus))
 
         return pd.Series(scores[0], index=results.index)
@@ -185,7 +301,7 @@ class BM25Scratch(Metric):
             for token in toks:
                 tf[token] = tf.get(token, 0) + 1
             tf_list.append(tf)
-        query_terms = set(q_tokens) 
+        query_terms = set(q_tokens)
         df = {token: sum(1 for tf in tf_list if token in tf) for token in query_terms}
         scores = np.zeros(N, dtype=float)
         for i, tf in enumerate(tf_list):
