@@ -60,19 +60,33 @@ We use Milvus as our vector database. See `database/milvusdb.py` for the impleme
 
 ## Current Status
 
-* `Qwen/Qwen3-Embedding-8B` is the top-performing embedding model. Second is the much smaller and faster `Qwen/Qwen3-Embedding-0.6B`. 
-* Between document representation 'chunks' and 'contributions', chunks tends to perform better although more effort can be put into constructing the contributions (prompt engineering or other methods)
-* The query expansion `add_prev_3` (adding the previous 3 sentences to the query) improves results in most cases
-* Interleaving chunks and contributions is the top performing approach so far (for top `k` retrieved results, take `k/2` from chunks and `k/2` from contributions, then interleave their rankings)
+- `Qwen/Qwen3-Embedding-8B` is the top-performing embedding model. Second is the much smaller and faster `Qwen/Qwen3-Embedding-0.6B`.
+- Between document representation 'chunks' and 'contributions', chunks tends to perform better although more effort can be put into constructing the contributions (prompt engineering or other methods)
+- The query expansion `add_prev_3` (adding the previous 3 sentences to the query) improves results in most cases
+- Interleaving chunks and contributions is the top performing approach so far (for top `k` retrieved results, take `k/2` from chunks and `k/2` from contributions, then interleave their rankings)
 
 ## Next Steps
-* 'All but the top' process on vectors (remove the top $k$ principle components from vectors)
-* Embed into database `summary(chunk)`, and `chunk + summary(chunk)` to see if this improves results
-* Experiment with other rerankers / rank fusion strategies (cross encoders, NLI models, etc)
-* Experiment with difference vectors between query and reference (computing the average difference vector between query and target, then adding back this average difference to query embedding during search)
 
+- 'All but the top' process on vectors (remove the top $k$ principle components from vectors)
+- Embed into database `summary(chunk)`, and `chunk + summary(chunk)` to see if this improves results
+- Experiment with other rerankers / rank fusion strategies (cross encoders, NLI models, etc)
+- Experiment with difference vectors between query and reference (computing the average difference vector between query and target, then adding back this average difference to query embedding during search)
 
 ## Technology Stack
+
 - Docker / Podman for standalone Milvus DB
 - HuggingFace, SentenceTransformers, and PyTorch for embeddings
 - Pandas for various stages of data processing
+
+## Workflow
+
+1. Chunk and embed research papers, insert them into a vector database collection (Milvus)
+1. Design an 'experiment': choose any query expansion, document representation, top-k, search strategy, etc. Run the experiment to get search results
+1. Configure which reranking metrics you want applied in `configs/metrics`, then run `python src/citeline/apply_metrics.py --config configs/metrics/your_config.yaml`
+
+- use `--dry-run` flag to test the run without saving results
+- use `--multi-cuda` flag to enable multiprocessing, using all available CUDA devices
+
+1. For reranking, configure rank fusion weights in `configs/rerankers`. Then run `python src/citeline/rerank.py configs/rerankers/your_reranker_config.yaml`
+
+- Uses reciprocal rank fusion to combine multiple metrics into a final reranking.
