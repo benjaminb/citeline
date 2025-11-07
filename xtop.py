@@ -5,6 +5,9 @@ import torch
 from sklearn.decomposition import PCA
 from citeline.embedders import Embedder
 
+"""
+This script computes PCA on a sample of query and research embeddings for use in 'all-but-the-top' experiments.
+"""
 # Sample queries and chunks
 NUM_SAMPLE = 1000
 queries = (

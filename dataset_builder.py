@@ -1,9 +1,25 @@
+import argparse
 import json
 import os
 import pandas as pd
 import re
+
 from tqdm import tqdm
 from citeline.llm.citation_extraction import sentence_to_citations
+
+def argument_parser():
+    """
+    example usage: 
+    
+    # Build trivial & nontrivial datasets
+    python dataset_builder.py
+
+    # Build trivial dataset
+    python dataset_builder.py --trivial
+    """
+    parser = argparse.ArgumentParser(description="Build dataset from research and review articles")
+    parser.add_argument("--trivial", action="store_true", help="Build trivial dataset")
+    return parser.parse_args()
 
 
 REVIEW_JOURNAL_BIBCODES = {
@@ -56,6 +72,21 @@ def bibcode_matches(inline_citation: tuple[str, str], references: list[str]) -> 
         return []
     pattern = bibcode_regex(*inline_citation)
     return [s for s in references if pattern.match(s)]
+
+
+def clean_query(sent_no_cit: str) -> str:
+    """
+    Remove [REF] tokens and empty parentheses from sentence.
+    Also cleans up multiple consecutive whitespace.
+    """
+    # Remove [REF] tokens
+    text = sent_no_cit.replace("[REF]", "")
+    # Remove parentheses containing only whitespace
+    text = re.sub(r'\(\s*\)', '', text)
+    # Clean up multiple consecutive whitespace to single space
+    text = re.sub(r'\s+', ' ', text)
+    # Strip leading/trailing whitespace
+    return text.strip()
 
 
 # Modify examples_from_record to accept the index
@@ -134,18 +165,24 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
         citation_dois.append(doi)
         bibcodes.append(bib)
 
+    # Convert pubdate from "YYYY-MM-DD" string to int YYYYMMDD format
+    pubdate_int = int(record["pubdate"].replace("-", ""))
+
     return {
         "source_doi": record["doi"],
         "sent_original": sentence,
         "sent_no_cit": sent_no_cit,
+        "query": clean_query(sent_no_cit),
         "sent_idx": index,
         "citation_dois": citation_dois,
-        "pubdate": record["pubdate"],
+        "pubdate": pubdate_int,
         "resolved_bibcodes": bibcodes,
     }
 
 
 def main():
+    args = argument_parser()
+    print("Starting dataset builder...loading data...")
     # Load data
     research = pd.read_json("data/preprocessed/research.jsonl", lines=True)
     reviews = pd.read_json("data/preprocessed/reviews.jsonl", lines=True)
@@ -169,14 +206,18 @@ def main():
     2. Any errors, write out to an error log
     """
 
-    # Check log file to see where we left off
-    progress_log_path = "data/dataset/progress.json"
+    if args.trivial:
+        print("Building trivial dataset only...")
+        progress_log_path = "data/dataset/progress_trivial.json"
+    else:
+        progress_log_path = "data/dataset/progress.json"
     if not os.path.exists(progress_log_path):
         print("No progress log found.")
         progress = {"record_idx": 0, "sent_idx": 0}
         with open(progress_log_path, "w") as f:
             json.dump(progress, f)
 
+    # Check log file to see where we left off
     progress = json.load(open(progress_log_path, "r"))
     last_record_index = progress["record_idx"]
     last_sent_index = progress["sent_idx"]
@@ -184,6 +225,15 @@ def main():
 
     reviews_dicts = reviews_dicts[last_record_index:]
     for record in tqdm(reviews_dicts, total=len(reviews_dicts), desc="Processing records"):
+        # Skip papers with body text > 250,000 characters
+        if len(record.get("body", "")) > 250000:
+            print(f"\nSkipping {record['doi']} - body text too long ({len(record['body'])} chars)")
+            progress["record_idx"] += 1
+            progress["sent_idx"] = 0
+            with open(progress_log_path, "w") as f:
+                json.dump(progress, f)
+            continue
+
         for i, sentence in enumerate(
             tqdm(
                 record["body_sentences"][last_sent_index:],

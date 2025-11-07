@@ -105,7 +105,7 @@ class Experiment:
             kwargs: keyword arguments matching the parameters below
                 - experiment_name: name of the experiment, used to name the output files
                 - dataset_path: path to a jsonl file containing lines that hat at least these keys:
-                    "sent_no_cit": the sentence with inline citations replaced by "[REF]"
+                    "query": the cleaned sentence with inline citations and empty parens removed
                     "sent_idx": the index of the sentence in the original record's "body_sentences" list
                     "source_doi": "...",
                     "
@@ -276,7 +276,7 @@ class Experiment:
 
         Args:
             db: MilvusDB
-            records: DataFrame with columns 'vector_original' and 'vector_{name of each expander}'
+            records: DataFrame with columns 'vector' and 'vector_{name of each expander}'
             vectors: None (not used, kept for compatibility)
             interleave: If True, interleaves results round-robin from each expansion. If False, sorts all results by metric.
 
@@ -294,7 +294,7 @@ class Experiment:
         all_results = []
 
         # Do identity search first
-        batch_vectors = records["vector_original"].tolist()
+        batch_vectors = records["vector"].tolist()
         results = db.search(
             collection_name=self.target_table,
             query_records=batch_records,
@@ -352,12 +352,15 @@ class Experiment:
         This function handles the "mixed_expansion" strategy where each record has two associated vectors:
         the original and the expanded. It retrieves top-k/2 results for each vector and combines them.
 
-        Expects records to be a DataFrame with 'vector_original' and 'vector_expanded' columns
+        Expects records to be a DataFrame with 'vector' and 'vector_{expander_name}' columns
         """
         half_k = self.top_k // 2
 
-        original_vectors = records["vector_original"].tolist()
-        expanded_vectors = records["vector_expanded"].tolist()
+        # Get the expander name to determine the expanded vector column name
+        expander_name = self.query_expander.name
+
+        original_vectors = records["vector"].tolist()
+        expanded_vectors = records[f"vector_{expander_name}"].tolist()
         batch_records = records.to_dict(orient="records")
 
         original_results = db.search(
@@ -647,9 +650,9 @@ class Experiment:
                         embeddings = [xtop_transform(np.array(vec), self.xtop_n).tolist() for vec in embeddings]
                     elif self.xtop and self.strategy in ["mixed_expansion", "multiple_query_expansion"]:
                         # For strategies that store vectors in the batch DataFrame, apply xtop to those
-                        if "vector_original" in batch.columns:
-                            batch["vector_original"] = [
-                                xtop_transform(np.array(vec), self.xtop_n).tolist() for vec in batch["vector_original"]
+                        if "vector" in batch.columns:
+                            batch["vector"] = [
+                                xtop_transform(np.array(vec), self.xtop_n).tolist() for vec in batch["vector"]
                             ]
                         if self.strategy == "multiple_query_expansion" and self.query_expanders:
                             for expander in self.query_expanders:
@@ -658,14 +661,20 @@ class Experiment:
                                     batch[col_name] = [
                                         xtop_transform(np.array(vec), self.xtop_n).tolist() for vec in batch[col_name]
                                     ]
+                        elif self.strategy == "mixed_expansion" and self.query_expander:
+                            col_name = f"vector_{self.query_expander.name}"
+                            if col_name in batch.columns:
+                                batch[col_name] = [
+                                    xtop_transform(np.array(vec), self.xtop_n).tolist() for vec in batch[col_name]
+                                ]
                     if self.strategy in ["mixed_expansion"]:
                         # TODO: this is just a patch for mixed expansion search. If we want to keep this strategy, come up with a cleaner design
-                        embeddings = batch["vector_original"].tolist()  # Dummy, not used
+                        embeddings = batch["vector"].tolist()  # Dummy, not used
                         search_results = self.search(db=thread_client, records=batch, vectors=None)
                         batch_records = batch.to_dict(orient="records")
                     elif self.strategy == "multiple_query_expansion":
                         # TODO: this is just a patch for mixed expansion search. If we want to keep this strategy, come up with a cleaner design
-                        embeddings = batch["vector_original"].tolist()  # Dummy, not used
+                        embeddings = batch["vector"].tolist()  # Dummy, not used
                         search_results = self.search(
                             db=thread_client, records=batch, vectors=None, interleave=self.interleave
                         )
@@ -773,26 +782,26 @@ class Experiment:
 
                     # Get batch, perform any query expansion & generate embeddings
 
-                    # TODO: one way to simplify this is have a postcondition for all strategies:
-                    # always end with a df called `batch` that has one or more 'vector*' columns
-                    # and one or more 'query*' columns representing the text used to generate each vector
+                    # Pattern: batch has 'query' column and 'vector' column for base embedding
+                    # If using expansions, batch has 'query_<expander_name>' and 'vector_<expander_name>' columns
                     batch = self.dataset.iloc[slice(i, i + self.batch_size)].copy()
                     if self.strategy == "mixed_expansion":
                         """
-                        Hacky patch to handle mixed expansion strategy where we need to send two reps per query
-                        into the task queue
+                        Mixed expansion strategy: embed both original and expanded queries
                         """
-                        batch["expansion"] = self.query_expander(batch)
-                        batch["vector_original"] = [vector for vector in self.embedder(batch["sent_no_cit"])]
-                        batch["vector_expanded"] = [vector for vector in self.embedder(batch["expansion"])]
+                        expanded_queries = self.query_expander(batch)
+                        expander_name = self.query_expander.name
+                        batch[f"query_{expander_name}"] = expanded_queries
+                        batch["vector"] = [vector for vector in self.embedder(batch["query"])]
+                        batch[f"vector_{expander_name}"] = [vector for vector in self.embedder(expanded_queries)]
                     elif self.strategy == "multiple_query_expansion":
-                        # Embed the original (identity) expansion
-                        batch["vector_original"] = [vector for vector in self.embedder(batch["sent_no_cit"])]
+                        # Embed the original (identity) query
+                        batch["vector"] = [vector for vector in self.embedder(batch["query"])]
                         # Embed the "add previous n sentences" expansions
                         for idx, expander in enumerate(self.query_expanders):
                             expansions = expander(batch)
                             expansion_name = expander.name
-                            batch[expansion_name] = expansions
+                            batch[f"query_{expansion_name}"] = expansions
                             batch[f"vector_{expansion_name}"] = [vector for vector in self.embedder(expansions)]
                     elif self.precomputed_embeddings:
                         # df has a 'vector' column with precomputed embeddings
