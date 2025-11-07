@@ -1,7 +1,6 @@
 import argparse
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
-import seaborn as sns
 import numpy as np
 import glob
 import json
