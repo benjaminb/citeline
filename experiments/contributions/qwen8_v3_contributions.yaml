@@ -7,5 +7,5 @@ normalize: True
 query_expansion: 'identity'
 batch_size: 16
 top_k: 1000
-output_path: 'experiments/contributions
+output_path: 'experiments/contributions'
 plot_label: 'Qwen 8B/contributions v2'
