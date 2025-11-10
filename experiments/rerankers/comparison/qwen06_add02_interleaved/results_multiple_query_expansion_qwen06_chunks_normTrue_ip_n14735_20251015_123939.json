@@ -1,6 +1,6 @@
 {
-  "plot_label": "interleaved/previous 0,2",
   "config": {
+    "plot_label": "Qwen 0.6/previous 0,2/interleaved",
     "dataset": "data/dataset/nontrivial_checked.jsonl",
     "table": "qwen06_chunks",
     "target_column": "vector",

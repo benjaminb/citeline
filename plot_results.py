@@ -44,7 +44,7 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
     ax = plt.gca()
     ax.set_axisbelow(True)
     ax.grid(which="major", linestyle="--", linewidth=0.6, color="gray", alpha=0.6)
-    ax.xaxis.set_major_locator(MultipleLocator(100))
+    ax.xaxis.set_major_locator(MultipleLocator(50))
     ax.xaxis.set_minor_locator(MultipleLocator(10))
 
     lines = []
@@ -126,25 +126,31 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
                 bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.6),
             )
 
-    # ensure full k range is visible (start x-axis at 25)
-    plt.xlim(25, k)
-    plt.ylim(0.6, 1.0)
-
     plt.xlabel("Top-k")
     plt.ylabel("Score")
     plt.title("HitRate@k")
-    # Build legend sorted by score at k=100 (descending)
-    sorted_lines = sorted(lines, key=lambda t: t[2][99], reverse=True)
+    # Build legend sorted by score at k=50 (descending)
+    sorted_lines = sorted(lines, key=lambda t: t[2][49], reverse=True)
     handles = [t[0] for t in sorted_lines]
     labels = [t[1] for t in sorted_lines]
-    custom_text = plt.Line2D([0], [0], color="none", label="Ranking@k=100")
+    custom_text = plt.Line2D([0], [0], color="none", label="Ranking@k=50")
     handles.insert(0, custom_text)
-    labels.insert(0, "Ranking@k=100")
+    labels.insert(0, "Ranking@k=50")
     plt.legend(handles=handles, labels=labels, fontsize=16)
 
     plt.grid(True)
-    plt.gca().xaxis.set_major_locator(MultipleLocator(50))
+    plt.gca().xaxis.set_major_locator(MultipleLocator(25))
     plt.gca().xaxis.set_minor_locator(MultipleLocator(10))
+
+    # Manually add x-axis tick label at first position, which is k=25
+    current_ticks = list(ax.get_xticks())
+    if 25 not in current_ticks:
+        current_ticks.insert(0, 25)
+        ax.set_xticks(sorted(current_ticks))
+
+    # ensure full k range is visible (start x-axis at 25)
+    plt.xlim(25, k)
+    # plt.ylim(0.6, 1.0)
 
     # basename = path.split("/")[0]
     outfile = name if name else f"plot_results.png"
