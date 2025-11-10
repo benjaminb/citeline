@@ -17,7 +17,7 @@ load_dotenv("../.env")
 def argument_parser():
     """
     python milvusdb.py --create-collection --name <collection_name> --data-source <data_source> --embedder <embedder_name> [--normalize] [--batch-size <16>]
-    python milvusdb.py --create-collection --name qwen8b_contributions --data-source ../../../data/research_contributions.jsonl --embedder 'Qwen/Qwen3-Embedding-8B' --normalize --batch-size 16
+    python milvusdb.py --create-collection --name qwen8b_v3_contributions --data-source ../../../data/research_contributions_v3.jsonl --embedder 'Qwen/Qwen3-Embedding-8B' --normalize --batch-size 16
     python milvusdb.py --create-xtop-collection --name <collection_name> --from-collection <from_collection> --pca-pickle <pca_pickle_path> --mean-vector-pickle <mean_vector_pickle_path> --remove-top-n <remove_top_n> --embedder <embedder_name> [--batch-size <16>]
     python milvusdb.py --import-collection <data_path> <collection_name>
     """
