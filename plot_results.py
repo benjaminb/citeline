@@ -1,4 +1,5 @@
 import argparse
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from matplotlib.ticker import MultipleLocator
 import numpy as np
@@ -38,6 +39,9 @@ def make_label_to_data_dict(json_files: list[str]) -> dict:
 
 
 def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
+    # Define color palette
+    colors = plt.get_cmap("tab20").colors  # or 'tab20'
+    mpl.rcParams["axes.prop_cycle"] = mpl.cycler(color=colors)
     k_values = range(1, k + 1)
     plt.figure(figsize=(16, 16))
 
@@ -88,7 +92,7 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
         label = it["label"]
         hitrates_trunc = it["hitrates"]
         (line,) = plt.plot(
-            k_values, hitrates_trunc, drawstyle="steps-post", linestyle="-", lw=2.5, alpha=0.6, label=label
+            k_values, hitrates_trunc, drawstyle="steps-post", linestyle="-", lw=4.0, alpha=0.6, label=label
         )
         lines.append((line, label, hitrates_trunc))
 
@@ -98,49 +102,57 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
         k_points.append(50)
     k_points.extend(range(100, k + 1, 100))
 
-    for k_val in k_points:
-        k_idx = k_val - 1  # Convert to 0-indexed
-        # Find the line with the highest hitrate at this k value
-        max_hitrate = -1
-        best_line = None
-        best_color = None
+    # Annotate the highest scoring line at this k value
+    # for k_val in k_points:
+    #     k_idx = k_val - 1  # Convert to 0-indexed
 
-        for line, label, hitrates_trunc in lines:
-            if k_idx < len(hitrates_trunc):
-                hitrate_at_k = hitrates_trunc[k_idx]
-                if hitrate_at_k > max_hitrate:
-                    max_hitrate = hitrate_at_k
-                    best_line = label
-                    best_color = line.get_color()
+    #     # Find the line with the highest hitrate at this k value
+    #     max_hitrate = -1
+    #     best_line = None
+    #     best_color = None
 
-        # Annotate the highest scoring line at this k value
-        if best_line is not None and max_hitrate >= 0:
-            plt.annotate(
-                f"{max_hitrate:.3f}",
-                xy=(k_val, max_hitrate),
-                xytext=(0, 25),  # 25 points above
-                textcoords="offset points",
-                fontsize=14,
-                color=best_color,
-                ha="center",
-                bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.6),
-            )
+    #     for line, label, hitrates_trunc in lines:
+    #         if k_idx < len(hitrates_trunc):
+    #             hitrate_at_k = hitrates_trunc[k_idx]
+    #             if hitrate_at_k > max_hitrate:
+    #                 max_hitrate = hitrate_at_k
+    #                 best_line = label
+    #                 best_color = line.get_color()
 
-    plt.xlabel("Top-k")
-    plt.ylabel("Score")
-    plt.title("HitRate@k")
+    #     if best_line is not None and max_hitrate >= 0:
+    #         plt.annotate(
+    #             f"{max_hitrate:.3f}",
+    #             xy=(k_val, max_hitrate),
+    #             xytext=(0, 25),  # 25 points above
+    #             textcoords="offset points",
+    #             fontsize=14,
+    #             color=best_color,
+    #             ha="center",
+    #             bbox=dict(boxstyle="round,pad=0.2", facecolor="white", alpha=0.6),
+    #         )
+
+    plt.xlabel("Top-k", fontsize=30)
+    plt.ylabel("Score", fontsize=30)
+    plt.title("HitRate@k", fontsize=30)
+
     # Build legend sorted by score at k=50 (descending)
     sorted_lines = sorted(lines, key=lambda t: t[2][49], reverse=True)
     handles = [t[0] for t in sorted_lines]
     labels = [t[1] for t in sorted_lines]
-    custom_text = plt.Line2D([0], [0], color="none", label="Ranking@k=50")
-    handles.insert(0, custom_text)
-    labels.insert(0, "Ranking@k=50")
-    plt.legend(handles=handles, labels=labels, fontsize=16)
+    # custom_text = plt.Line2D([0], [0], color="none", label="Ranking@k=50")
+    # handles.insert(0, custom_text)
+    # labels.insert(0, "Ranking@k=50")
+    plt.legend(handles=handles, labels=labels, fontsize=30, loc="lower right", framealpha=0.9)
 
+    # Control grid lines
     plt.grid(True)
     plt.gca().xaxis.set_major_locator(MultipleLocator(25))
     plt.gca().xaxis.set_minor_locator(MultipleLocator(10))
+    ax.yaxis.set_minor_locator(MultipleLocator(0.1))
+    ax.grid(which="minor", axis="y", linestyle=":", linewidth=0.7, color="gray", alpha=0.5)
+
+    # Tick label size
+    ax.tick_params(axis="both", which="major", labelsize=30)
 
     # Manually add x-axis tick label at first position, which is k=25
     current_ticks = list(ax.get_xticks())
@@ -155,7 +167,7 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
     # basename = path.split("/")[0]
     outfile = name if name else f"plot_results.png"
     save_path = os.path.join(path, outfile)
-    plt.savefig(save_path)
+    plt.savefig(save_path, bbox_inches="tight", pad_inches=0.1)
     plt.close()
 
 
