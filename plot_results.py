@@ -28,17 +28,18 @@ def path_to_label(path):
     return filename.replace(".json", "")
 
 
-def make_label_to_data_dict(json_files: list[str]) -> dict:
+def make_label_to_data_dict(json_files: list[str], metric: str = "hitrate") -> dict:
     data = dict()
+    metric_key = f"average_{metric}_at_k"
     for file in json_files:
         results = json.load(open(file))
-        hitrates = results["average_hitrate_at_k"]
+        values = results[metric_key]
         label = results["config"].get("plot_label", path_to_label(file))
-        data[label] = hitrates
+        data[label] = values
     return data
 
 
-def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
+def plot_results(data: dict, path: str, k: int = 1000, name: str = None, title: str = None):
     # Define color palette
     colors = plt.get_cmap("tab20").colors  # or 'tab20'
     mpl.rcParams["axes.prop_cycle"] = mpl.cycler(color=colors)
@@ -57,10 +58,10 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
     min_gap = 0.02  # minimum vertical gap between labels
 
     items = []
-    for label, hitrates in sorted(data.items()):
-        hitrates_trunc = hitrates[:k]
-        y = hitrates_trunc[10]  # value at k=100
-        items.append({"label": label, "hitrates": hitrates_trunc, "y": float(y)})
+    for label, rates_at_k in sorted(data.items()):
+        rates_at_k_trunc = rates_at_k[:k]
+        y = rates_at_k_trunc[10]  # value at k=100
+        items.append({"label": label, "hitrates": rates_at_k_trunc, "y": float(y)})
 
     # sort by y descending so high values labeled from top of the label band
     items.sort(key=lambda x: x["y"], reverse=True)
@@ -90,11 +91,11 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
     # plot lines and place labels at computed bottom-band positions
     for it, y_label in zip(items, label_ys):
         label = it["label"]
-        hitrates_trunc = it["hitrates"]
+        rates_at_k_trunc = it["hitrates"]
         (line,) = plt.plot(
-            k_values, hitrates_trunc, drawstyle="steps-post", linestyle="-", lw=4.0, alpha=0.6, label=label
+            k_values, rates_at_k_trunc, drawstyle="steps-post", linestyle="-", lw=4.0, alpha=1.0, label=label
         )
-        lines.append((line, label, hitrates_trunc))
+        lines.append((line, label, rates_at_k_trunc))
 
     # Add annotations for highest scoring line at k=50 and at k=100, 200, 300, etc.
     k_points = []
@@ -133,7 +134,8 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None):
 
     plt.xlabel("Top-k", fontsize=30)
     plt.ylabel("Score", fontsize=30)
-    plt.title("HitRate@k", fontsize=30)
+    plot_title = title if title else "HitRate@k"
+    plt.title(plot_title, fontsize=30)
 
     # Build legend sorted by score at k=50 (descending)
     sorted_lines = sorted(lines, key=lambda t: t[2][49], reverse=True)
@@ -176,19 +178,33 @@ def main():
     parser.add_argument("--dir", type=str, help="Directory containing experiment results JSON files")
     parser.add_argument("--k", type=int, default=200, help="Value of k for top-k plotting")
     parser.add_argument("--outfile", type=str, help="Output filename for the plot image")
+    parser.add_argument("--title", type=str, help="Title for the plot (optional)")
+    parser.add_argument(
+        "--metric",
+        type=str,
+        default="hitrate",
+        choices=["hitrate", "recall"],
+        help="Metric to plot: 'hitrate' or 'recall' (default: hitrate)",
+    )
     args = parser.parse_args()
 
     directory = args.dir
     k = args.k
     outfile = args.outfile
+    title = args.title
+    metric = args.metric
+
+    # Set default title based on metric if not provided
+    if not title:
+        title = f"{metric.capitalize()}@k"
 
     # Establish what files will be included
     # path = os.path.join(BASE_DIR, directory)
     json_files = get_json_files(directory)
     print(f"Found {len(json_files)} JSON files in {directory}")
-    data = make_label_to_data_dict(json_files)
+    data = make_label_to_data_dict(json_files, metric=metric)
 
-    plot_results(data, path=directory, k=k, name=outfile)
+    plot_results(data, path=directory, k=k, name=outfile, title=title)
 
 
 if __name__ == "__main__":
