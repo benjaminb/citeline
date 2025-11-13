@@ -1,11 +1,12 @@
 {
   "config": {
+    "plot_label": "RRF (0.5*Retrieval)",
     "retrieval_count": 0.5,
     "similarity": 0.5
   },
   "k": 60,
   "average_stats": {
-    "hitrate": [
+    "average_hitrate_at_k": [
       0.23963352561927384,
       0.2536138445877163,
       0.2690872073294876,
