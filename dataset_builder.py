@@ -143,7 +143,7 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
     print(f"\033[2K\rWorking on sentence {index}: {sentence[:70]}...", end="")
     result = sentence_to_citations(sentence)
 
-    # If the sentence was not deemed valid by the LLM, sentence_to_citations will return None
+    # If the sentence was invalid or errors in processing, skip it
     if not result:
         return None
     citations, sent_no_cit = result

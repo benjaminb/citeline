@@ -33,7 +33,7 @@ def make_label_to_data_dict(json_files: list[str], metric: str = "hitrate") -> d
     metric_key = f"average_{metric}_at_k"
     for file in json_files:
         results = json.load(open(file))
-        values = results[metric_key]
+        values = results.get(metric_key, results["average_stats"].get(metric_key, None))
         label = results["config"].get("plot_label", path_to_label(file))
         data[label] = values
     return data
