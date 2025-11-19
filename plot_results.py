@@ -28,21 +28,46 @@ def path_to_label(path):
     return filename.replace(".json", "")
 
 
-def make_label_to_data_dict(json_files: list[str], metric: str = "hitrate") -> dict:
+def make_label_to_data_dict(json_files: list[str], metric: str = "hitrate") -> tuple[dict, dict]:
     data = dict()
+    progressive_info = dict()  # Track which labels are progressive
     metric_key = f"average_{metric}_at_k"
     for file in json_files:
+        print(f"Working on file: {file}")
         results = json.load(open(file))
-        values = results.get(metric_key, results["average_stats"].get(metric_key, None))
+        if metric_key in results:
+            values = results[metric_key]
+        elif "average_stats" in results and metric_key in results["average_stats"]:
+            values = results["average_stats"][metric_key]
+        else:
+            raise KeyError(f"Metric key '{metric_key}' not found in results of file {file}")
         label = results["config"].get("plot_label", path_to_label(file))
         data[label] = values
-    return data
+        # Check if this item is marked as progressive
+        is_progressive = results["config"].get("progressive", False)
+        progressive_info[label] = is_progressive
+    return data, progressive_info
 
 
-def plot_results(data: dict, path: str, k: int = 1000, name: str = None, title: str = None):
+def plot_results(
+    data: dict, path: str, k: int = 1000, name: str = None, title: str = None, progressive_info: dict = None
+):
     # Define color palette
     colors = plt.get_cmap("tab20").colors  # or 'tab20'
     mpl.rcParams["axes.prop_cycle"] = mpl.cycler(color=colors)
+
+    # Create color mapping for progressive items
+    color_map = {}
+    if progressive_info:
+        progressive_labels = sorted([label for label, is_prog in progressive_info.items() if is_prog])
+        if progressive_labels:
+            # Use a progressive colormap (viridis, plasma, inferno, etc.)
+            prog_cmap = plt.get_cmap("Oranges")
+            n_progressive = len(progressive_labels)
+            for idx, label in enumerate(progressive_labels):
+                # Map index to color in the colormap
+                color_map[label] = prog_cmap(idx / max(1, n_progressive - 1))
+
     k_values = range(1, k + 1)
     plt.figure(figsize=(16, 16))
 
@@ -89,12 +114,36 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None, title: 
         label_ys = [base_y + (n - 1 - i) * spacing for i in range(n)]
 
     # plot lines and place labels at computed bottom-band positions
+    # Split items into progressive and static so static (non-progressive) lines
+    # can be drawn on top by plotting progressive ones first.
+    prog_pairs = []
+    static_pairs = []
     for it, y_label in zip(items, label_ys):
         label = it["label"]
+        # rates_at_k_trunc = it["hitrates"]  # computed later
+        if progressive_info and progressive_info.get(label, False):
+            prog_pairs.append((it, y_label))
+        else:
+            static_pairs.append((it, y_label))
+
+    # First plot progressive lines (background), then static lines on top.
+    for it, y_label in prog_pairs + static_pairs:
+        label = it["label"]
         rates_at_k_trunc = it["hitrates"]
-        (line,) = plt.plot(
-            k_values, rates_at_k_trunc, drawstyle="steps-post", linestyle="-", lw=4.0, alpha=1.0, label=label
-        )
+        plot_kwargs = {"drawstyle": "steps-post", "linestyle": "-", "label": label}
+        # Use color map for progressive items when available
+        if progressive_info and progressive_info.get(label, False) and label in color_map:
+            plot_kwargs["color"] = color_map[label]
+
+        # De-emphasize progressive lines slightly so static lines stand out on top
+        if progressive_info and progressive_info.get(label, False):
+            plot_kwargs["alpha"] = 0.5
+            plot_kwargs["lw"] = 3.0
+        else:
+            plot_kwargs["alpha"] = 0.95
+            plot_kwargs["lw"] = 4.0
+
+        (line,) = plt.plot(k_values, rates_at_k_trunc, **plot_kwargs)
         lines.append((line, label, rates_at_k_trunc))
 
     # Add annotations for highest scoring line at k=50 and at k=100, 200, 300, etc.
@@ -164,7 +213,15 @@ def plot_results(data: dict, path: str, k: int = 1000, name: str = None, title: 
 
     # ensure full k range is visible (start x-axis at 25)
     plt.xlim(25, k)
-    # plt.ylim(0.6, 1.0)
+
+    # Set y-axis limits based on visible data only (from k=25 onwards)
+    # k=25 corresponds to index 24 (0-indexed)
+    # all_values = [val for rates in data.values() for val in rates[24:k]]
+    # y_min = min(all_values)
+    # y_max = max(all_values)
+    # y_range = y_max - y_min
+    # # Add 5% padding
+    # plt.ylim(y_min - 0.05 * y_range, y_max + 0.05 * y_range)
 
     # basename = path.split("/")[0]
     outfile = name if name else f"plot_results.png"
@@ -199,12 +256,11 @@ def main():
         title = f"{metric.capitalize()}@k"
 
     # Establish what files will be included
-    # path = os.path.join(BASE_DIR, directory)
     json_files = get_json_files(directory)
     print(f"Found {len(json_files)} JSON files in {directory}")
-    data = make_label_to_data_dict(json_files, metric=metric)
+    data, progressive_info = make_label_to_data_dict(json_files, metric=metric)
 
-    plot_results(data, path=directory, k=k, name=outfile, title=title)
+    plot_results(data, path=directory, k=k, name=outfile, title=title, progressive_info=progressive_info)
 
 
 if __name__ == "__main__":

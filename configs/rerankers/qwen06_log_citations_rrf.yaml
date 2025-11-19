@@ -1,0 +1,10 @@
+name: qwen06_log_citations_rrf
+infile: data/scored_3_search_results_add02_interleaved.jsonl
+gridsearch: true
+rerankers:
+  - metric
+  - score_log_citations
+top_k: 1000
+rrf_k: 60
+outdir: experiments/rerankers/results/qwen06_log_citations_rrf
+plot_label: 'Qwen 0.6B RRF'
