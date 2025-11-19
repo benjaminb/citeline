@@ -23,6 +23,29 @@ def argument_parser():
     return parser.parse_args()
 
 
+def gridsearch_weights(dim: int) -> np.ndarray:
+    """
+    Given a positive integer dim, return all dim-sized combinations of non-negative weights that sum to 1.
+    """
+    if dim < 2:
+        raise ValueError("Gridsearch requires at least 2 dimensions.")
+
+    step = 0.1
+    num_steps = int(1 / step) + 1
+    grids = [np.arange(0, 1 + step, step) for _ in range(dim - 1)]
+    mesh = np.meshgrid(*grids)
+    candidates = np.vstack([m.flatten() for m in mesh]).T
+
+    valid_weights = []
+    for candidate in candidates:
+        last_weight = 1.0 - np.sum(candidate)
+        if 0.0 <= last_weight <= 1.0:
+            weight_vector = np.append(candidate, last_weight)
+            valid_weights.append(weight_vector)
+
+    return np.array(valid_weights)
+
+
 class RankFuser:
     """
     A class that produces a weighted sum of scores from multiple scoring functions,
@@ -132,10 +155,37 @@ def main():
 
     fusion_name = config["name"]
     infile_path = config["infile"]
-    reranker_config = config["reranker_config"]
     top_k = config["top_k"]
     rrf_k = config.get("rrf_k", 60)
     outdir = config.get("outdir", "experiments/rerankers/results/")
+    gridsearching = config.get("gridsearch", False)
+
+    if gridsearching:
+        # Compute a convex combination of weights that sum to 1
+        rerankers = config["rerankers"]
+        weight_combinations = gridsearch_weights(len(rerankers))
+        for weights in weight_combinations:
+            weight_dict = {metric: float(weight) for metric, weight in zip(rerankers, weights)}
+            print(f"Running gridsearch with weights: {weight_dict}")
+            rank_fuser = RankFuser(
+                infile=infile_path, config=weight_dict, top_k=top_k, rrf_k=rrf_k, num_workers=NUM_WORKERS
+            )
+            average_stats = rank_fuser.execute()
+            # Tweak plot label for these weights
+            base_plot_label = config.get("plot_label", "")
+            plot_label_dict = {
+                "plot_label": f"{base_plot_label} ({', '.join([f'{metric}={weight:.1f}' for metric, weight in weight_dict.items()])})"
+            }
+            log = {"config": {"weights": weight_dict}} | average_stats | plot_label_dict
+
+            # Make a dir concatenating the name and the timestamp
+            os.makedirs(outdir, exist_ok=True)
+            weight_str = "_".join([f"{metric}-{weight:.1f}" for metric, weight in weight_dict.items()])
+            with open(os.path.join(outdir, f"{fusion_name}_{weight_str}_log.json"), "w") as f:
+                json.dump(log, f, indent=2)
+        return
+
+    reranker_config = config["reranker_config"]
 
     rank_fuser = RankFuser(
         infile=infile_path, config=reranker_config, top_k=top_k, rrf_k=rrf_k, num_workers=NUM_WORKERS

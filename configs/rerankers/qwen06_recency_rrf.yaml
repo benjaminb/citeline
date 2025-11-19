@@ -1,0 +1,10 @@
+name: qwen06_recency_rrf
+infile: data/scored_search_results_add02.jsonl
+gridsearch: true
+rerankers:
+  - metric
+  - score_negative_log_years_old
+top_k: 1000
+rrf_k: 60
+outdir: experiments/rerankers/results/qwen06_recency_rrf
+plot_label: 'Qwen 0.6B RRF'

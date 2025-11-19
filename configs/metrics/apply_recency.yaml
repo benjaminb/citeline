@@ -1,0 +1,4 @@
+infile: 'data/scored_3_search_results_add02_interleaved.jsonl'
+outfile: 'data/scored_4_search_results_add02_interleaved.jsonl'
+metrics:
+  - negative_log_years_old

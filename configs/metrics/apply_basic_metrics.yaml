@@ -1,6 +1,4 @@
-infile: 'data/qwen8_search_results.jsonl'
-outfile: 'data/qwen8_basic_search_results.jsonl'
+infile: 'data/scored_2_search_results_add02_interleaved.jsonl'
+outfile: 'data/scored_3_search_results_add02_interleaved.jsonl'
 metrics:
-  - retrieval_count
-  - bm25_robertson
   - bm25_scratch
