@@ -4,13 +4,12 @@
 
 Citeline is a research tool designed to help researchers automatically find and resolve relevant citations when writing academic papers. The system analyzes input sentences (and their context) to recommend appropriate citations from a large corpus of research papers.
 
-The project focuses on astrophysics research, using approximately 50,000 research papers from the Astrophysics Data System (ADS) and 3,000 review papers as our dataset. Our approach leverages:
+The project focuses on astrophysics research, using approximately 52,000 research papers from the Astrophysics Data System (ADS) and 3,000 review papers as our dataset. This codebase enables us to quickly prototype and evaluate various document retrieval techniques. In particular we implement:
 
-- Vector embeddings to capture semantic relationships between text
+- Document chunking and embedding
 - Milvus DB for efficient similarity search
 - Advanced reranking and rank fusion techniques
 - LLM-based citation extraction for improved accuracy
-- Custom text segmentation to optimize document chunking
 
 ## How It Works
 
