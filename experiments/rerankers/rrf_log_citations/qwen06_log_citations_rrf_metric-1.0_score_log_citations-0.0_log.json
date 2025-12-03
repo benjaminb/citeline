@@ -1,6 +1,6 @@
 {
   "config": {
-    "plot_label": "baseline (add prev 02 interleaved)",
+    "plot_label": "baseline (Add-Prev-02)",
     "weights": {
       "metric": 1.0,
       "score_log_citations": 0.0

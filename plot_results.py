@@ -186,13 +186,21 @@ def plot_results(
     plot_title = title if title else "HitRate@k"
     plt.title(plot_title, fontsize=30)
 
-    # Build legend sorted by score at k=50 (descending)
-    sorted_lines = sorted(lines, key=lambda t: t[2][49], reverse=True)
+    # Build legend: show non-progressive (static) lines first, then progressive lines.
+    # Each subgroup is sorted by score at k=50 (descending) so ordering within groups
+    # remains by performance.
+    if progressive_info:
+        static_lines = [t for t in lines if not progressive_info.get(t[1], False)]
+        prog_lines = [t for t in lines if progressive_info.get(t[1], False)]
+    else:
+        static_lines = lines
+        prog_lines = []
+
+    static_sorted = sorted(static_lines, key=lambda t: t[2][49], reverse=True)
+    prog_sorted = sorted(prog_lines, key=lambda t: t[2][49], reverse=True)
+    sorted_lines = static_sorted + prog_sorted
     handles = [t[0] for t in sorted_lines]
     labels = [t[1] for t in sorted_lines]
-    # custom_text = plt.Line2D([0], [0], color="none", label="Ranking@k=50")
-    # handles.insert(0, custom_text)
-    # labels.insert(0, "Ranking@k=50")
     plt.legend(handles=handles, labels=labels, fontsize=30, loc="lower right", framealpha=0.9)
 
     # Control grid lines
