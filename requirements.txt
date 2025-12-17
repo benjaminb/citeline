@@ -17,3 +17,6 @@ pyyaml
 
 langchain
 langchain-ollama
+
+acl_anthology
+arxiv
