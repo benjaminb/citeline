@@ -14221,3 +14221,186 @@ characterizing and recognizing spoken corrections in human-computer dialogue
 a feedback-augmented method for detecting errors in the writing oflearners of english
 a feedback-augmented method for detecting errors in the writing of learners of english
 measuring transitivity using untrained annotators
+unsupervised learning of word sense disambiguation rules by estimating anoptimum iteration number in the em algorithm
+unsupervised learning of word sense disambiguation rules by estimating an optimum iteration number in the em algorithm
+temporal discourse models for narrative structure
+an expert lexicon approach to identifying english phrasal verbs
+selecting text features for gene name classification:from documents to terms
+selecting text features for gene name classification: from documents to terms
+distilling dialogues - a method using natural dialogue corpora fordialogue systems development
+distilling dialogues - a method using natural dialogue corpora for dialogue systems development
+improving word alignment modelsusing structured monolingual corpora
+improving word alignment models using structured monolingual corpora
+lexical acquisition with wordnet and the mikrokosmos ontology
+ellipsis resolution by controlled default unification for multi-modal andspeech dialog systems
+ellipsis resolution by controlled default unification for multi-modal and speech dialog systems
+an approximate approach for training polynomial kernel svms inlinear time
+an approximate approach for training polynomial kernel svms in linear time
+wvali: temporal relation identification by syntactico-semantic analysis
+chinese in the grammatical framework: grammar, translation, andother applications
+chinese in the grammatical framework: grammar, translation, and other applications anonymous
+pre-reordering for statistical machine translationof non-fictional subtitles
+pre-reordering for statistical machine translation of non-fictional subtitles
+measuring ’registerness’ in human and machine translation:a text classification approach
+measuring ‘registerness’ in human and machine translation: a text classification approach
+joint semantic relevance learning with text data and graph knowledge
+unsupervised named entity transliteration using temporal and phoneticcorrelation
+unsupervised named entity transliteration using temporal and phonetic correlation
+multi-document biography summarization
+cost-benefit analysis of two-stage conditional random fields basedenglish-to-chinese machine transliteration
+cost-benefit analysis of two-stage conditional random fields based english-to-chinese machine transliteration
+recognizing biographical sections in wikipedia
+the acl anthology searchbench
+the parameter-optimized atec metric for mt evaluation
+transliteration by bidirectional statistical machine translation
+inesc-id: a regression model for large scale twitter sentiment lexiconinduction
+inesc-id: a regression model for large scale twitter sentiment lexicon induction
+broadcast news story segmentation using manifold learning on latenttopic distributions
+broadcast news story segmentation using manifold learning on latent topic distributions
+lilfes — towards a practical hpsg parser *
+lilfes - towards a practical hpsg parser
+unsupervised alignment for segmental-based language understanding
+enhancing medical named entity recognitionwith features derived from unsupervised methods
+enhancing medical named entity recognition with features derived from unsupervised methods
+building an annotated corpus in the molecular-biology domain
+learning from errors: using vector-based compositional semantics forparse reranking
+learning from errors: using vector-based compositional semantics for parse reranking
+generating referring expressions with a unification grammar
+speech-plans: generating evaluative responses in spoken dialogue
+the italian syntactic-semantic treebank: architecture,annotation, tools and evaluation
+the italian syntactic-semantic treebank: architecture, annotation, tools and evaluation
+recovering dialect geography from an unaligned comparable corpus
+bayesian query-focused summarization
+sudoku: treating word sense disambiguation & entity linking as adeterministic problem – via an unsupervised & iterative approach
+sudoku: treating word sense disambiguation & entitiy linking as a deterministic problem - via an unsupervised & iterative approach
+exploration of term dependence in sentence retrieval
+the role of polarity in inferring acceptance and rejection in dialogue
+extended topic model for word dependency
+opinion mining and topic categorization with novel term weighting
+a corpus-based approach for the prediction of language impairment inmonolingual english and spanish-english bilingual children
+a corpus-based approach for the prediction of language impairment in monolingual english and spanish-english bilingual children
+automatic extraction of linguistic metaphor with lda topic modeling
+automatic extraction of linguistic metaphors with lda topic modeling
+a semi-supervised approach for natural language call routing
+a comparison of rule-based and machine learning methods formedical information extraction
+a comparison of rule-based and machine learning methods for medical information extraction
+wn-toolkit:automatic generation of wordnets following the expand model
+wn-toolkit: automatic generation of wordnets following the expand model
+semantic clustering and convolutional neural networkfor short text categorization
+semantic clustering and convolutional neural network for short text categorization
+levenshtein distances fail to identifylanguage relationships accurately
+levenshtein distances fail to identify language relationships accurately
+four techniques for online handling of out-of-vocabulary wordsin arabic-english statistical machine translation
+four techniques for online handling of out-of-vocabulary words in arabic-english statistical machine translation
+processing english with a generalized phrase structure grammar
+selecting query term alterations for web search by exploiting querycontexts
+selecting query term alternations for web search by exploiting query contexts
+cmuq@qatar:using rich lexical features forsentiment analysis on twitter
+cmuq@qatar:using rich lexical features for sentiment analysis on twitter
+emnlp versus acl: analyzing nlp research over time
+word-based japanese typed dependency parsing with grammaticalfunction analysis
+word-based japanese typed dependency parsing with grammatical function analysis
+cross-lingual genre classification
+resolving personal names in email using context expansion
+how good is the crowd at “real” wsd?
+extracting key phrases to disambiguatepersonal name queries in web search
+extracting key phrases to disambiguate personal name queries in web search
+an underspecified segmented discourse representation theory (usdrt)
+annotating anaphoric and bridging relations with mmax
+russian stress prediction using maximum entropy ranking
+discourse processing
+experience of using gate for nlp r&d.
+experience using gate for nlp r&d
+automatic word stress annotation of russian unrestricted text
+uwm: applying an existing trainable semantic parser to parse roboticspatial commands
+uwm: applying an existing trainable semantic parser to parse robotic spatial commands
+nlel upv autoritas participation at discrimination betweensimilar languages (dsl) 2015 shared task
+nlel upv autoritas participation at discrimination between similar languages (dsl) 2015 shared task
+a pattern approach for biomedical event annotation
+content importance models for scoring writing from sources
+word-based dialect identification with georeferenced rules
+syntactic decision tree lms: random selection or intelligent design?
+overcoming the memory bottleneck in distributed training oflatent variable models of text
+overcoming the memory bottleneck in distributed training of latent variable models of text
+sinai: voting system for twitter sentiment analysis
+a multilingual approach to annotatingand extracting temporal information1
+a multilingual approach to annotating and extracting temporal information
+using existing systems to supplement small amounts ofannotated grammatical relations training data ∗
+using existing systems to supplement small amounts of annotated grammatical relations training data
+disfluencies as extra-propositional indicators of cognitive processing
+annomarket: an open cloud platform for nlp
+mimic: an adaptive mixed initiative spoken dialogue system forinformation queries
+mimic: an adaptive mixed initiative spoken dialogue system for information queries
+processing informal, romanized pakistani text messages
+an information-theoretic approach toautomatic evaluation of summaries
+an information-theoretic approach to automatic evaluation of summaries
+tagging gene and protein names in full text articles
+end-to-end argument generation system in debating
+interactively exploring a machine translation model
+grammar and lexicon in the robust parsing of italiantowards a non-naïve interplay
+grammar and lexicon in the robust parsing of italian towards a non-naïve interplay
+warwickdcs: from phrase-based to target-specific sentiment recognition
+english
+easy english
+towards emotion prediction in spoken tutoring dialogues
+a tool for deep semantic encoding of narrative texts
+semeval-2007 task 01: evaluating wsdon cross-language information retrieval
+semeval-2007 task 01: evaluating wsd on cross-language information retrieval
+muli-label text categorization with hidden components
+em can find pretty good hmm pos-taggers(when given a good start)*
+em can find pretty good hmm pos-taggers (when given a good start)
+optimality theory and the generativecomplexity of constraint violability
+optimality theory and the generative complexity of constraint violability
+one-step statistical parsing of hybriddependency-constituency syntactic representations
+one-step statistical parsing of hybrid dependency-constituency syntactic representations
+on the properties of neural machine translation: encoder–decoderapproaches
+on the properties of neural machine translation: encoder–decoder approaches
+a status report on the lac machine 1
+a status report on the lrc machine
+a general computational model for word-form recognition and production
+improving pronominal and deictic co-reference resolution withmulti-modal features
+improving pronominal and deictic co-reference resolution with multi-modal features
+measuring the confusability of pronunciations in speech recognitionpanagiota karanasou franc¸ois yvon lori lamel
+measuring the confusability of pronunciations in speech recognition
+improved reordering for shallow-n grammar based hierarchicalphrase-based translation
+improved reordering for shallow-n grammar based hierarchical phrase-based translation
+using entity features to classify implicit discourse relations
+understanding tables in context using standard nlp toolkits
+an empirical verification of coverage and correctness for ageneral-purpose sentence generator
+an empirical verification of coverage and correctness for a general-purpose sentence generator
+hdu: cross-lingual textual entailment with smt features
+comparison of bayesian discriminative and generative models fordialogue state tracking
+comparison of bayesian discriminative and generative models for dialogue state tracking
+a framework for comparing groups of documents
+multiple similarity measures and source-pair informationin story link detection
+multiple similarity measures and source-pair information in story link detection
+linguistic features for quality estimation
+edinburgh’s submission to all tracks of the wmt2009 shared taskwith reordering and speed improvements to moses
+edinburgh’s submission to all tracks of the wmt 2009 shared task with reordering and speed improvements to moses
+kernel regression framework for machine translation: ucl systemdescription for wmt 2008 shared translation task
+kernel regression framework for machine translation: ucl system description for wmt 2008 shared translation task
+using encyclopedic knowledge for automatic topic identification
+assisting social conversation between persons with alzheimer’s diseaseand their conversational partners
+assisting social conversation between persons with alzheimer’s disease and their conversational partners
+mining very-non-parallel corpora:parallel sentence and lexicon extraction via bootstrapping and em
+mining very-non-parallel corpora: parallel sentence and lexicon extraction via bootstrapping and e
+automated whole sentence grammar correction using a noisy channelmodel
+automated whole sentence grammar correction using a noisy channel model
+biomedical event extraction from abstracts and full papers usingsearch-based structured prediction
+biomedical event extraction from abstracts and full papers using search-based structured prediction
+dual training and dual prediction for polarity classification
+efficient minimum error rate training andminimum bayes-risk decoding fortranslation hypergraphs and lattices
+efficient minimum error rate training and minimum bayes-risk decoding for translation hypergraphs and lattices
+a text-driven rule-based system for emotion cause detection of chinese and bilingual studies the hong kong polytechnic university
+a text-driven rule-based system for emotion cause detection
+a cognitive-based annotation system for emotion computing
+improving the scalability of semi-markov conditionalrandom fields for named entity recognition
+improving the scalability of semi-markov conditional random fields for named entity recognition
+an environment for acquiring semantic information
+recycling terms into a partial parser
+testing the robustness of online word segmentation:effects of linguistic diversity and phonetic variation
+testing the robustness of online word segmentation: effects of linguistic diversity and phonetic variation
+multi-purpose development and operationenvironmentsfor natural language applications
+multi-purpose development and operation environments for natural language applications
+flsa: extending latent semantic analysis with featuresfor dialogue act classification
+flsa: extending latent semantic analysis with features for dialogue act classification
