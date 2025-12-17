@@ -17,9 +17,9 @@ from acl_anthology import Anthology
 
 
 # Semantic Scholar API key is loaded
-load_dotenv("../../../.env")
-assert os.getenv("SEMANTIC_SCHOLAR_API_KEY"), "SEMANTIC_SCHOLAR_API_KEY not found in .env"
-API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
+# load_dotenv("../../../.env")
+# assert os.getenv("SEMANTIC_SCHOLAR_API_KEY"), "SEMANTIC_SCHOLAR_API_KEY not found in .env"
+# API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY")
 
 # Logging set up
 os.makedirs("logs", exist_ok=True)
