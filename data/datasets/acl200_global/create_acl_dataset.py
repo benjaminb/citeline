@@ -146,7 +146,7 @@ class ACLClient:
         if paper.month:
             month_str = str(paper.month).strip().lower()
             for name, num in self.month_map.items():
-                if month_str == name:
+                if name in month_str:
                     month_num = num
                     break
             else:
@@ -185,7 +185,17 @@ class ACLClient:
                 candidates.append(paper)
 
         if len(candidates) > 1:
-            logger.warning(f"Multiple candidates found for title '{title}': {[str(c.title) for c in candidates]}")
+            # Return an exact candidate if possible, best match otherwise
+            for candidate in candidates:
+                if title_normed == str(candidate.title).lower().strip():
+                    return candidate
+            else:
+                matches = difflib.get_close_matches(
+                    word=title_normed, possibilities=[str(c.title).lower().strip() for c in candidates], n=1, cutoff=0.0
+                )
+                logger.warning(f"Multiple candidates found for title '{title}'; returning best match '{matches[0]}'")
+                return matches[0]
+
         if len(candidates) == 0:
             raise ACLProcessingError(f"No matching paper found for title: {title}")
         return candidates[0]
@@ -260,9 +270,10 @@ class ACLClient:
 
                             # Save progress (both dataset title, which may have typos, and official paper title)
                             progress_file.write(title_lower + "\n")
-                            progress_file.write(paper_title_lower + "\n")
                             self.processed_titles.add(title_lower)
-                            self.processed_titles.add(paper_title_lower)
+                            if paper_title_lower != title_lower:
+                                progress_file.write(paper_title_lower + "\n")
+                                self.processed_titles.add(paper_title_lower)
 
                         except ACLProcessingError as e:
                             logger.error(f"Skipping title '{title}' due to error: {e}")
