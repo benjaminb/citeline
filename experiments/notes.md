@@ -1,4 +1,13 @@
 # Experimental Notes & Journal
+### 12.17.25
+Working on integrating arXiv and ACL Anthology datasets
+- The datasets have a lot of typos in citing_title and target_title, requiring fuzzy matching to get the doc id from title
+- I validated that they all are well-formed csv though, no missing fields
+- I ought to write out a cleaned version of the datasets with:
+  - cleaned titles
+  - added doc ids for source and target docs
+- Reference dataset: do we include all papers (citing and target) or only target papers?
+
 
 ### 9.11.25
 
