@@ -288,248 +288,248 @@ class ACLClient:
                 progress_file.flush()
 
 
-class ACLProcessor:
-    """
-    The main purpose of this class is to take string titles of papers and resolve them to the text
-    of their bodies."""
+# class ACLProcessor:
+#     """
+#     The main purpose of this class is to take string titles of papers and resolve them to the text
+#     of their bodies."""
 
-    BASE_URL = "https://api.semanticscholar.org/graph/v1"
-    PDF_SAVE_DIR = "pdfs/"
-    SAVE_FILE = "preprocessed/research.jsonl"
-    PROCESSED_SAVE_DIR = "preprocessed/"
-    PROGRESS_PATH = os.path.join(PROCESSED_SAVE_DIR, "titles.progress")  # title1\ntitle2\n...
+#     BASE_URL = "https://api.semanticscholar.org/graph/v1"
+#     PDF_SAVE_DIR = "pdfs/"
+#     SAVE_FILE = "preprocessed/research.jsonl"
+#     PROCESSED_SAVE_DIR = "preprocessed/"
+#     PROGRESS_PATH = os.path.join(PROCESSED_SAVE_DIR, "titles.progress")  # title1\ntitle2\n...
 
-    def __init__(self, api_key: str, data_path: str = "context_dataset_train.csv", batch_size: int = 50):
-        """
-        Args:
-            api_key: Semantic Scholar API key
-            data_path: path to ACL200 dataset (train or eval).
-                (CSV: masked_cit_context,masked_token_target,citing_title,citing_abstract,target_title,target_abstract)
-        """
-        self.api_key = api_key
-        self.data_path = data_path
-        print(f"Using data: \033[1m{self.data_path}\033[0m")
-        self.batch_size = batch_size
+#     def __init__(self, api_key: str, data_path: str = "context_dataset_train.csv", batch_size: int = 50):
+#         """
+#         Args:
+#             api_key: Semantic Scholar API key
+#             data_path: path to ACL200 dataset (train or eval).
+#                 (CSV: masked_cit_context,masked_token_target,citing_title,citing_abstract,target_title,target_abstract)
+#         """
+#         self.api_key = api_key
+#         self.data_path = data_path
+#         print(f"Using data: \033[1m{self.data_path}\033[0m")
+#         self.batch_size = batch_size
 
-        # Ensure save dirs exist
-        os.makedirs(self.PDF_SAVE_DIR, exist_ok=True)
-        os.makedirs(self.PROCESSED_SAVE_DIR, exist_ok=True)
-        self.splitter = TextSplitter(capacity=1500, overlap=150)
+#         # Ensure save dirs exist
+#         os.makedirs(self.PDF_SAVE_DIR, exist_ok=True)
+#         os.makedirs(self.PROCESSED_SAVE_DIR, exist_ok=True)
+#         self.splitter = TextSplitter(capacity=1500, overlap=150)
 
-        if os.path.exists(self.PROGRESS_PATH):
-            with open(self.PROGRESS_PATH, "r") as f:
-                self.processed_titles = set(line.strip() for line in f)
-        else:
-            print(f"Progress file not found at \033[1m{self.PROGRESS_PATH}\033[0m. Starting fresh.")
-            self.processed_titles = set()
+#         if os.path.exists(self.PROGRESS_PATH):
+#             with open(self.PROGRESS_PATH, "r") as f:
+#                 self.processed_titles = set(line.strip() for line in f)
+#         else:
+#             print(f"Progress file not found at \033[1m{self.PROGRESS_PATH}\033[0m. Starting fresh.")
+#             self.processed_titles = set()
 
-    def _batch_reader(self, reader: csv.DictReader):
-        """Yields batches of rows from a csv.DictReader."""
-        while True:
-            batch = list(islice(reader, self.batch_size))
-            if not batch:
-                break
-            yield batch
+#     def _batch_reader(self, reader: csv.DictReader):
+#         """Yields batches of rows from a csv.DictReader."""
+#         while True:
+#             batch = list(islice(reader, self.batch_size))
+#             if not batch:
+#                 break
+#             yield batch
 
-    def _get_processed_titles(self) -> set:
-        """Reads the progress file and returns a set of already processed titles."""
-        if not os.path.exists(self.PROGRESS_PATH):
-            return set()
-        with open(self.PROGRESS_PATH, "r") as file:
-            processed_titles = {line.strip() for line in file}
-        return processed_titles
+#     def _get_processed_titles(self) -> set:
+#         """Reads the progress file and returns a set of already processed titles."""
+#         if not os.path.exists(self.PROGRESS_PATH):
+#             return set()
+#         with open(self.PROGRESS_PATH, "r") as file:
+#             processed_titles = {line.strip() for line in file}
+#         return processed_titles
 
-    def acl_dataset_to_jsonl(self):
-        """
-        Takes in an ACL dataset csv file and produces a jsonl file of records with full body text.
-        """
-        # Get dataset length
-        with open(self.data_path, "r") as f:
-            total_lines = sum(1 for line in f) - 1  # subtract 1 for header
+#     def acl_dataset_to_jsonl(self):
+#         """
+#         Takes in an ACL dataset csv file and produces a jsonl file of records with full body text.
+#         """
+#         # Get dataset length
+#         with open(self.data_path, "r") as f:
+#             total_lines = sum(1 for line in f) - 1  # subtract 1 for header
 
-        with open(self.data_path, "r") as data_file, open(self.PROGRESS_PATH, "a") as progress_file, open(
-            self.SAVE_FILE, "a"
-        ) as save_file:
-            reader = csv.DictReader(data_file)
+#         with open(self.data_path, "r") as data_file, open(self.PROGRESS_PATH, "a") as progress_file, open(
+#             self.SAVE_FILE, "a"
+#         ) as save_file:
+#             reader = csv.DictReader(data_file)
 
-            with tqdm(total=total_lines, desc="Fetching papers") as pbar:
-                for batch in self._batch_reader(reader):
-                    target_titles = [row["target_title"] for row in batch]
-                    for title in target_titles:
+#             with tqdm(total=total_lines, desc="Fetching papers") as pbar:
+#                 for batch in self._batch_reader(reader):
+#                     target_titles = [row["target_title"] for row in batch]
+#                     for title in target_titles:
 
-                        pbar.update(1)
+#                         pbar.update(1)
 
-                        if title in self.processed_titles:
-                            print(f"Title already processed, skipping: {title}")
-                            continue
+#                         if title in self.processed_titles:
+#                             print(f"Title already processed, skipping: {title}")
+#                             continue
 
-                        sleep(1)  # Sleep to respect rate limits
-                        try:
-                            record = self.title_to_record(title)
+#                         sleep(1)  # Sleep to respect rate limits
+#                         try:
+#                             record = self.title_to_record(title)
 
-                            # Save record and update progress
-                            save_file.write(json.dumps(record) + "\n")
-                            progress_file.write(title + "\n")
-                            self.processed_titles.add(title)
+#                             # Save record and update progress
+#                             save_file.write(json.dumps(record) + "\n")
+#                             progress_file.write(title + "\n")
+#                             self.processed_titles.add(title)
 
-                        except ACLProcessingError as e:
-                            logger.error(f"Skipping title {title} due to error: {e}")
-                            continue
+#                         except ACLProcessingError as e:
+#                             logger.error(f"Skipping title {title} due to error: {e}")
+#                             continue
 
-                    # Flush files after batch
-                    save_file.flush()
-                    progress_file.flush()
+#                     # Flush files after batch
+#                     save_file.flush()
+#                     progress_file.flush()
 
-                # Final flush to disk
-                save_file.flush()
-                progress_file.flush()
+#                 # Final flush to disk
+#                 save_file.flush()
+#                 progress_file.flush()
 
-    def title_to_ids_and_pubdate(self, title: str) -> dict:
-        """
+#     def title_to_ids_and_pubdate(self, title: str) -> dict:
+#         """
 
-        Returns:
-            an empty dictionary, indicating some failure,
-            or a dict with "acl" and "doi" ids
-        """
-        params = {"query": title, "fields": "externalIds,publicationDate", "limit": 1}
-        headers = {"x-api-key": self.api_key}
-        try:
-            res = requests.get(f"{self.BASE_URL}/paper/search", params=params, headers=headers)
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Title: {title}. Request failed: {e}")
-            return {}
+#         Returns:
+#             an empty dictionary, indicating some failure,
+#             or a dict with "acl" and "doi" ids
+#         """
+#         params = {"query": title, "fields": "externalIds,publicationDate", "limit": 1}
+#         headers = {"x-api-key": self.api_key}
+#         try:
+#             res = requests.get(f"{self.BASE_URL}/paper/search", params=params, headers=headers)
+#         except requests.exceptions.RequestException as e:
+#             logger.error(f"Title: {title}. Request failed: {e}")
+#             return {}
 
-        obj = res.json()
-        data: list = obj.get("data", [])
-        if not data:
-            msg = f"Title: {title}. No records found in Semantic Scholar's response. Response: {obj}"
-            logger.error(msg)
-            raise ACLProcessingError(msg)
+#         obj = res.json()
+#         data: list = obj.get("data", [])
+#         if not data:
+#             msg = f"Title: {title}. No records found in Semantic Scholar's response. Response: {obj}"
+#             logger.error(msg)
+#             raise ACLProcessingError(msg)
 
-        record = data[0] if data else None
-        if not record:
-            msg = f"Title: {title}. No records found in Semantic Scholar's response list for the given title. Response: {obj}"
-            logger.error(msg)
-            raise ACLProcessingError(msg)
+#         record = data[0] if data else None
+#         if not record:
+#             msg = f"Title: {title}. No records found in Semantic Scholar's response list for the given title. Response: {obj}"
+#             logger.error(msg)
+#             raise ACLProcessingError(msg)
 
-        # Get pubdate (nonfatal if missing, but log warning)
-        pubdate = record.get("publicationDate", None)
-        if not pubdate:
-            logger.warning(
-                f"Title: {title}. No 'publicationDate' found in record. Be sure to get this filled in! Response: {obj}"
-            )
-        else:
-            pubdate = int(pubdate.replace("-", ""))  # Convert YYYY-MM-DD to YYYYMMDD int
+#         # Get pubdate (nonfatal if missing, but log warning)
+#         pubdate = record.get("publicationDate", None)
+#         if not pubdate:
+#             logger.warning(
+#                 f"Title: {title}. No 'publicationDate' found in record. Be sure to get this filled in! Response: {obj}"
+#             )
+#         else:
+#             pubdate = int(pubdate.replace("-", ""))  # Convert YYYY-MM-DD to YYYYMMDD int
 
-        external_ids = record.get("externalIds", None)
-        if not external_ids:
-            msg = f"Title: {title}. No 'externalIds' key found in Semantic Scholar's record for the given title. Response: {obj}"
-            logger.error(msg)
-            raise ACLProcessingError(msg)
+#         external_ids = record.get("externalIds", None)
+#         if not external_ids:
+#             msg = f"Title: {title}. No 'externalIds' key found in Semantic Scholar's record for the given title. Response: {obj}"
+#             logger.error(msg)
+#             raise ACLProcessingError(msg)
 
-        acl_id = external_ids.get("ACL", None)
-        if not acl_id:
-            msg = f"Title: {title}. No 'ACL' id found in external IDs for the given title. Response: {obj}"
-            logger.error(msg)
-            raise ACLProcessingError(msg)
+#         acl_id = external_ids.get("ACL", None)
+#         if not acl_id:
+#             msg = f"Title: {title}. No 'ACL' id found in external IDs for the given title. Response: {obj}"
+#             logger.error(msg)
+#             raise ACLProcessingError(msg)
 
-        # Retrieve DOI; non-fatal if missing
-        doi = external_ids.get("DOI", None)
-        if not doi:
-            msg = f"Title: {title}. No 'DOI' id found in external IDs for the given title. Response: {obj}"
-            logger.warning(msg)
+#         # Retrieve DOI; non-fatal if missing
+#         doi = external_ids.get("DOI", None)
+#         if not doi:
+#             msg = f"Title: {title}. No 'DOI' id found in external IDs for the given title. Response: {obj}"
+#             logger.warning(msg)
 
-        return {"acl": acl_id, "doi": doi, "pubdate": pubdate}
+#         return {"acl": acl_id, "doi": doi, "pubdate": pubdate}
 
-    def acl_id_to_pdf(self, acl_id: str) -> str:
-        url = f"https://aclanthology.org/{acl_id}.pdf"
-        response = requests.get(url, timeout=30)
-        if response.status_code == 200:
-            pdf = response.content
-            save_path = os.path.join(self.PDF_SAVE_DIR, f"{acl_id}.pdf")
-            with open(save_path, "wb") as f:
-                f.write(pdf)
-            return save_path
+#     def acl_id_to_pdf(self, acl_id: str) -> str:
+#         url = f"https://aclanthology.org/{acl_id}.pdf"
+#         response = requests.get(url, timeout=30)
+#         if response.status_code == 200:
+#             pdf = response.content
+#             save_path = os.path.join(self.PDF_SAVE_DIR, f"{acl_id}.pdf")
+#             with open(save_path, "wb") as f:
+#                 f.write(pdf)
+#             return save_path
 
-        logger.error(f"Failed to download PDF for ACL ID {acl_id}. Status code: {response.status_code}")
+#         logger.error(f"Failed to download PDF for ACL ID {acl_id}. Status code: {response.status_code}")
 
-    def pdf_to_text(self, pdf_path: str) -> str:
+#     def pdf_to_text(self, pdf_path: str) -> str:
 
-        def block_is_text(block: tuple) -> bool:
-            return block[6] == 0  # block type 0 indicates text
+#         def block_is_text(block: tuple) -> bool:
+#             return block[6] == 0  # block type 0 indicates text
 
-        def clean_block_text(text: str) -> str:
-            """
-            Cleans up the PDF formatting artifacts preserved in pymupdf 'blocks': newlines for line breaks and
-            hyphenation (word division) at line ends.
+#         def clean_block_text(text: str) -> str:
+#             """
+#             Cleans up the PDF formatting artifacts preserved in pymupdf 'blocks': newlines for line breaks and
+#             hyphenation (word division) at line ends.
 
-            These are artifacts of PDF processing for paper; not necessary or helpful for digital texts or NLP.
-            """
-            # Replace hyphen at end of line followed by newline with nothing (rejoin hyphenated words)
-            text = re.sub(r"-\s*\n\s*", "", text)
+#             These are artifacts of PDF processing for paper; not necessary or helpful for digital texts or NLP.
+#             """
+#             # Replace hyphen at end of line followed by newline with nothing (rejoin hyphenated words)
+#             text = re.sub(r"-\s*\n\s*", "", text)
 
-            # Replace remaining newlines with spaces
-            text = re.sub(r"\n+", " ", text)
+#             # Replace remaining newlines with spaces
+#             text = re.sub(r"\n+", " ", text)
 
-            # Clean up multiple spaces
-            text = re.sub(r" +", " ", text)
+#             # Clean up multiple spaces
+#             text = re.sub(r" +", " ", text)
 
-            return text.strip()
+#             return text.strip()
 
-        doc = pymupdf.open(pdf_path)
-        text = ""
-        for page in doc:
-            blocks = page.get_text("blocks")
-            for block in blocks:
-                if block_is_text(block):
-                    cleaned_text = clean_block_text(block[4])
-                    text += cleaned_text + "\n"
+#         doc = pymupdf.open(pdf_path)
+#         text = ""
+#         for page in doc:
+#             blocks = page.get_text("blocks")
+#             for block in blocks:
+#                 if block_is_text(block):
+#                     cleaned_text = clean_block_text(block[4])
+#                     text += cleaned_text + "\n"
 
-        doc.close()
-        return text.strip()
+#         doc.close()
+#         return text.strip()
 
-    def title_to_record(self, title: str) -> dict:
-        """
-        Returns: dict with keys
-        'title', 'doi', 'pubdate', 'text' (full body of paper)
-        """
-        # Get data from Semantic Scholar
-        paper_data = self.title_to_ids_and_pubdate(title)
-        doi = paper_data["doi"]
-        pubdate = paper_data["pubdate"]
-        acl_id = paper_data["acl"]
+#     def title_to_record(self, title: str) -> dict:
+#         """
+#         Returns: dict with keys
+#         'title', 'doi', 'pubdate', 'text' (full body of paper)
+#         """
+#         # Get data from Semantic Scholar
+#         paper_data = self.title_to_ids_and_pubdate(title)
+#         doi = paper_data["doi"]
+#         pubdate = paper_data["pubdate"]
+#         acl_id = paper_data["acl"]
 
-        # Get the PDF from ACL Anthology
-        pdf_path = self.acl_id_to_pdf(acl_id)
-        if not pdf_path:
-            raise ACLProcessingError(f"Failed to get PDF for title: {title}")
-        text = self.pdf_to_text(pdf_path)
+#         # Get the PDF from ACL Anthology
+#         pdf_path = self.acl_id_to_pdf(acl_id)
+#         if not pdf_path:
+#             raise ACLProcessingError(f"Failed to get PDF for title: {title}")
+#         text = self.pdf_to_text(pdf_path)
 
-        return {"title": title, "doi": doi, "pubdate": pubdate, "text": text}
+#         return {"title": title, "doi": doi, "pubdate": pubdate, "text": text}
 
-    def save_processed_research(self, record: dict) -> None:
-        with open(os.path.join(self.PROCESSED_SAVE_DIR, "research.jsonl"), "a") as file:
-            file.write(json.dumps(record) + "\n")
+#     def save_processed_research(self, record: dict) -> None:
+#         with open(os.path.join(self.PROCESSED_SAVE_DIR, "research.jsonl"), "a") as file:
+#             file.write(json.dumps(record) + "\n")
 
-        with open(self.PROGRESS_PATH, "a") as file:
-            file.write(record["title"] + "\n")
+#         with open(self.PROGRESS_PATH, "a") as file:
+#             file.write(record["title"] + "\n")
 
-    def record_to_chunk_records(self, record: dict) -> list[dict]:
-        """
-        Takes a record who's 'text' is the full paper body (e.g. from title_to_record),
-        chunks the body and returns a list of records, chunked & ready for db insertion
-        """
-        chunks = self.splitter.chunks(record["text"])
-        return [
-            {
-                "title": record["title"],
-                "doi": record["doi"],
-                "pubdate": record["pubdate"],
-                "citation_count": -1,
-                "text": chunk,
-            }
-            for chunk in chunks
-        ]
+#     def record_to_chunk_records(self, record: dict) -> list[dict]:
+#         """
+#         Takes a record who's 'text' is the full paper body (e.g. from title_to_record),
+#         chunks the body and returns a list of records, chunked & ready for db insertion
+#         """
+#         chunks = self.splitter.chunks(record["text"])
+#         return [
+#             {
+#                 "title": record["title"],
+#                 "doi": record["doi"],
+#                 "pubdate": record["pubdate"],
+#                 "citation_count": -1,
+#                 "text": chunk,
+#             }
+#             for chunk in chunks
+#         ]
 
 
 def main():
