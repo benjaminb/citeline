@@ -16,6 +16,8 @@ from semantic_text_splitter import TextSplitter
 from time import sleep
 from tqdm import tqdm
 
+from pydantic import BaseModel, Field
+
 # Path to project root
 PROJECT_ROOT = Path("../" * 3)
 
@@ -93,25 +95,12 @@ class ReferenceDatasetProcessor(ABC):
         )
         self.logger = logging.getLogger(__name__)
 
-    def _front_half(self, s: str) -> str:
-        """Returns the front half of a string."""
-        return s[: len(s) // 2]
-
-    def _back_half(self, s: str) -> str:
-        """Returns the back half of a string."""
-        return s[len(s) // 2 :]
-
-    def _get_batch(self, reader: csv.DictReader, batch_size: int = 20):
-        """Yields batches of rows from the CSV reader."""
-        while True:
-            batch = list(islice(reader, batch_size))
-            if not batch:
-                break
-            yield batch
+        self.norm_title_to_canonical = self.build_norm_title_to_canonical_map()
+        self.normed_canonical_titles = set(self.norm_title_to_canonical.keys())
 
     @abstractmethod
-    def get_normed_reference_titles(self) -> set:
-        """Subclasses implement this to return set of all unique normed reference titles in the dataset"""
+    def build_norm_title_to_canonical_map(self) -> dict[str, str]:
+        """Subclasses implement this to return a mapping of normed titles to canonical titles from the source"""
         pass
 
     @abstractmethod
@@ -132,16 +121,32 @@ class ReferenceDatasetProcessor(ABC):
         """
         pass
 
+    def _front_half(self, s: str) -> str:
+        """Returns the front half of a string."""
+        return s[: len(s) // 2]
+
+    def _back_half(self, s: str) -> str:
+        """Returns the back half of a string."""
+        return s[len(s) // 2 :]
+
+    def _get_batch(self, reader: csv.DictReader, batch_size: int = 20):
+        """Yields batches of rows from the CSV reader."""
+        while True:
+            batch = list(islice(reader, batch_size))
+            if not batch:
+                break
+            yield batch
+
     def _normed_title_search(self, title: str) -> str | None:
         """Norms the title and searches against normed titles"""
         normed_title = self._norm_title(title)
-        normed_reference_titles = self.get_normed_reference_titles()
+        # normed_reference_titles = self.get_normed_reference_titles()
 
         # Truncate the normed names in case punctuation or minor typos prevent substring matching
         normed_title_front, normed_title_back = self._front_half(normed_title), self._back_half(normed_title)
-        matches = [
+        candidates = [
             t
-            for t in normed_reference_titles
+            for t in self.normed_canonical_titles
             if any(
                 [
                     normed_title_front in t,
@@ -152,31 +157,38 @@ class ReferenceDatasetProcessor(ABC):
             )
         ]
 
-        # No matches or multiple matches
-        if not matches:
-            self.logger.error(f"No substring matches found for title: {title}")
-            return None
-        if len(matches) == 1:
-            self.logger.warning(f"Single match found in substring search for title '{title}': {matches[0]}")
-            return matches[0]
+        # Only one match: return it
+        if len(candidates) == 1:
+            self.logger.info(f"Single match found in substring search for title '{title}': {candidates[0]}")
+            return candidates[0]
 
-        # Multiple matches: use difflib to find closest match
-        diff_matches = difflib.get_close_matches(title, matches, n=3, cutoff=0.8)
+        # Multiple matches: use difflib to find closest match. Returns [] if candidates=[]
+        diff_matches = difflib.get_close_matches(normed_title, candidates, n=3, cutoff=0.6)
+
+        # No matches: fuzzy search on all normed titles
         if not diff_matches:
-            self.logger.error(f"No close matches found for title: {title} among fuzzy candidates: {matches}")
+            diff_matches = difflib.get_close_matches(normed_title, self.normed_canonical_titles, n=3, cutoff=0.5)
+
+        # Still no matches: log error
+        if len(diff_matches) == 0:
+            self.logger.error(
+                f"No close matches found for title: {title} among fuzzy candidates: {candidates[:5]}{'...' if len(candidates) > 5 else ''}"
+            )
             return None
 
-        # Either 1 or more fuzzy matches
+        canonical_title = self.norm_title_to_canonical[diff_matches[0]]
+        # Multiple matches: log warning and return best match
         if len(diff_matches) > 1:
-            self.logger.warning(
-                f"Multiple matches found for title '{title}': {matches}. Using difflib to find closest match."
-            )
+            self.logger.warning(f"Multiple matches on '{title}'; choosing {canonical_title}")
 
-        return diff_matches[0]
+        return canonical_title
 
     def _norm_title(self, title: str) -> str:
-        """Normalizes titles for matching (lowercase, strip whitespace)."""
-        return title.translate(str.maketrans("", "", string.punctuation + string.whitespace)).lower()
+        """Normalizes titles for matching, removing punctuation and whitespace, and lowercasing.
+        E.g. "Multi-Word Units: How Efficient" -> "multiwordunitshowefficient"
+        """
+        # return title.translate(str.maketrans("", "", string.punctuation + string.whitespace)).lower()
+        return "".join(char.lower() for char in title if char.isalnum())
 
     def create_canonical_titlemap(self):
         """Attempts to resolve the typos in titles in the dataset to canonical titles from the source."""
@@ -197,13 +209,12 @@ class ReferenceDatasetProcessor(ABC):
                     pbar.update(1)
                     for title in (target_title, citing_title):
                         if title in self.titlemap:
-                            canonical_title = self.titlemap[title]
-                        else:
-                            # Try direct title search
-                            canonical_title = self.title_search(title)
-                            if not canonical_title:
-                                continue
-                            self.titlemap[title] = canonical_title
+                            continue
+
+                        # If title resolves, it goes into the map. Otherwise, the unresolve title goes in as key with None value
+                        # The task becomes to resolve these None values later
+                        canonical_title = self.title_search(title)
+                        self.titlemap[title] = canonical_title
 
                 # Write out updated title map
                 with open(self.titlemap_path, "w") as titlemap_file:
@@ -217,13 +228,11 @@ class ACLProcessor(ReferenceDatasetProcessor):
     def __init__(self, data_path: Path, data_file: str):
         from acl_anthology import Anthology
 
-        super().__init__(name="acl", data_path=data_path, data_file=data_file)
         self.anthology = Anthology.from_repo()
+        super().__init__(name="acl", data_path=data_path, data_file=data_file)
 
-        self.normed_reference_titles = {self._norm_title(str(p.title)) for p in self.anthology.papers()}
-
-    def get_normed_reference_titles(self) -> set:
-        return self.normed_reference_titles
+    def build_norm_title_to_canonical_map(self) -> dict[str, str]:
+        return {self._norm_title(str(p.title)): str(p.title) for p in self.anthology.papers()}
 
     def resolve_pubdate(self, paper) -> int:
         """
@@ -255,19 +264,76 @@ class ACLProcessor(ReferenceDatasetProcessor):
         title_normed = self._norm_title(title_str)
 
         # Exact match search
-        for paper in self.anthology.papers():
-            if self._norm_title(str(paper.title)) == title_normed:
-                return str(paper.title)  # Return the canonical title
+        if title_normed in self.norm_title_to_canonical:
+            return self.norm_title_to_canonical[title_normed]  # Return the canonical title
         # Fallback to normed title search
         return self._normed_title_search(title)
 
 
+class TitleMapPostprocessor:
+    def __init__(self, model_name: str, input_path: str, output_path: str):
+
+        # Read in log file
+        self.input_path = input_path
+        with open(input_path, "r") as file:
+            lines = input_path.readlines()
+        self.lines = lines
+
+        # Set up LLM
+        from citeline.llm.llm_function import LLMFunction
+        from citeline.llm.models import TitleCheckResponse
+
+        self.titlechecker = LLMFunction(
+            model_name=model_name,
+            prompt_path="../llm/prompts/reference_title_check.txt",
+            output_model=TitleCheckResponse(),
+        )
+
+        self.logline_pattern = re.compile(r"WARNING - Multiple matches on '(.+?)'; choosing (.+?)$")
+        self.output_path = output_path
+
+    def get_titles_from_line(self, line: str) -> tuple[str, str]:
+        """
+        Given a WARNING log line from the output of a ReferenceDatasetProcessor (uncertain fuzzy match),
+        extract and return
+        (dataset title, candidate canonical title)
+        """
+        match = self.logline_pattern.search(line)
+        if not match or len(match.groups()) != 2:
+            print(f"Could not extract title from line:\n  {line}")
+            return None, None
+        return match.group(1), match.group(2)
+
+    def process(self):
+        for line in tqdm(self.lines):
+            dataset_title, candidate_title = self.get_titles_from_line(line)
+            if dataset_title is None or candidate_title is None:
+                continue
+            titles = {"dataset_title": dataset_title, "candidate_title": candidate_title}
+            llm_response = self.titlechecker()
+
+            # Log the lines that need manual check
+            if not llm_response.is_match:
+                with open(self.output_path, "a") as outfile:
+                    response_dict = titles | {"reasoning": llm_response.reasoning}
+                    json.dump(response_dict, outfile)
+
+    # take a path to a log to process
+    # method to parse log lines
+    # llm function to process log lines
+    # output path for results file
+
+
 def main():
-    data_path = PATH_TO_DATA / "acl200_global"
-    data_file = "context_dataset.csv"
-    processor = ACLProcessor(data_path=data_path, data_file=data_file)
-    processor.create_canonical_titlemap()
+    # data_path = PATH_TO_DATA / "acl200_global"
+    # data_file = "context_dataset.csv"
+    # processor = ACLProcessor(data_path=data_path, data_file=data_file)
+    # processor.create_canonical_titlemap()
     # Further processing logic would go here
+    postprocessor = TitleMapPostprocessor(
+        model_name="mistral:7b", input_path="testlog.log", output_path="testoutput.jsonl"
+    )
+    postprocessor.process()
 
 
 if __name__ == "__main__":
