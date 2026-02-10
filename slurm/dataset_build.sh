@@ -1,11 +1,12 @@
 #!/bin/bash
 #
 #SBATCH --job-name=dataset_build
-#SBATCH -p seas_gpu # partition (queue)
+#SBATCH -p gpu_requeue # partition (queue)
 #SBATCH -c 2 # number of cores
 #SBATCH --gres=gpu:1 # number of GPUs
+#SBATCH --constraint="a100|h200"
 #SBATCH --mem 64000 # memory pool for all cores
-#SBATCH -t 0-08:00 # time (D-HH:MM)
+#SBATCH -t 0-04:00 # time (D-HH:MM)
 #SBATCH -o slurm.%x.%j.log # STDOUT
 #SBATCH -e slurm.%x.%j.log # STDERR
 
