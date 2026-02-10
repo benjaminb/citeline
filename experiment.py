@@ -14,7 +14,6 @@ from tqdm import tqdm
 from pymilvus import Collection
 from citeline.database.milvusdb import MilvusDB
 
-# from citeline.query_expander import get_expander
 from citeline.query_expander import QueryExpander
 from citeline.embedders import Embedder
 

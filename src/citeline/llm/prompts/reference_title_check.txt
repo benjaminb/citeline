@@ -1,0 +1,38 @@
+You are an expert researcher and data analyst. Your task is to determine if the following titles refer to the same academic paper.
+
+## Understanding
+- A noisy dataset contained titles of academic papers often contained typos, formatting issues, author names, or other variations making the title different than the canonical title in the publisher's database
+- Fuzzy matching attempted to resolve the canonical title for each dataset title
+
+## Task
+Given a dataset title and a candidate canonical title, determine if they refer to the same academic paper or not. Write out your reasoning, then a boolean for is_match. If you are not confident that the titles match, mark it false.
+Guidelines:
+- Ignore typos and OCR errors (e.g., "Biligual" vs "Bilingual")
+- Ignore author names, institutions, or other metadata appended to title (e.g., "Title Here John Smith" → "Title Here")
+- Ignore minor wording differences (e.g., "based" vs "tree-based")
+- Ignore prefixes like "Squibs:" or section markers
+- Completely different papers should be marked false
+- Overly generic dataset titles should be marked false
+- To be marked true the titles must be semantically equivalent, not merely related
+
+## Examples
+- Dataset Title: "A NeuralProbabilistic Language ModelSmith,Joe et al"
+  Candidate Title: "A Neural Probabilistic Language Model"
+  reasoning: ignoring the author info in the dataset title, it almost exactly matches the candidate title
+  is_match: true
+
+- Dataset Title: ".]"
+  Candidate Title: "New Advances in Computational Linguistics"
+  reasoning: the dataset title is mis-encoded since '.]' could not realistically be a title for a paper. Impossible to tell if the candidate title refers to the same intended paper
+  is_match: false
+
+- Dataset Title: "Natural Language Processing"
+  Candidate Title: "Natural Language Processing Benefits from Attention Mechanisms"
+  reasoning: the dataset title is extremely generic so I cannot confidently say that the candidate title is a match
+  is_match: false
+
+## Input
+- Dataset Title: "{dataset_title}"
+- Candidate Title: "{candidate_title}"
+
+Write your answer in JSON format with the keys 'reasoning' for your reasoning and 'is_match' for your determination (true if they match, false otherwise).

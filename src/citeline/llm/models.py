@@ -10,7 +10,6 @@ class SentenceValidation(BaseModel):
     )
 
 
-
 class CitationSubstring(RootModel[list[str]]):
     """
     A substring of a sentence that contains an inline citation.
@@ -63,6 +62,7 @@ class Findings(BaseModel):
 
     findings: list[str] = Field(description="List of original findings extracted from a scientific paper")
 
+
 class ChunkSummary(BaseModel):
     """
     A model to represent a summary of a text chunk.
@@ -70,7 +70,13 @@ class ChunkSummary(BaseModel):
 
     summary: str = Field(description="A concise summary of the input text chunk")
 
+
 class LLMResponse(RootModel[str]):
     """
     The text requested by the user
     """
+
+
+class TitleCheckResponse(BaseModel):
+    reasoning: str = Field(..., description="The reasoning behind the title match decision.")
+    is_match: bool = Field(..., description="Indicates whether the titles match or not.")

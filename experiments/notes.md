@@ -1,4 +1,15 @@
 # Experimental Notes & Journal
+### 1.2.26
+Working on extending the ACL dataset
+Cut some rows from the dataset because:
+- They referred to papers not in the ACL Anthology
+- They were actually obituaries or non-research papers
+- They had target titles that were general journals rather than specific papers
+
+### 12.19.25
+Working on builing a 'titlemap' that maps all titles in a dataset (citing or target title) regardless of typos or variations to the canonical title in the dataset.
+- The number of typos / errors / inconsistencies looks to be about 10% on ACL. The actual number of errors will be the number of keys in the titlemap minus number of unique values
+
 ### 12.17.25
 Working on integrating arXiv and ACL Anthology datasets
 - The datasets have a lot of typos in citing_title and target_title, requiring fuzzy matching to get the doc id from title
