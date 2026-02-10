@@ -103,6 +103,6 @@ for model_size in ["0.6B", "8B"]:
     plt.ylabel("Score", fontsize=12)
     plt.ylim(0.6, 0.9)
     plt.grid(True, linestyle="--", alpha=0.5)
-    plt.legend(loc="lower right")
+    plt.legend(loc="lower right", fontsize=14)
     plt.tight_layout()
     plt.savefig(f"summary_{model_size.replace('.', '_')}.png", bbox_inches="tight", pad_inches=0.1)

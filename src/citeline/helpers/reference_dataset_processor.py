@@ -276,8 +276,9 @@ class TitleMapPostprocessor:
         # Read in log file
         self.input_path = input_path
         with open(input_path, "r") as file:
-            lines = input_path.readlines()
+            lines = file.readlines()
         self.lines = lines
+        print(f"Read in {len(lines)} lines...")
 
         # Set up LLM
         from citeline.llm.llm_function import LLMFunction
@@ -286,7 +287,7 @@ class TitleMapPostprocessor:
         self.titlechecker = LLMFunction(
             model_name=model_name,
             prompt_path="../llm/prompts/reference_title_check.txt",
-            output_model=TitleCheckResponse(),
+            output_model=TitleCheckResponse,
         )
 
         self.logline_pattern = re.compile(r"WARNING - Multiple matches on '(.+?)'; choosing (.+?)$")
@@ -310,18 +311,38 @@ class TitleMapPostprocessor:
             if dataset_title is None or candidate_title is None:
                 continue
             titles = {"dataset_title": dataset_title, "candidate_title": candidate_title}
-            llm_response = self.titlechecker()
+            llm_response = self.titlechecker(titles)
 
             # Log the lines that need manual check
             if not llm_response.is_match:
                 with open(self.output_path, "a") as outfile:
                     response_dict = titles | {"reasoning": llm_response.reasoning}
                     json.dump(response_dict, outfile)
+                    outfile.write("\n")
 
     # take a path to a log to process
     # method to parse log lines
     # llm function to process log lines
     # output path for results file
+
+"""
+Upgrade the ACL dataset
+
+Preconditions:
+1. Every title in the dataset is in the title map
+2. Every value in the title map uniquely finds a paper in the ACL Anthology with an ACL ID
+3. Every ACL ID is retrievable from the ACL Anthology API and is more or less clean (contains full body text, minimal OCR errors)
+
+
+1. load the dataset and canonical title map
+1.5 load the tran and eval datasets
+2. For each row, map the target and citing titles to the canonical titles
+3. get the paper IDs for the canonical titles
+4. add keys citing_id and target_id
+5. Get the corresponding row from train or eval dataset
+6. replace the rows in the train or eval dataset with the updated rows
+"""
+
 
 
 def main():
@@ -331,7 +352,9 @@ def main():
     # processor.create_canonical_titlemap()
     # Further processing logic would go here
     postprocessor = TitleMapPostprocessor(
-        model_name="mistral:7b", input_path="testlog.log", output_path="testoutput.jsonl"
+        model_name="gpt-oss:20b",
+        input_path="acl_20251219_123521.log",
+        output_path="acl_titles_to_check.jsonl",
     )
     postprocessor.process()
 

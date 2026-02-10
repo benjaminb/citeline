@@ -29,7 +29,6 @@ class LLMFunction:
     def __call__(self, prompt_kwargs: dict) -> Union[BaseModel, RootModel]:
         formatted_prompt = self.prompt.format(**prompt_kwargs)
         response = self.llm.invoke(formatted_prompt)
-        print(f"LLM response: {response}")
         return response
 
 
