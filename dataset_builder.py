@@ -219,11 +219,9 @@ def main():
 
     # Check log file to see where we left off
     progress = json.load(open(progress_log_path, "r"))
-    last_record_index = progress["record_idx"]
-    last_sent_index = progress["sent_idx"]
-    print(f"Starting from record: {last_record_index}, sentence: {last_sent_index}")
+    print(f"Starting from record: {progress['record_idx']}, sentence: {progress['sent_idx']}")
 
-    reviews_dicts = reviews_dicts[last_record_index:]
+    reviews_dicts = reviews_dicts[progress["record_idx"]:]
     for record in tqdm(reviews_dicts, total=len(reviews_dicts), desc="Processing records"):
         # Skip papers with body text > 250,000 characters
         if len(record.get("body", "")) > 250000:
@@ -236,11 +234,11 @@ def main():
 
         for i, sentence in enumerate(
             tqdm(
-                record["body_sentences"][last_sent_index:],
+                record["body_sentences"][progress["sent_idx"]:],
                 leave=False,
                 desc=f"Processing {record['doi']} (# sentences: {len(record['body_sentences'])})",
             ),
-            start=last_sent_index,
+            start=progress["sent_idx"],
         ):
 
             example = sentence_to_example_with_index(record, sentence, i, bibcode_index)
