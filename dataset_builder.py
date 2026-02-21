@@ -3,9 +3,24 @@ import json
 import os
 import pandas as pd
 import re
+import urllib.request
 
 from tqdm import tqdm
 from citeline.llm.citation_extraction import sentence_to_citations
+
+
+def check_ollama():
+    """Check that the Ollama endpoint is reachable before proceeding."""
+    base_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+    try:
+        with urllib.request.urlopen(base_url, timeout=5) as resp:
+            body = resp.read().decode()
+            if "Ollama is running" in body:
+                print(f"Ollama is running at {base_url}")
+                return
+    except Exception:
+        pass
+    raise RuntimeError(f"Ollama endpoint not reachable at {base_url}. Is the server running?")
 
 def argument_parser():
     """
@@ -181,9 +196,13 @@ def sentence_to_example_with_index(record, sentence, index, bibcode_index):
 
 
 def main():
+    # Make sure Ollama is running before continuing any further
+    check_ollama()
+
     args = argument_parser()
-    print("Starting dataset builder...loading data...")
+    
     # Load data
+    print("Starting dataset builder...loading data...")
     research = pd.read_json("data/preprocessed/research.jsonl", lines=True)
     reviews = pd.read_json("data/preprocessed/reviews.jsonl", lines=True)
     print(f"Loaded {len(research)} research records and {len(reviews)} review records.")

@@ -10,6 +10,15 @@ class SentenceValidation(BaseModel):
     )
 
 
+class SentenceUsabilityResponse(BaseModel):
+    reasoning: str = Field(
+        description="Brief reasoning for why the sentence is usable or not. Consider if it contains meaningful content for citation extraction."
+    )
+    is_usable: bool = Field(
+        description="True if the sentence is usable for citation extraction, False otherwise (e.g., incomplete sentence, irrelevant content)."
+    )
+
+
 class CitationSubstring(RootModel[list[str]]):
     """
     A substring of a sentence that contains an inline citation.
