@@ -47,7 +47,7 @@ podman run -d --log-level=debug --rm --device nvidia.com/gpu=all -p 11434:11434 
 #   localhost/ollamaserve:latest
 echo "Containers available:"
 podman container list
-# curl http://localhost:11434/api/generate -d '{"model": "llama3.3:latest", "prompt": "Respond with a single word that is the name of a fruit."}'
+curl http://localhost:11434/api/generate -d '{"model": "llama3.3:latest", "prompt": "Respond with a single word that is the name of a fruit."}'
 # python dataset_builder.py
 # timestamp=$(date +"%Y%m%d_%H%M%S")
 # echo "ended at: $timestamp"
