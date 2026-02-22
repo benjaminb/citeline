@@ -19,15 +19,22 @@ cd /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/citeline
 git pull
 
 # Load container for Ollama service
-# env > slurm_env.txt
 export OLLAMA_BASE_URL=http://localhost:11434
-export TMPDIR=/n/holylabs/LABS/protopapas_lab/Lab/bbasseri/tmp
+export LOCAL_SCRATCH=/tmp/$USER-podman
+mkdir -p $LOCAL_SCRATCH
+
 podman load -i /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/ollama_llama3.3.tar
 echo "Images available:"
 podman images
+podman tag localhost/ollamaserve:latest ollamaserve:latest
+
+# Use node-local scratch for container storage
+export PODMAN_ROOT=/tmp/$USER-podman-root
+export PODMAN_RUNROOT=/tmp/$USER-podman-run
+mkdir -p $PODMAN_ROOT
+mkdir -p $PODMAN_RUNROOT
 podman run -d --log-level=debug --rm --device nvidia.com/gpu=all -p 11434:11434 ollamaserve:latest
-sleep 30
-echo "After 30 seconds..."
+echo "Containers available:"
 podman container list
 curl http://localhost:11434/api/generate -d '{"model": "llama3.3:latest", "prompt": "Respond with a single word that is the name of a fruit."}'
 python dataset_builder.py
