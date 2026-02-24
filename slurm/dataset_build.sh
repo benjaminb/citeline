@@ -6,7 +6,8 @@
 #SBATCH --gres=gpu:1 # number of GPUs
 #SBATCH --constraint="a100|h200"
 #SBATCH --mem 64000 # memory pool for all cores
-#SBATCH --time=0-08:00 # time (D-HH:MM)
+#SBATCH --time=3-00:00 # time (D-HH:MM)
+#SBATCH --requeue
 #SBATCH -o slurm.%x.%j.log # STDOUT
 #SBATCH -e slurm.%x.%j.log # STDERR
 
