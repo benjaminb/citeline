@@ -21,9 +21,25 @@ git pull
 
 # Load container for Ollama service
 export OLLAMA_BASE_URL=http://localhost:11434
+export PODMAN_ROOT=/tmp/$USER-podman-root
+export PODMAN_RUNROOT=/tmp/$USER-podman-run
 export LOCAL_SCRATCH=/tmp/$USER-podman
+
+echo "Cleaning old podman state..."
+rm -rf $PODMAN_ROOT $PODMAN_RUNROOT $LOCAL_SCRATCH
+
+mkdir -p $PODMAN_ROOT
+mkdir -p $PODMAN_RUNROOT
 mkdir -p $LOCAL_SCRATCH
 
+# Set up cleanup to trigger on exit / sigterm (preemption)
+cleanup() {
+  echo "Cleaning up containers..."
+  podman rm -f $(podman ps -aq) 2>/dev/null || true
+}
+trap cleanup EXIT
+
+# Load Ollama service
 podman load -i /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/ollama_llama3.3.tar
 echo "Images available:"
 podman images
@@ -38,6 +54,8 @@ podman run -d --log-level=debug --rm --device nvidia.com/gpu=all -p 11434:11434 
 echo "Containers available:"
 podman container list
 curl http://localhost:11434/api/generate -d '{"model": "llama3.3:latest", "prompt": "Respond with a single word that is the name of a fruit."}'
+
+# Python dataset builder
 python dataset_builder.py
 timestamp=$(date +"%Y%m%d_%H%M%S")
 echo "ended at: $timestamp"
