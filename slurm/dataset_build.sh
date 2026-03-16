@@ -5,7 +5,7 @@
 #SBATCH -c 2 # number of cores
 #SBATCH --gres=gpu:1 # number of GPUs
 #SBATCH --constraint="a100|h200"
-#SBATCH --mem 64000 # memory pool for all cores
+#SBATCH --mem 96000 # memory pool for all cores
 #SBATCH --time=3-00:00 # time (D-HH:MM)
 #SBATCH --requeue
 #SBATCH -o slurm.%x.%j.log # STDOUT
@@ -21,16 +21,23 @@ git pull
 
 # Load container for Ollama service
 export OLLAMA_BASE_URL=http://localhost:11434
+# ---- Clean rootless podman environment ----
+
+# Give podman a fresh runtime directory every execution
+export XDG_RUNTIME_DIR=/tmp/$USER-runtime-$$
+mkdir -p $XDG_RUNTIME_DIR
+
+# Define storage locations
 export PODMAN_ROOT=/tmp/$USER-podman-root
 export PODMAN_RUNROOT=/tmp/$USER-podman-run
 export LOCAL_SCRATCH=/tmp/$USER-podman
 
-echo "Cleaning old podman state..."
-rm -rf $PODMAN_ROOT $PODMAN_RUNROOT $LOCAL_SCRATCH
-
 mkdir -p $PODMAN_ROOT
 mkdir -p $PODMAN_RUNROOT
 mkdir -p $LOCAL_SCRATCH
+
+# Let podman reset itself cleanly (instead of manual rm -rf)
+podman system reset -f
 
 # Set up cleanup to trigger on exit / sigterm (preemption)
 cleanup() {
