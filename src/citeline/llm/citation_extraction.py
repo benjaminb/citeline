@@ -1,3 +1,4 @@
+import concurrent.futures
 import re
 from langchain_ollama import ChatOllama
 from langchain_core.messages import SystemMessage, HumanMessage
@@ -17,7 +18,7 @@ CIT_EXTRACT_PROMPT = "src/citeline/llm/prompts/citation_tuples_prompt.txt"
 YEAR_PATTERN = r"^(?:\d{4}|^\d{2})"  # Matches a YYYY or YY pattern, even if followed by a letter, but not "in preparation" or similar
 
 
-def get_llm_function(model_name: str = MODEL_NAME, system_prompt_path: str = None, output_model: BaseModel = None):
+def get_llm_function(model_name: str = MODEL_NAME, system_prompt_path: str = None, output_model: BaseModel = None, timeout: int = 300):
     """
     Returns a function that invokes the LLM with the given model name and system prompt.
     """
@@ -34,7 +35,12 @@ def get_llm_function(model_name: str = MODEL_NAME, system_prompt_path: str = Non
     def llm_function(text: str):
         try:
             msg = HumanMessage(content=text)
-            return llm.invoke([sys_msg, msg])
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(llm.invoke, [sys_msg, msg])
+                return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            print(f"LLM call timed out after {timeout} seconds. HumanMessage: {text}")
+            return None
         except Exception as e:
             print(f"Exception: {e}")
             return None
