@@ -103,13 +103,13 @@ def sentence_to_citations(text: str) -> tuple[list[tuple[str, str]], str]:
     print("{is_valid=", end="", flush=True)
     try:
         validity_result = is_sentence_valid(text)
-        is_valid_sentence = validity_result.is_valid
+        is_valid_sentence = hasattr(validity_result, "is_valid") and validity_result.is_valid
     except Exception as e:
         print(f"Error checking sentence validity: {e}")
 
     print(is_valid_sentence, end=", ")
     if not is_valid_sentence:
-        print(f"Invalid sentence: {validity_result.reasoning}", flush=True)
+        print(f"Invalid sentence: {getattr(validity_result, 'reasoning', 'No reasoning available')}", flush=True)
         return None
 
     # Identify citation substrings
