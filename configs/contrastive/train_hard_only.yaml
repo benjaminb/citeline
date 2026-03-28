@@ -1,0 +1,21 @@
+# Hard negatives only, uniform weighting, MLP architecture
+# Simplest baseline — forces the model to separate from the most similar non-targets.
+
+dataset_dir: data/dataset/contrastive
+temperature: 0.07
+lr: 1e-4
+weight_decay: 1e-2
+batch_size: 256
+epochs: 50
+patience: 5
+checkpoint_path: checkpoints/contrastive/hard_only_mlp.pt
+
+model:
+  arch: mlp
+  hidden_dims: [2048, 1024]
+  dropout: 0.1
+
+negative_selection:
+  num_negatives: 32
+  rank_range: [0, 50]       # top-50 = hardest negatives
+  weight_scheme: uniform
