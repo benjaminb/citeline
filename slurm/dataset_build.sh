@@ -60,7 +60,14 @@ mkdir -p $PODMAN_RUNROOT
 podman run -d --log-level=debug --rm --device nvidia.com/gpu=all -p 11434:11434 ollamaserve:latest
 echo "Containers available:"
 podman container list
-curl http://localhost:11434/api/generate -d '{"model": "llama3.3:latest", "prompt": "Respond with a single word that is the name of a fruit."}'
+
+echo "Waiting for Ollama service to be ready..."
+for i in $(seq 1 30); do
+  curl -sf http://localhost:11434/api/tags > /dev/null 2>&1 && break
+  echo "  attempt $i/30..."
+  sleep 2
+done
+  
 
 # Python dataset builder
 python dataset_builder.py
