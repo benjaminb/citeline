@@ -1,0 +1,9 @@
+dataset_source: data/original_datasets/nontrivial_llm.jsonl
+embedder: Qwen/Qwen3-Embedding-0.6B
+collection: qwen06_chunks
+num_negatives: 200
+milvus_top_k: 500
+output_dir: data/dataset/contrastive
+normalize: true
+train_frac: 0.70
+val_frac: 0.15
