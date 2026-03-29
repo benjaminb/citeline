@@ -94,7 +94,9 @@ class QueryExpander:
 
         # Use the cached reference data if available, otherwise cache it
         if QueryExpander._reference_data_cache is None:
+            print("\033[3;90mLoading reference data for query expansion...", end="")
             QueryExpander._reference_data_cache = pd.read_json(reference_data_path, lines=True).set_index("doi").to_dict(orient="index")
+            print("\033[2K\rReference data for query expansion loaded and cached in memory.\033[0m")
         self.doi_to_record = QueryExpander._reference_data_cache
 
     def __str__(self):
@@ -129,34 +131,3 @@ class QueryExpander:
                 )
             results.append(self.enricher(example, record))
         return results
-
-
-def get_expander(name: str, path_to_data: str) -> QueryExpander:
-    """
-    path_to_data: str
-        Path to the JSONL file containing the reference data (the Reviews dataset).
-    """
-    try:
-        # Load the data only once and reuse it for all expanders
-        if QueryExpander._reference_data_cache is None:
-            data = pd.read_json(path_to_data, lines=True)
-            QueryExpander._reference_data_cache = data
-        return QueryExpander(expansion_function_name=name, reference_data=QueryExpander._reference_data_cache)
-    except Exception as e:
-        print(f"Error loading data source: {e}")
-
-
-def main():
-
-    expander = get_expander("identity", path_to_data="data/preprocessed/reviews.jsonl")
-    print(f"Expander created: {expander}")
-
-    for key, value in expander.doi_to_record.items():
-        print(f"DOI: {key}, value: {type(value)}")
-        print(f"Keys in the value dict: {list(value.keys())}")
-        print("===" * 20)
-        break
-
-
-if __name__ == "__main__":
-    main()

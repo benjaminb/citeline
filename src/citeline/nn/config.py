@@ -13,6 +13,10 @@ class DatasetConfig:
     # Name of the Milvus collection relevant to the chosen embedder
     db_collection: str
 
+    query_expansions: list[str]
+    
+
+
     @classmethod
     def from_yaml(cls, path: str) -> "DatasetConfig":
         with open(path) as f:
