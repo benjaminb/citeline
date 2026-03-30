@@ -1,4 +1,4 @@
-dataset_path: data/dataset/nontrivial_100.jsonl
+dataset_path: data/dataset/nontrivial_10.jsonl
 embedder: Qwen/Qwen3-Embedding-0.6B
 db_collection: qwen06_chunks
 query_expansions: 

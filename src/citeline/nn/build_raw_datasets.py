@@ -9,6 +9,7 @@ tqdm.pandas()
 
 # For query expansion
 PATH_TO_REFERENCE = "data/preprocessed/reviews.jsonl"
+OUTPUT_DIR = "data/nn_datasets"
 
 """
 Query expansion occurs before embedding so that each string is only embedded once
@@ -33,16 +34,17 @@ def load_dataset(path: str) -> pd.DataFrame:
     if missing_cols:
         raise ValueError(f"Dataset is missing required columns: {missing_cols}")
     # Keep only the relevant columns for nn training
-    df = df.dropna(subset=COLUMNS)
+    df = df[COLUMNS]
     return df
 
 
 def preprocess_dataset(df: pd.DataFrame, query_expansions: list[str]) -> pd.DataFrame:
-    """Applies query expansions and explodes on citation_dois to get one row per (query, target_doi).
+    """Applies all data processing up to the point of embedding the query representatives.
+    Currently, this is just computing the query expansions (to get those reps).
+
     Output df includes columns: 
       - source_doi
       - query_expansions: list[str] The query's string representatives
-      - citation_doi (one per row after explode)
     """
     # Instantiate the query expander(s)
     expanders = [QueryExpander(name, reference_data_path=PATH_TO_REFERENCE) for name in query_expansions]
@@ -51,18 +53,16 @@ def preprocess_dataset(df: pd.DataFrame, query_expansions: list[str]) -> pd.Data
     query_expansions = [expander(df) for expander in expanders] # n x num_expanders
     qe_columns = [list(reps) for reps in zip(*query_expansions)]
     df["query_expansions"] = qe_columns
-
-    # Explode on targets to get one row per (query, target_doi)
-    df = df.explode("citation_dois").reset_index(drop=True)
-    df = df.rename({"citation_dois": "citation_doi"}, axis=1)
     return df
 
 def apply_embeddings(df: pd.DataFrame, embedder: str) -> pd.DataFrame:
-
+    # Instantiate the embedder
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"    
     embedder = Embedder.create(embedder, device=device, normalize=True)
-    print(f"Applying embedder {embedder.model_name} to {len(df)} rows")
-    df["embeddings"] = df["query_expansions"].progress_map(embedder)
+
+    # Convert embedder's numpy output to list[list[float]] for parquet compatibility
+    df["query_vectors"] = df["query_expansions"].progress_map(lambda x: embedder(x).tolist())
+    print("Embeddings applied to all rows.")
     return df
 
 
@@ -84,6 +84,8 @@ def build_dataset(config_path: str):
     df = load_dataset(config.dataset_path)
     df = preprocess_dataset(df, query_expansions=config.query_expansions)
     df = apply_embeddings(df, embedder=config.embedder)
-
-    print(f"Length: {len(df)}")
-    print(df.iloc[1]["query_expansions"])
+    train, val, test = split_dataset(df)
+    for split_df, name in zip([train, val, test], ["train", "val", "test"]):
+        split_df_path = f"{OUTPUT_DIR}/{name}_dataset.parquet"
+        split_df.to_parquet(split_df_path)
+        print(f"Saved {name} dataset to {split_df_path}")

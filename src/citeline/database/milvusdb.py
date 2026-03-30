@@ -115,6 +115,7 @@ class MilvusDB:
     def healthcheck(self):
         status = self.client.get_server_version()
         print(f"Milvus server version: {status}")
+        return True
 
     def _filter_existing_data(self, collection: Collection, data: pd.DataFrame) -> pd.DataFrame:
         """Retrieve existing entities and filter out duplicates from input data"""
@@ -662,10 +663,11 @@ class MilvusDB:
             )
 
             # Since we only searched one query, keep the first (and only) list of hits
-            retrieved_pubdates = [hit["entity"]["pubdate"] for hit in hits[0]]
-            assert all(
-                pubdate <= record["pubdate"] for pubdate in retrieved_pubdates
-            ), "Retrieved pubdates are not all <= query pubdate"
+            if output_fields and "pubdate" in output_fields:
+                retrieved_pubdates = [hit["entity"]["pubdate"] for hit in hits[0]]
+                assert all(
+                    pubdate <= record["pubdate"] for pubdate in retrieved_pubdates
+                ), "Retrieved pubdates are not all <= query pubdate"
             results.append(hits[0])
 
         formatted_results = []
