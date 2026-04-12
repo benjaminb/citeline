@@ -1,0 +1,5 @@
+dataset: 'data/nn_datasets/testrun_train_dataset.parquet'
+strategy: 'InterleavedStrategy'
+adapter: 'BaselineMLPEmbeddingMapper'
+num_positives: 2
+num_negatives: 20

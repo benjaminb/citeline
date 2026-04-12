@@ -1,8 +1,15 @@
+from abc import ABC
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-class BaselineMLPEmbeddingMapper(nn.Module):
+class Adapter(ABC, nn.Module):
+    registry = {}
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+        Adapter.registry[cls.__name__] = cls
+
+class BaselineMLPEmbeddingMapper(Adapter):
     def __init__(self, input_dim=1024, hidden_dim=1024, output_dim=1024):
         super().__init__()
         self.description = f"""2-layer MLP, compressing {input_dim} -> {hidden_dim}, with no skip connection. 
@@ -22,7 +29,7 @@ class BaselineMLPEmbeddingMapper(nn.Module):
         y = F.normalize(y, p=2, dim=1)
         return y
 
-class ResidualEmbeddingMapper(nn.Module):
+class ResidualEmbeddingMapper(Adapter):
     def __init__(self, input_dim=1024, output_dim=1024, hidden_dim=256):  # Reduced from 512
         super().__init__()
         self.description = f"""2-layer MLP, compressing {input_dim} -> {hidden_dim}, with skip connection to output layer. 

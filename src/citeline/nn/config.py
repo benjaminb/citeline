@@ -1,60 +1,73 @@
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional
 import yaml
 
 
+class Config(ABC):
+
+    @classmethod
+    def from_yaml(cls, path: str) -> "Config":
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        return cls(**data)
+
+
 @dataclass
-class DatasetConfig:
-    # Path to jsonl file
-    dataset_path: str
-
+class DatasetConfig(Config):
+    dataset_path: str  # Path to jsonl file
     embedder: str
-
-    # Name of the Milvus collection relevant to the chosen embedder
-    db_collection: str
-
+    db_collection: str  # Name of the Milvus collection relevant to the chosen embedder
     query_expansions: list[str]
-    
+    output_path: str
+    filename_prefix: str
 
-
-    @classmethod
-    def from_yaml(cls, path: str) -> "DatasetConfig":
-        with open(path) as f:
-            data = yaml.safe_load(f)
-        return cls(**data)
 
 @dataclass
-class BuildConfig:
-    dataset_source: str
-    embedder: str
-    collection: str
-    num_negatives: int
-    milvus_top_k: int
-    output_dir: str
-    normalize: bool = True
-    train_frac: float = 0.70
-    val_frac: float = 0.15
+class H5DatasetWriterConfig(Config):
+    dataset: str
+    strategy: str 
+    adapter: str
+    
+    # Number of positive vectors PER TARGET to include
+    num_positives: int
 
-    @classmethod
-    def from_yaml(cls, path: str) -> "BuildConfig":
-        with open(path) as f:
-            data = yaml.safe_load(f)
-        return cls(**data)
+    # Number of negative vectors PER ANCHOR to include
+    num_negatives: int
+
+# @dataclass
+# class BuildConfig:
+#     dataset_source: str
+#     embedder: str
+#     collection: str
+#     num_negatives: int
+#     milvus_top_k: int
+#     output_dir: str
+#     normalize: bool = True
+#     train_frac: float = 0.70
+#     val_frac: float = 0.15
+
+#     @classmethod
+#     def from_yaml(cls, path: str) -> "BuildConfig":
+#         with open(path) as f:
+#             data = yaml.safe_load(f)
+#         return cls(**data)
 
 
 @dataclass
 class NegativeSelectionConfig:
     """Controls how negatives are selected and weighted from the HDF5 dataset at train time."""
-    num_negatives: int              # how many negatives per sample during training
-    rank_range: list[int]           # [lo, hi) slice into stored K negatives; e.g. [0, 50] = hardest
-    weight_scheme: str              # "uniform" | "bins" | "cosine_sim" | "inv_rank"
+
+    num_negatives: int  # how many negatives per sample during training
+    rank_range: list[int]  # [lo, hi) slice into stored K negatives; e.g. [0, 50] = hardest
+    weight_scheme: str  # "uniform" | "bins" | "cosine_sim" | "inv_rank"
 
     # bins params
     num_bins: int = 4
     bin_weights: list[float] = field(default_factory=lambda: [1.0])
 
     # cosine_sim params
-    cosine_transform: str = "linear"   # "linear" | "softmax"
+    cosine_transform: str = "linear"  # "linear" | "softmax"
     cosine_temperature: float = 1.0
 
     # inv_rank params
@@ -68,8 +81,9 @@ class NegativeSelectionConfig:
 @dataclass
 class ModelConfig:
     """Architecture config — two variants supported: 'mlp' and 'residual'."""
-    arch: str                           # "mlp" | "residual"
-    hidden_dims: list[int]              # e.g. [2048, 1024] or [1024, 1024, 1024]
+
+    arch: str  # "mlp" | "residual"
+    hidden_dims: list[int]  # e.g. [2048, 1024] or [1024, 1024, 1024]
     dropout: float = 0.1
 
     @classmethod
@@ -79,7 +93,7 @@ class ModelConfig:
 
 @dataclass
 class TrainConfig:
-    dataset_dir: str                    # directory containing train.h5, val.h5, test.h5
+    dataset_dir: str  # directory containing train.h5, val.h5, test.h5
     model: ModelConfig
     negative_selection: NegativeSelectionConfig
     temperature: float = 0.07
@@ -87,7 +101,7 @@ class TrainConfig:
     weight_decay: float = 1e-2
     batch_size: int = 256
     epochs: int = 50
-    patience: int = 5                   # early stopping patience
+    patience: int = 5  # early stopping patience
     checkpoint_path: str = "checkpoints/contrastive_best.pt"
 
     @classmethod

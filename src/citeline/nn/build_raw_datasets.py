@@ -42,7 +42,7 @@ def preprocess_dataset(df: pd.DataFrame, query_expansions: list[str]) -> pd.Data
     """Applies all data processing up to the point of embedding the query representatives.
     Currently, this is just computing the query expansions (to get those reps).
 
-    Output df includes columns: 
+    Output df includes columns:
       - source_doi
       - query_expansions: list[str] The query's string representatives
     """
@@ -50,14 +50,15 @@ def preprocess_dataset(df: pd.DataFrame, query_expansions: list[str]) -> pd.Data
     expanders = [QueryExpander(name, reference_data_path=PATH_TO_REFERENCE) for name in query_expansions]
 
     # Create a query representatives column, each row has a list of strings for the query reps
-    query_expansions = [expander(df) for expander in expanders] # n x num_expanders
+    query_expansions = [expander(df) for expander in expanders]  # n x num_expanders
     qe_columns = [list(reps) for reps in zip(*query_expansions)]
     df["query_expansions"] = qe_columns
     return df
 
+
 def apply_embeddings(df: pd.DataFrame, embedder: str) -> pd.DataFrame:
     # Instantiate the embedder
-    device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"    
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
     embedder = Embedder.create(embedder, device=device, normalize=True)
 
     # Convert embedder's numpy output to list[list[float]] for parquet compatibility
@@ -79,13 +80,17 @@ def split_dataset(df: pd.DataFrame, train_frac=0.7, val_frac=0.15) -> tuple[pd.D
 # explode on citation_dois
 def build_dataset(config_path: str):
     config = DatasetConfig.from_yaml(config_path)
-    
+    save_path_template = "{output_path}/{prefix}_{dataset}_dataset.parquet"
+    output_path = config.output_path
+    prefix = config.filename_prefix
+    print(f"Building dataset with config: {config}")
+
     # Load and process dataset
     df = load_dataset(config.dataset_path)
     df = preprocess_dataset(df, query_expansions=config.query_expansions)
     df = apply_embeddings(df, embedder=config.embedder)
     train, val, test = split_dataset(df)
     for split_df, name in zip([train, val, test], ["train", "val", "test"]):
-        split_df_path = f"{OUTPUT_DIR}/{name}_dataset.parquet"
-        split_df.to_parquet(split_df_path)
-        print(f"Saved {name} dataset to {split_df_path}")
+        save_path = save_path_template.format(output_path=output_path, prefix=prefix, dataset=name)
+        split_df.to_parquet(save_path)
+        print(f"Saved {name} dataset to {save_path}")
