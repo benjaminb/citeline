@@ -161,20 +161,23 @@ class H5DatasetWriter:
         self.dataset_dir = dataset_dir
         self.strategy = strategy
         self.adapter = adapter
+        self.device = next(adapter.parameters()).device
         self.output_dir = output_dir
         self.num_positives = num_positives
         self.num_negatives = num_negatives
 
-    def get_positives(self, mapped_queries: np.ndarray, df: pd.DataFrame, strategy: MultiSimilarityStrategy = None) -> np.ndarray:
+    def get_positives(
+        self, mapped_queries: np.ndarray, df: pd.DataFrame, strategy: MultiSimilarityStrategy = None
+    ) -> np.ndarray:
         positives = strategy.rank_positives(
             queries=mapped_queries, dois=df["citation_dois"].tolist(), num_positives=self.num_positives
         )
         return positives
 
-    def get_negatives(self, mapped_queries: np.ndarray, df: pd.DataFrame, strategy: MultiSimilarityStrategy = None) -> np.ndarray:
-        negatives = strategy.rank_negatives(
-            row=df, mapped_queries=mapped_queries, num_negatives=self.num_negatives
-        )
+    def get_negatives(
+        self, mapped_queries: np.ndarray, df: pd.DataFrame, strategy: MultiSimilarityStrategy = None
+    ) -> np.ndarray:
+        negatives = strategy.rank_negatives(row=df, mapped_queries=mapped_queries, num_negatives=self.num_negatives)
         return negatives
 
     def write_h5(self) -> None:
@@ -190,7 +193,10 @@ class H5DatasetWriter:
             dataset = pd.read_parquet(parquet_path)
             mapped_queries = np.stack(
                 [
-                    self.adapter(torch.from_numpy(np.stack(vecs).astype(np.float32))).detach().numpy()
+                    self.adapter(torch.from_numpy(np.stack(vecs).astype(np.float32)).to(self.device))
+                    .cpu()
+                    .detach()
+                    .numpy()
                     for vecs in dataset["query_vectors"]
                 ]
             )
@@ -248,7 +254,9 @@ class H5DatasetWriter:
 
         dataset_dir = Path(config.dataset_dir)
         parquet_files = list(dataset_dir.glob("*.parquet"))
-        assert len(parquet_files) == 3, f"Expected exactly 3 .parquet files in {dataset_dir}, found {len(parquet_files)}"
+        assert (
+            len(parquet_files) == 3
+        ), f"Expected exactly 3 .parquet files in {dataset_dir}, found {len(parquet_files)}"
 
         splits = {}
         for split in ("train", "val", "test"):

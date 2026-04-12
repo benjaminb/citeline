@@ -39,9 +39,14 @@ class H5DatasetWriterConfig(Config):
 
 @dataclass
 class TrainConfig(Config):
-    dataset_dir: str  # directory containing train.h5, val.h5, test.h5
+    parquet_datadir: str
+    h5_datadir: str  # directory containing train.h5, val.h5, test.h5
+    strategy: str
+    num_positives: int
+    num_negatives: int
     dataset_class: str  # The dataset class from contrastive_datasets.py to use; implements picking pos/neg samples
     model: str  # The Adapter subclass from models.py to use as the model architecture
+    loss: str  # The ContrastiveLossFunction subclass
     temperature: float = 0.07
     lr: float = 1e-4
     weight_decay: float = 1e-2
@@ -49,47 +54,3 @@ class TrainConfig(Config):
     epochs: int = 50
     patience: int = 5  # early stopping patience
     checkpoint_path: str = "checkpoints/contrastive_best.pt"
-
-
-# @dataclass
-# class ModelConfig:
-#     """Architecture config — two variants supported: 'mlp' and 'residual'."""
-
-#     arch: str  # "mlp" | "residual"
-#     hidden_dims: list[int]  # e.g. [2048, 1024] or [1024, 1024, 1024]
-#     dropout: float = 0.1
-
-#     @classmethod
-#     def from_dict(cls, d: dict) -> "ModelConfig":
-#         return cls(**d)
-
-
-# @dataclass
-# class TrainConfig:
-#     dataset_dir: str  # directory containing train.h5, val.h5, test.h5
-#     model: ModelConfig
-#     negative_selection: NegativeSelectionConfig
-#     temperature: float = 0.07
-#     lr: float = 1e-4
-#     weight_decay: float = 1e-2
-#     batch_size: int = 256
-#     epochs: int = 50
-#     patience: int = 5  # early stopping patience
-#     checkpoint_path: str = "checkpoints/contrastive_best.pt"
-
-#     @classmethod
-#     def from_yaml(cls, path: str) -> "TrainConfig":
-#         with open(path) as f:
-#             data = yaml.safe_load(f)
-#         return cls(
-#             dataset_dir=data["dataset_dir"],
-#             model=ModelConfig.from_dict(data["model"]),
-#             negative_selection=NegativeSelectionConfig.from_dict(data["negative_selection"]),
-#             temperature=data.get("temperature", 0.07),
-#             lr=data.get("lr", 1e-4),
-#             weight_decay=data.get("weight_decay", 1e-2),
-#             batch_size=data.get("batch_size", 256),
-#             epochs=data.get("epochs", 50),
-#             patience=data.get("patience", 5),
-#             checkpoint_path=data.get("checkpoint_path", "checkpoints/contrastive_best.pt"),
-#         )

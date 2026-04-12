@@ -5,8 +5,9 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 
 from citeline.nn.config import H5DatasetWriterConfig, TrainConfig
-from citeline.nn.build_h5_datasets import H5DatasetWriter
+from citeline.nn.build_h5_datasets import H5DatasetWriter, MultiSimilarityStrategy
 from citeline.nn.contrastive_datasets import ContrastiveDataset
+from citeline.nn.loss_functions import ContrastiveLossFunction
 from citeline.nn.models import Adapter
 
 
@@ -26,9 +27,10 @@ def build_dataloaders(writer: H5DatasetWriter, adapter: Adapter, dataset_cls: Co
     return dataloaders
 
 
-def run_epoch(model, loader, loss_fn, optimizer, temperature, device, train_mode_on: bool) -> float:
+def run_epoch(model, loader, loss_fn, optimizer, temperature, train_mode_on: bool) -> float:
     # Set model training mode
     model.train(train_mode_on)
+    device = next(model.parameters()).device
     total_loss = 0.0
     with torch.set_grad_enabled(train_mode_on):
         for query, positives, negatives in loader:
@@ -72,30 +74,66 @@ def main():
     print(f"Loaded training config: {train_config}")
 
     # Get model
-    model_cls = Adapter.registry[train_config.model]
-    model = model_cls()
+    model = Adapter.registry[train_config.model]()
+    model = model.to("mps")
     print(f"Initialized model: {model.description}")
 
+    # Get loss & optimizers
+    loss_fn = ContrastiveLossFunction.registry[train_config.loss]()
+    optimizer = torch.optim.Adam(model.parameters(), lr=train_config.lr, weight_decay=train_config.weight_decay)
+
     # Build dataset
-    dataset_config = "src/citeline/nn/configs/create_test_h5.yaml"
-    h5_dataset_writer = H5DatasetWriter.from_config(dataset_config)
+    strategy = MultiSimilarityStrategy.registry[train_config.strategy]()
+    
+    h5_dataset_writer = H5DatasetWriter(
+        dataset_dir=train_config.parquet_datadir,
+        output_dir=train_config.h5_datadir,
+        strategy=strategy,
+        adapter=model,
+        num_positives=train_config.num_positives,
+        num_negatives=train_config.num_negatives,
+    )
     dataset_cls = ContrastiveDataset.registry[train_config.dataset_class]
 
     # Write H5 datasets (train/val/test)
     dataloaders = build_dataloaders(
-        writer=h5_dataset_writer,
-        adapter=model,
-        dataset_cls=dataset_cls,
-        batch_size=train_config.batch_size
+        writer=h5_dataset_writer, adapter=model, dataset_cls=dataset_cls, batch_size=train_config.batch_size
     )
     print("Dataloaders built:")
     print(dataloaders)
 
     epochs = train_config.epochs
+    train_losses, val_losses = [], []
     for i in range(epochs):
-        train_loss = run_epoch(model, dataloaders["train"], None, None, train_config.temperature, "cpu", True)
-        val_loss = run_epoch(model, dataloaders["val"], None, None, train_config.temperature, "cpu", False)
+        train_loss = run_epoch(
+            model,
+            dataloaders["train"],
+            loss_fn=loss_fn,
+            optimizer=optimizer,
+            temperature=train_config.temperature,
+            train_mode_on=True,
+        )
+        train_losses.append(train_loss)
+
+        val_loss = run_epoch(
+            model,
+            dataloaders["val"],
+            loss_fn=loss_fn,
+            optimizer=optimizer,
+            temperature=train_config.temperature,
+            train_mode_on=False,
+        )
+        val_losses.append(val_loss)
         print(f"Epoch {i+1}/{epochs} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+
+    _plot_history(
+        history=[
+            {"epoch": i + 1, "train_loss": tl, "val_loss": vl}
+            for i, (tl, vl) in enumerate(zip(train_losses, val_losses))
+        ],
+        test_loss=val_losses[-1],
+        out_path=Path("training_history.png"),
+    )
 
 
 if __name__ == "__main__":
