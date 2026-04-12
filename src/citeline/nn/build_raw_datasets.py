@@ -1,5 +1,8 @@
+import argparse
+import os
 import pandas as pd
 import torch
+from pathlib import Path
 from tqdm import tqdm
 from citeline.embedders import Embedder
 from citeline.nn.config import DatasetConfig
@@ -80,9 +83,8 @@ def split_dataset(df: pd.DataFrame, train_frac=0.7, val_frac=0.15) -> tuple[pd.D
 # explode on citation_dois
 def build_dataset(config_path: str):
     config = DatasetConfig.from_yaml(config_path)
-    save_path_template = "{output_path}/{prefix}_{dataset}_dataset.parquet"
-    output_path = config.output_path
-    prefix = config.filename_prefix
+    output_path = Path(config.output_path)
+    output_path.mkdir(parents=True, exist_ok=True)
     print(f"Building dataset with config: {config}")
 
     # Load and process dataset
@@ -91,6 +93,18 @@ def build_dataset(config_path: str):
     df = apply_embeddings(df, embedder=config.embedder)
     train, val, test = split_dataset(df)
     for split_df, name in zip([train, val, test], ["train", "val", "test"]):
-        save_path = save_path_template.format(output_path=output_path, prefix=prefix, dataset=name)
+        save_path = output_path / f"{name}.parquet"
         split_df.to_parquet(save_path)
         print(f"Saved {name} dataset to {save_path}")
+
+
+# Get dataset from command line arg
+def main():
+    parser = argparse.ArgumentParser(description="Build raw datasets for contrastive training.")
+    parser.add_argument("--config-path", type=str, help="Path to the dataset config YAML file.")
+    args = parser.parse_args()
+    build_dataset(args.config_path)
+
+
+if __name__ == "__main__":
+    main()

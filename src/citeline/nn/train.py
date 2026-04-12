@@ -77,6 +77,7 @@ def main():
     model = Adapter.registry[train_config.model]()
     model = model.to("mps")
     print(f"Initialized model: {model.description}")
+    checkpoint_path = Path(train_config.checkpoint_path)
 
     # Get loss & optimizers
     loss_fn = ContrastiveLossFunction.registry[train_config.loss]()
@@ -84,7 +85,7 @@ def main():
 
     # Build dataset
     strategy = MultiSimilarityStrategy.registry[train_config.strategy]()
-    
+
     h5_dataset_writer = H5DatasetWriter(
         dataset_dir=train_config.parquet_datadir,
         output_dir=train_config.h5_datadir,
@@ -104,6 +105,7 @@ def main():
 
     epochs = train_config.epochs
     train_losses, val_losses = [], []
+
     for i in range(epochs):
         train_loss = run_epoch(
             model,
@@ -124,6 +126,8 @@ def main():
             train_mode_on=False,
         )
         val_losses.append(val_loss)
+        # TODO: implement checkpointing
+        # TODO: implement early stopping
         print(f"Epoch {i+1}/{epochs} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
 
     _plot_history(
@@ -132,7 +136,7 @@ def main():
             for i, (tl, vl) in enumerate(zip(train_losses, val_losses))
         ],
         test_loss=val_losses[-1],
-        out_path=Path("training_history.png"),
+        out_path=checkpoint_path / "training_history.png",
     )
 
 

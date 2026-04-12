@@ -20,7 +20,6 @@ class DatasetConfig(Config):
     db_collection: str  # Name of the Milvus collection relevant to the chosen embedder
     query_expansions: list[str]
     output_path: str
-    filename_prefix: str
 
 
 @dataclass

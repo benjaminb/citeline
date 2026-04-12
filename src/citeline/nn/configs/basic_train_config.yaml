@@ -1,0 +1,15 @@
+parquet_datadir: 'data/nn_datasets/testrun'
+h5_datadir: 'data/h5_datasets/testrun'
+strategy: 'InterleavedStrategy'
+num_positives: 2
+num_negatives: 4
+dataset_class: BasicTripletDataset
+model: BaselineMLPEmbeddingMapper
+loss: BasicTripletCosineLoss
+temperature: 0.07
+lr: 0.0001
+weight_decay: 0.01
+batch_size: 32
+epochs: 3
+patience: 10
+checkpoint_path: 'data/checkpoints/testrun/best.pt'
