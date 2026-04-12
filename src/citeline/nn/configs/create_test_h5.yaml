@@ -1,4 +1,5 @@
-dataset: 'data/nn_datasets/testrun_train_dataset.parquet'
+dataset_dir: 'data/nn_datasets/testrun'
+output_dir: 'data/h5_datasets/testrun'
 strategy: 'InterleavedStrategy'
 adapter: 'BaselineMLPEmbeddingMapper'
 num_positives: 2
