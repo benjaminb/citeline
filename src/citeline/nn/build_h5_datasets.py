@@ -35,8 +35,7 @@ class MultiSimilarityStrategy(ABC):
 
     registry = {}
 
-    def __init__(self, db: MilvusDB = DB, collection: str = "qwen06_chunks"):
-        self.db = db
+    def __init__(self, collection: str = "qwen06_chunks"):
         self.collection = collection
 
     def __init_subclass__(cls, **kwargs):
@@ -70,11 +69,12 @@ class MultiSimilarityStrategy(ABC):
         query_records = row.to_dict(orient="records")
 
         def search_one(args):
+            thread_db = MilvusDB()  # Each thread needs its own connection to Milvus
             record, query_reps = args
             limit_pad = 10
             negatives = []
             while len(negatives) < num_negatives and limit_pad < 1000:
-                search_results = self.db.search(
+                search_results = thread_db.search(
                     collection_name=self.collection,
                     query_records=[record] * len(query_reps),  # Duplicate the record for each vector rep
                     query_vectors=query_reps,

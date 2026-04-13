@@ -1,3 +1,4 @@
+import argparse
 import matplotlib.pyplot as plt
 import torch
 
@@ -27,26 +28,36 @@ def build_dataloaders(writer: H5DatasetWriter, adapter: Adapter, dataset_cls: Co
     return dataloaders
 
 
-def run_epoch(model, loader, loss_fn, optimizer, temperature, train_mode_on: bool) -> float:
+def run_epoch(model, train_loader, val_loader, loss_fn, optimizer, temperature) -> float:
+    """
+    Returns:
+    - train_loss: average loss across all training batches
+    - val_loss: average loss across all validation batches
+    """
     # Set model training mode
-    model.train(train_mode_on)
     device = next(model.parameters()).device
-    total_loss = 0.0
-    with torch.set_grad_enabled(train_mode_on):
-        for query, positives, negatives in loader:
-            query = query.to(device)
-            positives = positives.to(device)
-            negatives = negatives.to(device)
+    total_train_loss, total_val_loss = 0.0, 0.0
+    model.train()
+    for query, positives, negatives in train_loader:
+        query, pos, neg = [t.to(device) for t in (query, positives, negatives)]
+
+        anchor = model(query)
+        loss = loss_fn(anchor, pos, neg)
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        total_train_loss += loss.item() * len(query)
+
+    model.eval()
+    with torch.no_grad():
+        for query, positives, negatives in val_loader:
+            query, pos, neg = [t.to(device) for t in (query, positives, negatives)]
 
             anchor = model(query)
-            loss = loss_fn(anchor, positives, negatives)
-
-            if train_mode_on:
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-            total_loss += loss.item() * len(query)
-    return total_loss / len(loader.dataset)
+            loss = loss_fn(anchor, pos, neg)
+            total_val_loss += loss.item() * len(query)
+    return total_train_loss / len(train_loader.dataset), total_val_loss / len(val_loader.dataset)
 
 
 def _plot_history(history: list[dict], test_loss: float, out_path: Path) -> None:
@@ -68,8 +79,15 @@ def _plot_history(history: list[dict], test_loss: float, out_path: Path) -> None
     plt.close(fig)
 
 
+# Get --config argument for training config yaml path
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train a contrastive model with the given config.")
+    parser.add_argument("--config", type=str, required=True, help="Path to the training config YAML file.")
+    return parser.parse_args()
+
 def main():
-    config_path = "src/citeline/nn/configs/testrun_train_config.yaml"
+    args = parse_args()
+    config_path = args.config
     train_config = TrainConfig.from_yaml(config_path)
     print(f"Loaded training config: {train_config}")
 
@@ -77,7 +95,11 @@ def main():
     model = Adapter.registry[train_config.model]()
     model = model.to("mps")
     print(f"Initialized model: {model.description}")
+
+    # Ensure checkpoint path exists
     checkpoint_path = Path(train_config.checkpoint_path)
+    checkpoint_path.mkdir(parents=True, exist_ok=True)
+    print(f"Checkpoint will save to: \033[1;34m{checkpoint_path}\033[0m")
 
     # Get loss & optimizers
     loss_fn = ContrastiveLossFunction.registry[train_config.loss]()
@@ -105,28 +127,27 @@ def main():
 
     epochs = train_config.epochs
     train_losses, val_losses = [], []
+    min_val_loss = float("inf")
 
     for i in range(epochs):
-        train_loss = run_epoch(
+        train_loss, val_loss = run_epoch(
             model,
-            dataloaders["train"],
+            train_loader=dataloaders["train"],
+            val_loader=dataloaders["val"],
             loss_fn=loss_fn,
             optimizer=optimizer,
             temperature=train_config.temperature,
-            train_mode_on=True,
         )
         train_losses.append(train_loss)
-
-        val_loss = run_epoch(
-            model,
-            dataloaders["val"],
-            loss_fn=loss_fn,
-            optimizer=optimizer,
-            temperature=train_config.temperature,
-            train_mode_on=False,
-        )
         val_losses.append(val_loss)
-        # TODO: implement checkpointing
+
+        # Checkpoint
+        if val_loss < min_val_loss:
+            min_val_loss = val_loss
+            # Save the best model checkpoint
+            torch.save(model.state_dict(), checkpoint_path / "best_model.pth")
+            print(f"New best model saved with val loss: {min_val_loss:.4f}")
+
         # TODO: implement early stopping
         print(f"Epoch {i+1}/{epochs} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
 
