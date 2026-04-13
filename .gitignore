@@ -7,6 +7,7 @@
 *.snap
 *.wal
 *.h5
+*.pt
 src/citeline/database/milvus/volumes/
 
 # Plain text and temp files generally used for scratch purposes
