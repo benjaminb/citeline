@@ -15,13 +15,22 @@ class ContrastiveLossFunction(ABC):
 
 
 class BasicTripletCosineLoss(ContrastiveLossFunction):
-    def __call__(self, anchor: torch.Tensor, positives: torch.Tensor, negatives: torch.Tensor) -> torch.Tensor:
+    def __call__(self, anchor: torch.Tensor, positives: torch.Tensor, negatives: torch.Tensor, weight_fn=None, step: int=0) -> torch.Tensor:
         """Assumes one positive and one negative per anchor.
         Loss = max(0, sim(anchor, negative) - sim(anchor, positive) + margin)
         """
         positive, negative = positives, negatives
+        device = anchor.device
+
+        if weight_fn is not None:
+            pos_weight, neg_weight = weight_fn()
+
+        else:
+            pos_weight, neg_weight = torch.tensor(1.0), torch.tensor(1.0)
+        pos_weight, neg_weight = pos_weight.to(device), neg_weight.to(device)
+
         ones = torch.ones(anchor.size(0), device=anchor.device)
-        loss = F.cosine_embedding_loss(
+        loss = pos_weight * F.cosine_embedding_loss(
             anchor, positive, ones, margin=0.1
-        ) + F.cosine_embedding_loss(anchor, negative, -ones, margin=0.1)
+        ) + neg_weight * F.cosine_embedding_loss(anchor, negative, -ones, margin=0.1)
         return loss.mean()
