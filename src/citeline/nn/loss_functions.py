@@ -6,25 +6,27 @@ import torch.nn.functional as F
 class ContrastiveLossFunction(ABC):
     registry = {}
 
+    def __init__(self, loss_schedule=None):
+        self.loss_schedule = loss_schedule
+
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         ContrastiveLossFunction.registry[cls.__name__] = cls
 
     @abstractmethod
-    def __call__(self, anchor: torch.Tensor, positives: torch.Tensor, negatives: torch.Tensor) -> torch.Tensor: ...
+    def __call__(self, anchor: torch.Tensor, positives: torch.Tensor, negatives: torch.Tensor, training: bool = True) -> torch.Tensor: ...
 
 
 class BasicTripletCosineLoss(ContrastiveLossFunction):
-    def __call__(self, anchor: torch.Tensor, positives: torch.Tensor, negatives: torch.Tensor, weight_fn=None, step: int=0) -> torch.Tensor:
+    def __call__(self, anchor: torch.Tensor, positives: torch.Tensor, negatives: torch.Tensor, training: bool = True) -> torch.Tensor:
         """Assumes one positive and one negative per anchor.
         Loss = max(0, sim(anchor, negative) - sim(anchor, positive) + margin)
         """
         positive, negative = positives, negatives
         device = anchor.device
 
-        if weight_fn is not None:
-            pos_weight, neg_weight = weight_fn()
-
+        if self.loss_schedule is not None and training:
+            pos_weight, neg_weight = self.loss_schedule()
         else:
             pos_weight, neg_weight = torch.tensor(1.0), torch.tensor(1.0)
         pos_weight, neg_weight = pos_weight.to(device), neg_weight.to(device)

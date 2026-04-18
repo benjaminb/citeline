@@ -26,7 +26,7 @@ class BaselineMLPEmbeddingMapper(Adapter):
     def forward(self, x):
         y = F.silu(self.fc1(x)) # Swish activation
         y = F.silu(self.final(y))
-        y = F.normalize(y, p=2, dim=1)
+        y = F.normalize(y, p=2.0, dim=1)
         return y
 
 class ResidualEmbeddingMapper(Adapter):
@@ -49,5 +49,5 @@ class ResidualEmbeddingMapper(Adapter):
         y = F.silu(self.final(y))
         y = x + self.residual_scale * y  # skip connection
 
-        y = F.normalize(y, p=2, dim=1)
+        y = F.normalize(y, p=2.0, dim=1)
         return y

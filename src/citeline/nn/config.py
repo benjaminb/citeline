@@ -46,6 +46,7 @@ class TrainConfig(Config):
     dataset_class: str  # The dataset class from contrastive_datasets.py to use; implements picking pos/neg samples
     model: str  # The Adapter subclass from models.py to use as the model architecture
     loss: str  # The ContrastiveLossFunction subclass
+    loss_schedule: Optional[str] = None  # The LossSchedule subclass to use for weighting pos/neg losses during training
     temperature: float = 0.07
     lr: float = 1e-4
     weight_decay: float = 1e-2

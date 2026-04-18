@@ -10,6 +10,10 @@
 *.pt
 src/citeline/database/milvus/volumes/
 
+# Models
+*.pt
+*.pth
+
 # Plain text and temp files generally used for scratch purposes
 *.txt
 !requirements.txt

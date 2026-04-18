@@ -1,4 +1,5 @@
 import argparse
+import faulthandler
 import json
 import logging
 import os
@@ -11,7 +12,6 @@ from time import time
 from datetime import datetime
 from dotenv import load_dotenv
 from tqdm import tqdm
-from pymilvus import Collection
 from citeline.database.milvusdb import MilvusDB
 
 from citeline.query_expander import QueryExpander
@@ -189,7 +189,7 @@ class Experiment:
         self.metrics_config = kwargs.get("metrics_config", None)
         self.nn_path = kwargs.get("nn", None)
         if self.nn_path:
-            self.nn_model = torch.jit.load(self.nn_path, map_location="cpu").to(self.device)
+            self.nn_model = torch.jit.load(self.nn_path, map_location="cpu")
             self.nn_model.eval()
             if self.device == "cuda":
                 self.nn_model = torch.compile(self.nn_model)
@@ -596,8 +596,7 @@ class Experiment:
         except ValueError:
             raise ValueError(f"Invalid value for CPUS environment variable.")
         if self.strategy != "50-50":
-            collection = Collection(name=self.target_table)
-            collection.load()
+            self.db.client.load_collection(self.target_table)
             print(f"Collection {self.target_table} loaded.")
 
         # Create thread-safe queues for tasks and results
@@ -795,12 +794,14 @@ class Experiment:
                         batch[f"vector_{expander_name}"] = [vector for vector in self.embedder(expanded_queries)]
                     elif self.strategy == "multiple_query_expansion":
                         # Embed the original (identity) query
+                        print(f"[DEBUG] embedding original queries (batch {i})", flush=True)
                         batch["vector"] = [vector for vector in self.embedder(batch["query"])]
                         # Embed the "add previous n sentences" expansions
                         for idx, expander in enumerate(self.query_expanders):
                             expansions = expander(batch)
                             expansion_name = expander.name
                             batch[f"query_{expansion_name}"] = expansions
+                            print(f"[DEBUG] embedding {expansion_name} expansions (batch {i})", flush=True)
                             batch[f"vector_{expansion_name}"] = [vector for vector in self.embedder(expansions)]
                     elif self.precomputed_embeddings:
                         # df has a 'vector' column with precomputed embeddings
@@ -826,12 +827,14 @@ class Experiment:
                         batch["vector"] = embeddings.tolist()
 
                     if self.nn_model is not None:
+                        print(f"[DEBUG] applying nn_model (batch {i})", flush=True)
                         with torch.no_grad():
                             # Get all "vector*" columns, in case there's more than one (e.g. mixed expansion)
                             vector_columns = [col for col in batch.columns if col.startswith("vector")]
                             for col in vector_columns:
+                                print(f"[DEBUG] transforming {col}", flush=True)
                                 vectors = np.array(batch[col].tolist())
-                                input_vectors = torch.from_numpy(vectors).to(device=self.device, dtype=torch.float32)
+                                input_vectors = torch.from_numpy(vectors).to(device="cpu", dtype=torch.float32)
                                 batch[col] = self.nn_model(input_vectors).tolist()
 
                     # Put batch on queue for consumer threads to process
@@ -939,6 +942,7 @@ class Experiment:
 
 
 def main():
+    faulthandler.dump_traceback_later(30, repeat=True)
 
     args = argument_parser()
 

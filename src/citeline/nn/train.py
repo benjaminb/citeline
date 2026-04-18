@@ -9,6 +9,7 @@ from citeline.nn.config import H5DatasetWriterConfig, TrainConfig
 from citeline.nn.build_h5_datasets import H5DatasetWriter, MultiSimilarityStrategy
 from citeline.nn.contrastive_datasets import ContrastiveDataset
 from citeline.nn.loss_functions import ContrastiveLossFunction
+from citeline.nn.loss_schedules import LossSchedule
 from citeline.nn.models import Adapter
 
 
@@ -28,22 +29,19 @@ def build_dataloaders(writer: H5DatasetWriter, adapter: Adapter, dataset_cls: Co
     return dataloaders
 
 
-def run_epoch(model, train_loader, val_loader, loss_fn, optimizer, temperature) -> float:
+def run_epoch(model, train_loader, val_loader, loss_fn, optimizer) -> float:
     """
     Returns:
     - train_loss: average loss across all training batches
     - val_loss: average loss across all validation batches
     """
-    # Set model training mode
     device = next(model.parameters()).device
     total_train_loss, total_val_loss = 0.0, 0.0
     model.train()
     for query, positives, negatives in train_loader:
         query, pos, neg = [t.to(device) for t in (query, positives, negatives)]
-
         anchor = model(query)
-        loss = loss_fn(anchor, pos, neg)
-
+        loss = loss_fn(anchor, pos, neg, training=True)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
@@ -53,9 +51,8 @@ def run_epoch(model, train_loader, val_loader, loss_fn, optimizer, temperature) 
     with torch.no_grad():
         for query, positives, negatives in val_loader:
             query, pos, neg = [t.to(device) for t in (query, positives, negatives)]
-
             anchor = model(query)
-            loss = loss_fn(anchor, pos, neg)
+            loss = loss_fn(anchor, pos, neg, training=False)
             total_val_loss += loss.item() * len(query)
     return total_train_loss / len(train_loader.dataset), total_val_loss / len(val_loader.dataset)
 
@@ -101,10 +98,6 @@ def main():
     checkpoint_path.mkdir(parents=True, exist_ok=True)
     print(f"Checkpoint will save to: \033[1;34m{checkpoint_path}\033[0m")
 
-    # Get loss & optimizers
-    loss_fn = ContrastiveLossFunction.registry[train_config.loss]()
-    optimizer = torch.optim.Adam(model.parameters(), lr=train_config.lr, weight_decay=train_config.weight_decay)
-
     # Build dataset
     strategy = MultiSimilarityStrategy.registry[train_config.strategy]()
 
@@ -126,6 +119,15 @@ def main():
     print(dataloaders)
 
     epochs = train_config.epochs
+
+    # Build loss schedule and loss function
+    loss_schedule = None
+    if train_config.loss_schedule:
+        total_steps = epochs * len(dataloaders["train"])
+        loss_schedule = LossSchedule.registry[train_config.loss_schedule](total_steps=total_steps)
+    loss_fn = ContrastiveLossFunction.registry[train_config.loss](loss_schedule=loss_schedule)
+    optimizer = torch.optim.Adam(model.parameters(), lr=train_config.lr, weight_decay=train_config.weight_decay)
+
     train_losses, val_losses = [], []
     min_val_loss = float("inf")
 
@@ -136,7 +138,6 @@ def main():
             val_loader=dataloaders["val"],
             loss_fn=loss_fn,
             optimizer=optimizer,
-            temperature=train_config.temperature,
         )
         train_losses.append(train_loss)
         val_losses.append(val_loss)
@@ -146,10 +147,14 @@ def main():
             min_val_loss = val_loss
             # Save the best model checkpoint
             torch.save(model.state_dict(), checkpoint_path / "best_model.pth")
+            torch.jit.script(model).save(str(checkpoint_path / "best_model_scripted.pt"))
             print(f"New best model saved with val loss: {min_val_loss:.4f}")
 
         # TODO: implement early stopping
         print(f"Epoch {i+1}/{epochs} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+
+    print(f"Best model saved to: \033[1;34m{checkpoint_path / 'best_model.pth'}\033[0m")
+    print(f"TorchScript model saved to: \033[1;34m{checkpoint_path / 'best_model_scripted.pt'}\033[0m")
 
     _plot_history(
         history=[

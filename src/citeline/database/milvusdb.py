@@ -105,8 +105,8 @@ class MilvusDB:
 
     CLEAR_GPU_CACHE_FN = {"cuda": torch.cuda.empty_cache, "mps": torch.mps.empty_cache, "cpu": lambda: None}
 
-    def __init__(self, alias: str = "default"):
-        self.client = MilvusClient(alias=alias)
+    def __init__(self, uri: str = "http://localhost:19530"):
+        self.client = MilvusClient(uri=uri)
 
         # Set device and its related clear cache function
         self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"

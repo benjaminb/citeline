@@ -51,7 +51,7 @@ class MultiSimilarityStrategy(ABC):
         """
 
     def rank_negatives(
-        self, row: pd.DataFrame, mapped_queries: np.ndarray, num_negatives: int, num_workers: int = 8
+        self, row: pd.DataFrame, mapped_queries: np.ndarray, num_negatives: int, num_workers: int = 12
     ) -> list:
         """
         Args:

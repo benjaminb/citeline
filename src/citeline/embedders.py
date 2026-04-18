@@ -56,8 +56,11 @@ class Embedder(ABC):
         self.dim = None
 
     def __call__(self, docs: list[str] | pd.Series, for_queries: bool = True) -> np.ndarray:
+        print(f"[DEBUG __call__] entered, type={type(docs)}", flush=True)
         if isinstance(docs, pd.Series):
+            print(f"[DEBUG __call__] converting Series to list", flush=True)
             docs = docs.tolist()
+        print(f"[DEBUG __call__] calling _embed with {len(docs)} docs", flush=True)
         return self._embed(docs, for_queries=for_queries)
 
     @abstractmethod
@@ -144,26 +147,29 @@ class QwenEmbedder(Embedder):
         super().__init__(model_name, device, normalize)
         model_kwargs = {}
         # model_kwargs = {"attn_implementation": "flash_attention_2", } if device == "cuda" else {}
-        tokenizer_kwargs = {"padding_side": "left"}
+        processor_kwargs = {"padding_side": "left"}
 
         self.model = SentenceTransformer(
             model_name,
             device=device,
             model_kwargs=model_kwargs,
-            tokenizer_kwargs=tokenizer_kwargs,
+            processor_kwargs=processor_kwargs,
             token=os.environ.get("HUGGINGFACE_API_TOKEN"),
             # cache_folder="~/.cache/huggingface/hub"
         )
         self.model.eval()
-        self.dim = self.model.get_sentence_embedding_dimension()
+        self.dim = self.model.get_embedding_dimension()
 
     def _embed(self, docs: list[str], for_queries=True) -> np.ndarray:
+        print(f"[DEBUG embedder] _embed called, {len(docs)} docs, for_queries={for_queries}", flush=True)
         with torch.no_grad():
             kwargs = {"sentences": docs, "show_progress_bar": False}
             if for_queries:
-                # Adds the built-in prompt for query embedding
                 kwargs["prompt_name"] = "query"
-            return self.model.encode(**kwargs)
+            print(f"[DEBUG embedder] calling model.encode with kwargs keys: {list(kwargs.keys())}", flush=True)
+            result = self.model.encode(**kwargs)
+            print(f"[DEBUG embedder] model.encode returned, shape={result.shape}", flush=True)
+            return result
 
 
 @Embedder.register("nasa-impact/nasa-ibm-st.38m")
