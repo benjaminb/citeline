@@ -146,7 +146,6 @@ def main():
         if val_loss < min_val_loss:
             min_val_loss = val_loss
             # Save the best model checkpoint
-            torch.save(model.state_dict(), checkpoint_path / "best_model.pth")
             torch.jit.script(model).save(str(checkpoint_path / "best_model_scripted.pt"))
             print(f"New best model saved with val loss: {min_val_loss:.4f}")
 

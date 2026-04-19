@@ -159,7 +159,7 @@ class QwenEmbedder(Embedder):
 
     def _embed(self, docs: list[str], for_queries=True) -> np.ndarray:
         with torch.no_grad():
-            kwargs = {"sentences": docs, "show_progress_bar": False}
+            kwargs = {"inputs": docs, "show_progress_bar": False}
             if for_queries:
                 kwargs["prompt_name"] = "query"
             result = self.model.encode(**kwargs)

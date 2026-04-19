@@ -780,30 +780,16 @@ class Experiment:
                     # Pattern: batch has 'query' column and 'vector' column for base embedding
                     # If using expansions, batch has 'query_<expander_name>' and 'vector_<expander_name>' columns
                     batch = self.dataset.iloc[slice(i, i + self.batch_size)].copy()
-                    if self.strategy == "mixed_expansion":
-                        """
-                        Mixed expansion strategy: embed both original and expanded queries
-                        """
-                        expanded_queries = self.query_expander(batch)
-                        expander_name = self.query_expander.name
-                        batch[f"query_{expander_name}"] = expanded_queries
-                        batch["vector"] = [vector for vector in self.embedder(batch["query"])]
-                        batch[f"vector_{expander_name}"] = [vector for vector in self.embedder(expanded_queries)]
-                    elif self.strategy == "multiple_query_expansion":
-                        # Embed the original (identity) query
-                        batch["vector"] = [vector for vector in self.embedder(batch["query"])]
-                        # Embed the "add previous n sentences" expansions
+                    if self.strategy == "multiple_query_expansion":
+                        embeddings = self.embedder(batch["sent_no_cit"])
+                        batch["vector"] = [vector for vector in embeddings]
                         for idx, expander in enumerate(self.query_expanders):
                             expansions = expander(batch)
-                            expansion_name = expander.name
-                            batch[f"query_{expansion_name}"] = expansions
-                            batch[f"vector_{expansion_name}"] = [vector for vector in self.embedder(expansions)]
+                            batch[f"vector_{expander.name}"] = [vector for vector in self.embedder(expansions)]
                     elif self.precomputed_embeddings:
                         # df has a 'vector' column with precomputed embeddings
                         pass
-
                     else:
-
                         expanded_queries = self.query_expander(batch)
                         embeddings = self.embedder(expanded_queries)
                         # Apply any vector transformation if specified
