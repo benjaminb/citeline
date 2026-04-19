@@ -23,7 +23,7 @@ class DatasetConfig(Config):
 
 
 @dataclass
-class H5DatasetWriterConfig(Config):
+class ContrastiveDatasetBuilderConfig(Config):
     dataset_dir: str  # Directory containing train.parquet, val.parquet, test.parquet
     output_dir: str  # Directory to write train.h5, val.h5, test.h5
     strategy: str

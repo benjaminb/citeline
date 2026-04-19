@@ -5,15 +5,16 @@ import torch
 from pathlib import Path
 from torch.utils.data import DataLoader
 
-from citeline.nn.config import H5DatasetWriterConfig, TrainConfig
-from citeline.nn.build_h5_datasets import H5DatasetWriter, MultiSimilarityStrategy
+from citeline.nn.config import TrainConfig
+from citeline.nn.contrastive_dataset_builder import ContrastiveDatasetBuilder
+from citeline.nn.ranking_strategies import RankingStrategy
 from citeline.nn.contrastive_datasets import ContrastiveDataset
 from citeline.nn.loss_functions import ContrastiveLossFunction
 from citeline.nn.loss_schedules import LossSchedule
 from citeline.nn.models import Adapter
 
 
-def build_dataloaders(writer: H5DatasetWriter, adapter: Adapter, dataset_cls: ContrastiveDataset, batch_size: int = 32):
+def build_dataloaders(writer: ContrastiveDatasetBuilder, adapter: Adapter, dataset_cls: ContrastiveDataset, batch_size: int = 32):
     # Slot in the current adapter, write out current search results
     writer.adapter = adapter
     h5_paths = writer.write_h5()
@@ -99,9 +100,9 @@ def main():
     print(f"Checkpoint will save to: \033[1;34m{checkpoint_path}\033[0m")
 
     # Build dataset
-    strategy = MultiSimilarityStrategy.registry[train_config.strategy]()
+    strategy = RankingStrategy.registry[train_config.strategy]()
 
-    h5_dataset_writer = H5DatasetWriter(
+    h5_dataset_writer = ContrastiveDatasetBuilder(
         dataset_dir=train_config.parquet_datadir,
         output_dir=train_config.h5_datadir,
         strategy=strategy,
