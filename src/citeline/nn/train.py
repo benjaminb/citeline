@@ -80,8 +80,7 @@ def _plot_history(history: list[dict], test_loss: float, out_path: Path) -> None
 # Get --config argument for training config yaml path
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a contrastive model with the given config.")
-    parser.add_argument("config", type=str, nargs="?", help="Path to the training config YAML file.")
-    parser.add_argument("--config", dest="config", type=str, help=argparse.SUPPRESS)
+    parser.add_argument("--config", type=str, required=True, help="Path to the training config YAML file.")
     return parser.parse_args()
 
 def main():
@@ -122,6 +121,7 @@ def main():
     if train_config.loss_schedule:
         total_steps = epochs * len(dataloaders["train"])
         loss_schedule = LossSchedule.registry[train_config.loss_schedule](total_steps=total_steps)
+        print(f"Total training steps: \033[1;34m{total_steps}\033[0m")
     loss_fn = ContrastiveLossFunction.registry[train_config.loss](loss_schedule=loss_schedule)
     optimizer = torch.optim.Adam(model.parameters(), lr=train_config.lr, weight_decay=train_config.weight_decay)
 
