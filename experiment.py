@@ -783,7 +783,7 @@ class Experiment:
                     if self.strategy == "multiple_query_expansion":
                         embeddings = self.embedder(batch["sent_no_cit"])
                         batch["vector"] = [vector for vector in embeddings]
-                        for idx, expander in enumerate(self.query_expanders):
+                        for expander in self.query_expanders:
                             expansions = expander(batch)
                             batch[f"vector_{expander.name}"] = [vector for vector in self.embedder(expansions)]
                     elif self.precomputed_embeddings:

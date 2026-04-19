@@ -79,7 +79,8 @@ def _plot_history(history: list[dict], test_loss: float, out_path: Path) -> None
 # Get --config argument for training config yaml path
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a contrastive model with the given config.")
-    parser.add_argument("--config", type=str, required=True, help="Path to the training config YAML file.")
+    parser.add_argument("config", type=str, nargs="?", help="Path to the training config YAML file.")
+    parser.add_argument("--config", dest="config", type=str, help=argparse.SUPPRESS)
     return parser.parse_args()
 
 def main():
@@ -110,14 +111,9 @@ def main():
         num_negatives=train_config.num_negatives,
     )
     dataset_cls = ContrastiveDataset.registry[train_config.dataset_class]
-
-    # Write H5 datasets (train/val/test)
     dataloaders = build_dataloaders(
         writer=h5_dataset_writer, adapter=model, dataset_cls=dataset_cls, batch_size=train_config.batch_size
     )
-    print("Dataloaders built:")
-    print(dataloaders)
-
     epochs = train_config.epochs
 
     # Build loss schedule and loss function
@@ -132,6 +128,13 @@ def main():
     min_val_loss = float("inf")
 
     for i in range(epochs):
+        # Rebuild dataloaders every 10 epochs to refresh the H5 datasets with the current model's embeddings
+        if i % 10 == 0 and i > 0:
+            print(f"\nEpoch {i+1}: Rebuilding H5 datasets and dataloaders with current model embeddings...")
+            # Write H5 datasets (train/val/test)
+            dataloaders = build_dataloaders(
+                writer=h5_dataset_writer, adapter=model, dataset_cls=dataset_cls, batch_size=train_config.batch_size
+            )
         train_loss, val_loss = run_epoch(
             model,
             train_loader=dataloaders["train"],
