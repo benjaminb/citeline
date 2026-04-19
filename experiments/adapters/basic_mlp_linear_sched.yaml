@@ -1,4 +1,4 @@
-dataset: 'data/dataset/nontrivial_checked.jsonl'
+dataset: 'data/dataset/nontrivial_100.jsonl'
 table: 'qwen06_chunks'
 target_column: 'vector'
 metric: 'IP'
@@ -6,8 +6,10 @@ embedder: 'Qwen/Qwen3-Embedding-0.6B'
 normalize: True
 strategy: 'multiple_query_expansion'
 query_expanders:
+  - identity
   - add_prev_2
 interleave: True
+nn: data/nn_models/addprev02_orig_best/best_model_scripted.pt
 batch_size: 8
 top_k: 1000
 output_path: 'experiments/adapters/results/'
