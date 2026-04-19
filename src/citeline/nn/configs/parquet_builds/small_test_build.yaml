@@ -1,0 +1,8 @@
+dataset_path: data/dataset/nontrivial_100.jsonl
+embedder: Qwen/Qwen3-Embedding-0.6B
+db_collection: qwen06_chunks
+query_expansions: 
+  - identity
+  - add_prev_2
+embedder: Qwen/Qwen3-Embedding-0.6B
+output_path: data/nn_datasets/addprev02_small/

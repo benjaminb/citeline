@@ -1,0 +1,16 @@
+parquet_datadir: 'data/nn_datasets/addprev02_orig_dataset/'
+h5_datadir: 'data/nn_datasets/addprev02_orig_dataset/h5/'
+strategy: 'InterleavedStrategy'
+num_positives: 2
+num_negatives: 4
+dataset_class: BasicTripletDataset
+model: BaselineMLPEmbeddingMapper
+loss: BasicTripletCosineLoss
+loss_schedule: LinearBasicTriplet
+temperature: 0.0
+lr: 0.0001
+weight_decay: 0.01
+batch_size: 32
+epochs: 100
+patience: 10
+checkpoint_path: 'data/nn_models/basic_sched/addprev02_orig_best.pt'
