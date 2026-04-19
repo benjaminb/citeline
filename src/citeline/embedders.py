@@ -56,11 +56,8 @@ class Embedder(ABC):
         self.dim = None
 
     def __call__(self, docs: list[str] | pd.Series, for_queries: bool = True) -> np.ndarray:
-        print(f"[DEBUG __call__] entered, type={type(docs)}", flush=True)
         if isinstance(docs, pd.Series):
-            print(f"[DEBUG __call__] converting Series to list", flush=True)
             docs = docs.tolist()
-        print(f"[DEBUG __call__] calling _embed with {len(docs)} docs", flush=True)
         return self._embed(docs, for_queries=for_queries)
 
     @abstractmethod
@@ -161,14 +158,11 @@ class QwenEmbedder(Embedder):
         self.dim = self.model.get_embedding_dimension()
 
     def _embed(self, docs: list[str], for_queries=True) -> np.ndarray:
-        print(f"[DEBUG embedder] _embed called, {len(docs)} docs, for_queries={for_queries}", flush=True)
         with torch.no_grad():
             kwargs = {"sentences": docs, "show_progress_bar": False}
             if for_queries:
                 kwargs["prompt_name"] = "query"
-            print(f"[DEBUG embedder] calling model.encode with kwargs keys: {list(kwargs.keys())}", flush=True)
             result = self.model.encode(**kwargs)
-            print(f"[DEBUG embedder] model.encode returned, shape={result.shape}", flush=True)
             return result
 
 

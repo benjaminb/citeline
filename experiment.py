@@ -1,5 +1,4 @@
 import argparse
-import faulthandler
 import json
 import logging
 import os
@@ -766,12 +765,10 @@ class Experiment:
             ) as cbar:
                 # Initialize consumer bar ref, must be before consumers start
                 consumer_bar = cbar
-
                 # Start consumer threads
                 for _ in range(num_workers):
                     thread = executor.submit(consumer_thread)
                     consumer_threads.append(thread)
-
                 # Main thread acts as the producer, clear GPU cache every 50 batches
                 clear_cache_interval = self.batch_size * 50
                 for i in range(0, dataset_size, self.batch_size):
@@ -794,20 +791,19 @@ class Experiment:
                         batch[f"vector_{expander_name}"] = [vector for vector in self.embedder(expanded_queries)]
                     elif self.strategy == "multiple_query_expansion":
                         # Embed the original (identity) query
-                        print(f"[DEBUG] embedding original queries (batch {i})", flush=True)
                         batch["vector"] = [vector for vector in self.embedder(batch["query"])]
                         # Embed the "add previous n sentences" expansions
                         for idx, expander in enumerate(self.query_expanders):
                             expansions = expander(batch)
                             expansion_name = expander.name
                             batch[f"query_{expansion_name}"] = expansions
-                            print(f"[DEBUG] embedding {expansion_name} expansions (batch {i})", flush=True)
                             batch[f"vector_{expansion_name}"] = [vector for vector in self.embedder(expansions)]
                     elif self.precomputed_embeddings:
                         # df has a 'vector' column with precomputed embeddings
                         pass
 
                     else:
+
                         expanded_queries = self.query_expander(batch)
                         embeddings = self.embedder(expanded_queries)
                         # Apply any vector transformation if specified
@@ -827,12 +823,10 @@ class Experiment:
                         batch["vector"] = embeddings.tolist()
 
                     if self.nn_model is not None:
-                        print(f"[DEBUG] applying nn_model (batch {i})", flush=True)
                         with torch.no_grad():
                             # Get all "vector*" columns, in case there's more than one (e.g. mixed expansion)
                             vector_columns = [col for col in batch.columns if col.startswith("vector")]
                             for col in vector_columns:
-                                print(f"[DEBUG] transforming {col}", flush=True)
                                 vectors = np.array(batch[col].tolist())
                                 input_vectors = torch.from_numpy(vectors).to(device="cpu", dtype=torch.float32)
                                 batch[col] = self.nn_model(input_vectors).tolist()
@@ -942,8 +936,6 @@ class Experiment:
 
 
 def main():
-    faulthandler.dump_traceback_later(30, repeat=True)
-
     args = argument_parser()
 
     # Set up logging
