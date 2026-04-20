@@ -63,10 +63,13 @@ def argument_parser():
     parser.add_argument("--normalize", action="store_true", help="Whether to normalize the embeddings")
     parser.add_argument("--batch-size", type=int, default=16, help="Batch size for embedding")
     parser.add_argument(
-        "--index-type", type=str, default="FLAT", help="Type of index to create (e.g. 'FLAT', 'IVF', etc.)"
+        "--index-type", type=str, default="FLAT", help="Type of index to create (e.g. 'FLAT', 'IVF_FLAT', 'HNSW')"
     )
     parser.add_argument(
         "--metric-type", type=str, default="IP", help="Metric type for the index (e.g. 'IP', 'L2', etc.)"
+    )
+    parser.add_argument(
+        "--nlist", type=int, default=None, help="Number of cluster units for IVF_FLAT index (e.g. 1024)"
     )
     parser.add_argument(
         "--remove-top-n",
@@ -183,11 +186,21 @@ class MilvusDB:
         print(f"Dataset length: {original_data_len}->{len(data)}")
         return data
 
-    def create_index(self, collection_name, index_type: str = "FLAT", metric_type: str = "IP"):
-        collection = Collection(collection_name)
-        collection.create_index(
-            field_name="vector", index_params={"index_type": index_type, "metric_type": metric_type}
-        )
+    def create_index(self, collection_name, index_type: str = "FLAT", metric_type: str = "IP", params: dict = None):
+        self.client.release_collection(collection_name)
+        for index_name in self.client.list_indexes(collection_name):
+            self.client.drop_index(collection_name=collection_name, index_name=index_name)
+        
+        index_params = self.client.prepare_index_params(                                                                                                                          
+            field_name="vector",                                                                                                                                                  
+            index_type=index_type,                                                                                                                                                
+            metric_type=metric_type,                                                                                                                                              
+            params=params or {},                                                                                                                                                  
+        ) 
+        print(f"Creating {index_type} index on '{collection_name}' with params {params}")
+        self.client.create_index(collection_name=collection_name, index_params=index_params)
+        self.client.load_collection(collection_name)
+        print("Done.")
 
     def create_vector_collection_pd(
         self, name: str, data: pd.DataFrame, embedder_name: str, normalize: bool, batch_size=16
@@ -226,7 +239,7 @@ class MilvusDB:
         # Check if collection already exists and handle resumption
         if name in self.client.list_collections():
             print(f"Collection '{name}' already exists. Checking for existing data...")
-            collection = Collection(name)
+            collection = self.client.get_collection(name)
             collection.load()  # Ensure collection is loaded
 
             if len(data) == collection.num_entities:
@@ -629,9 +642,13 @@ class MilvusDB:
         metric: str = "IP",
         limit: int = 3,
         output_fields: list[str] = ["text", "doi", "pubdate", "citation_count"],
+        nprobe: int = None,
     ) -> list[list[dict]]:
         """
         Searches a collection for top-k results based on the queries and metric.
+
+        Vectors sharing the same pubdate filter are batched into a single client.search() call,
+        reducing network round-trips when all query reps belong to the same document.
 
         Returns:
             A 2D list of search result dicts, i.e.
@@ -648,31 +665,35 @@ class MilvusDB:
             Milvus calls this value 'distance' regardless of the metric used. I have renamed this 'metric' to remind us
             that this could be either, and to remember if largest is best or worst based on the metric chosen
         """
+        search_params = {"metric_type": metric}
+        if nprobe is not None:
+            search_params["params"] = {"nprobe": nprobe}
 
-        # In order to apply pubdate filter, we must search one query at a time
-        results = []
-        for record, vector in zip(query_records, query_vectors):
+        # Group vectors by pubdate so all reps for the same document go in one client.search() call
+        groups: dict[int, dict] = {}
+        for i, (record, vector) in enumerate(zip(query_records, query_vectors)):
+            pubdate = record["pubdate"]
+            if pubdate not in groups:
+                groups[pubdate] = {"indices": [], "vectors": [], "record": record}
+            groups[pubdate]["indices"].append(i)
+            groups[pubdate]["vectors"].append(vector)
+
+        results = [None] * len(query_records)
+        for pubdate, group in groups.items():
             hits = self.client.search(
                 collection_name=collection_name,
-                data=[vector],
+                data=group["vectors"],
                 anns_field="vector",
-                search_params={"metric_type": metric},
+                search_params=search_params,
                 limit=limit,
                 output_fields=output_fields,
-                filter=f"pubdate <= {record['pubdate']}",
+                filter=f"pubdate <= {pubdate}",
             )
-
-            # Since we only searched one query, keep the first (and only) list of hits
-            if output_fields and "pubdate" in output_fields:
-                retrieved_pubdates = [hit["entity"]["pubdate"] for hit in hits[0]]
-                assert all(
-                    pubdate <= record["pubdate"] for pubdate in retrieved_pubdates
-                ), "Retrieved pubdates are not all <= query pubdate"
-            results.append(hits[0])
+            for i, hit_list in zip(group["indices"], hits):
+                results[i] = hit_list
 
         formatted_results = []
         for hits in results:
-            # Add distance to entity and return
             formatted_hits = [hit["entity"] | {"metric": hit["distance"]} for hit in hits]
             formatted_results.append(formatted_hits)
         return formatted_results
@@ -808,7 +829,8 @@ def main():
             batch_size=args.batch_size,
         )
     elif args.create_index:
-        db.create_index(collection_name=args.create_index, index_type=args.index_type, metric_type=args.metric_type)
+        params = {"nlist": args.nlist} if args.nlist is not None else None
+        db.create_index(collection_name=args.create_index, index_type=args.index_type, metric_type=args.metric_type, params=params)
     elif args.describe_collection:
         db.describe_collection(args.describe_collection)
     elif args.export_collection:

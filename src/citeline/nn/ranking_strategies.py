@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
+import threading
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -36,7 +37,7 @@ class RankingStrategy(ABC):
         """
 
     def rank_negatives(
-        self, row: pd.DataFrame, mapped_queries: np.ndarray, num_negatives: int, num_workers: int = 12
+        self, row: pd.DataFrame, mapped_queries: np.ndarray, num_negatives: int, num_workers: int = 12, nprobe: int = 64
     ) -> list:
         """
         Args:
@@ -49,27 +50,45 @@ class RankingStrategy(ABC):
                 The number of negative examples to return per query
             num_workers: int
                 Number of threads for concurrent Milvus searches
+            nprobe: int
+                Number of clusters to probe for IVF_FLAT index. Higher = more accurate, slower.
+                Pass None to omit (required for FLAT index).
         """
         assert len(row) == len(mapped_queries), "Length of query dataframe must match length of mapped query array"
         query_records = row.to_dict(orient="records")
+        _thread_local = threading.local()
 
         def search_one(args):
-            thread_db = MilvusDB()  # Each thread needs its own connection to Milvus
+            # Reuse one connection per thread instead of creating a new one per task
+            if not hasattr(_thread_local, "db"):
+                _thread_local.db = MilvusDB()
+            thread_db = _thread_local.db
+
             record, query_reps = args
-            limit_pad = 10
+            citation_dois = set(record["citation_dois"])
+            limit_pad = num_negatives * 2
             negatives = []
-            while len(negatives) < num_negatives and limit_pad < 1000:
-                search_results = thread_db.search(
+            while len(negatives) < num_negatives and limit_pad < 10000:
+                all_results = thread_db.search(
                     collection_name=self.collection,
-                    query_records=[record] * len(query_reps),  # Duplicate the record for each vector rep
+                    query_records=[record] * len(query_reps),
                     query_vectors=query_reps,
-                    limit=num_negatives + limit_pad,  # Retrieve more than needed to allow for filtering out positives
+                    limit=num_negatives + limit_pad,
                     output_fields=["vector", "doi"],
-                )[0]
+                    nprobe=nprobe,
+                )
                 limit_pad *= 2  # Increase the limit_pad exponentially to avoid infinite loop
 
-                citation_dois = set(record["citation_dois"])
-                negatives = np.array([res["vector"] for res in search_results if res["doi"] not in citation_dois])
+                # Merge results from all query reps, deduplicating by DOI
+                seen_dois = set()
+                merged = []
+                for result_list in all_results:
+                    for res in result_list:
+                        if res["doi"] not in seen_dois:
+                            seen_dois.add(res["doi"])
+                            merged.append(res)
+
+                negatives = np.array([res["vector"] for res in merged if res["doi"] not in citation_dois])
             return self.rank(query_reps, negatives, num_negatives)
 
         with ThreadPoolExecutor(max_workers=num_workers) as executor:

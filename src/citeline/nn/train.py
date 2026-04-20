@@ -6,15 +6,16 @@ from pathlib import Path
 from torch.utils.data import DataLoader
 
 from citeline.nn.config import TrainConfig
-from citeline.nn.contrastive_dataset_builder import ContrastiveDatasetBuilder
+from citeline.nn.contrastive_dataset_writer import ContrastiveDatasetWriter
 from citeline.nn.ranking_strategies import RankingStrategy
 from citeline.nn.contrastive_datasets import ContrastiveDataset
 from citeline.nn.loss_functions import ContrastiveLossFunction
 from citeline.nn.loss_schedules import LossSchedule
 from citeline.nn.models import Adapter
 
+REBUILD_INTERVAL = 40  # epochs
 
-def build_dataloaders(writer: ContrastiveDatasetBuilder, adapter: Adapter, dataset_cls: ContrastiveDataset, batch_size: int = 32):
+def build_dataloaders(writer: ContrastiveDatasetWriter, adapter: Adapter, dataset_cls: ContrastiveDataset, batch_size: int = 32):
     # Slot in the current adapter, write out current search results
     writer.adapter = adapter
     h5_paths = writer.write_h5()
@@ -102,7 +103,7 @@ def main():
     # Build dataset
     strategy = RankingStrategy.registry[train_config.strategy]()
 
-    h5_dataset_writer = ContrastiveDatasetBuilder(
+    h5_dataset_writer = ContrastiveDatasetWriter(
         dataset_dir=train_config.parquet_datadir,
         output_dir=train_config.h5_datadir,
         strategy=strategy,
@@ -129,8 +130,8 @@ def main():
     min_val_loss = float("inf")
 
     for i in range(epochs):
-        # Rebuild dataloaders every 10 epochs to refresh the H5 datasets with the current model's embeddings
-        if i % 10 == 0 and i > 0:
+        # Rebuild dataloaders every REBUILD_INTERVAL epochs to refresh the H5 datasets with the current model's embeddings
+        if i % REBUILD_INTERVAL == 0 and i > 0:
             print(f"\nEpoch {i+1}: Rebuilding H5 datasets and dataloaders with current model embeddings...")
             # Write H5 datasets (train/val/test)
             dataloaders = build_dataloaders(

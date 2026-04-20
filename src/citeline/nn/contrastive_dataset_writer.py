@@ -11,7 +11,7 @@ from citeline.nn.models import Adapter
 from citeline.nn.ranking_strategies import RankingStrategy
 
 
-class ContrastiveDatasetBuilder:
+class ContrastiveDatasetWriter:
     def __init__(
         self,
         # Path to dir containing *train.parquet, *val.parquet, *test.parquet
@@ -85,7 +85,7 @@ class ContrastiveDatasetBuilder:
             )
             export_df["negatives"] = export_df["negatives"].apply(
                 lambda neg: (
-                    np.pad(neg, ((0, max_negatives - len(neg)), (0, 0), (0, 0)), mode="constant")
+                    np.pad(neg, ((0, max_negatives - len(neg)), (0, 0)), mode="constant")
                     if len(neg) < max_negatives
                     else neg
                 )
@@ -113,7 +113,7 @@ class ContrastiveDatasetBuilder:
         return output_paths
 
     @classmethod
-    def from_config(cls, path: str) -> "ContrastiveDatasetBuilder":
+    def from_config(cls, path: str) -> "ContrastiveDatasetWriter":
         config = ContrastiveDatasetBuilderConfig.from_yaml(path)
 
         dataset_dir = Path(config.dataset_dir)
@@ -143,7 +143,7 @@ class ContrastiveDatasetBuilder:
         adapter = adapter_cls()
 
         output_dir = Path(config.output_dir)
-        return ContrastiveDatasetBuilder(
+        return ContrastiveDatasetWriter(
             dataset_dir=dataset_dir,
             strategy=strategy,
             adapter=adapter,

@@ -259,6 +259,7 @@ class Experiment:
             query_vectors=query_vectors,
             metric=self.metric,
             limit=self.top_k,
+            nprobe=self.probes,
         )
 
     def __multiple_query_expansion_search(
@@ -299,6 +300,7 @@ class Experiment:
             query_vectors=batch_vectors,
             metric=self.metric,
             limit=per_expansion_k,
+            nprobe=self.probes,
         )
         all_results.append(results)
 
@@ -312,6 +314,7 @@ class Experiment:
                 query_vectors=batch_vectors,
                 metric=self.metric,
                 limit=per_expansion_k,
+                nprobe=self.probes,
             )
             all_results.append(results)
 
@@ -367,6 +370,7 @@ class Experiment:
             query_vectors=original_vectors,
             metric=self.metric,
             limit=half_k,
+            nprobe=self.probes,
         )
 
         expanded_results = db.search(
@@ -375,6 +379,7 @@ class Experiment:
             query_vectors=expanded_vectors,
             metric=self.metric,
             limit=half_k,
+            nprobe=self.probes,
         )
 
         # Combine search results and sort by metric

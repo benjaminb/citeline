@@ -22,8 +22,10 @@ class LinearBasicTriplet(LossSchedule):
         super().__init__(total_steps=total_steps)
 
     def __call__(self) -> tuple[torch.Tensor, torch.Tensor]:
-        """Works with: 1 positive, 1 negative per anchor"""
-        pos_weight = torch.tensor(max(0.0, 1 - self.step / self.total_steps))
-        neg_weight = torch.tensor(min(1.0, self.step / self.total_steps))
+        """Works with: 1 positive, 1 negative per anchor
+        Interpolates between (pos_weight=1.0, neg_weight=0.0) at step 0 and (pos_weight=0.5, neg_weight=0.5) at step total_steps"""
+        neg_proportion = 0.5 * min(1.0, self.step / self.total_steps)
+        pos_weight = torch.tensor(max(0.0, 1 - neg_proportion))
+        neg_weight = torch.tensor(neg_proportion)
         self.step += 1
         return pos_weight, neg_weight

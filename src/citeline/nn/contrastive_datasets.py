@@ -2,9 +2,11 @@ from abc import ABC, abstractmethod
 import h5py
 import torch
 import numpy as np
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 
-
+"""
+The PyTorch Dataset subclass for contrastive training. Reads from h5 files written by contrastive_dataset_builder.py
+"""
 class ContrastiveDataset(ABC, Dataset):
     registry = {}
 
