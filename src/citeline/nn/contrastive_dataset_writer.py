@@ -67,15 +67,17 @@ class ContrastiveDatasetWriter:
 
             dataset["positives"] = self.get_positives(mapped_queries, dataset, strategy=self.strategy)
             dataset["num_targets"] = np.array([len(pos_list) for pos_list in dataset["positives"]])
-            dataset["negatives"] = self.get_negatives(mapped_queries, dataset, strategy=self.strategy)
+            if self.num_negatives > 0:
+                dataset["negatives"] = self.get_negatives(mapped_queries, dataset, strategy=self.strategy)
 
-            # This explode causes us to have one anchor per query; multi-anchor approaches outside this project's scope
-            export_df = dataset[["query_vectors", "positives", "negatives", "num_targets"]].explode(["query_vectors"])
+            cols = ["query_vectors", "positives", "num_targets"]
+            if self.num_negatives > 0:
+                cols.append("negatives")
+            export_df = dataset[cols].explode(["query_vectors"])
 
             # Pad the positives and negatives to ensure they have consistent shapes for saving to h5
             print("Padding shapes...", end="\r", flush=True)
             max_positives = max(len(pos) for pos in export_df["positives"])
-            max_negatives = max(len(neg) for neg in export_df["negatives"])
             export_df["positives"] = export_df["positives"].apply(
                 lambda pos: (
                     np.pad(pos, ((0, max_positives - len(pos)), (0, 0), (0, 0)), mode="constant")
@@ -83,19 +85,20 @@ class ContrastiveDatasetWriter:
                     else pos
                 )
             )
-            export_df["negatives"] = export_df["negatives"].apply(
-                lambda neg: (
-                    np.pad(neg, ((0, max_negatives - len(neg)), (0, 0)), mode="constant")
-                    if len(neg) < max_negatives
-                    else neg
+            if self.num_negatives > 0:
+                max_negatives = max(len(neg) for neg in export_df["negatives"])
+                export_df["negatives"] = export_df["negatives"].apply(
+                    lambda neg: (
+                        np.pad(neg, ((0, max_negatives - len(neg)), (0, 0)), mode="constant")
+                        if len(neg) < max_negatives
+                        else neg
+                    )
                 )
-            )
 
             # Convert pd.Series -> np.ndarray for h5 write
             anchors = np.stack(export_df["query_vectors"].tolist())
             num_positives = export_df["num_targets"].to_numpy()
             positives = np.stack(export_df["positives"].tolist())
-            negatives = np.stack(export_df["negatives"].tolist())
 
             # Resolve output filename and path; write the h5 file
             outfile_name = parquet_path.name.replace(".parquet", ".h5")
@@ -104,11 +107,14 @@ class ContrastiveDatasetWriter:
                 f.create_dataset("queries", data=anchors)
                 f.create_dataset("num_targets", data=num_positives)
                 f.create_dataset("positives", data=positives)
-                f.create_dataset("negatives", data=negatives)
+                if self.num_negatives > 0:
+                    negatives = np.stack(export_df["negatives"].tolist())
+                    f.create_dataset("negatives", data=negatives)
             print(f"Dataset saved to: {output_path}")
             print(f"  Queries: {anchors.shape}")
             print(f"  Positives: {positives.shape}")
-            print(f"  Negatives: {negatives.shape}")
+            if self.num_negatives > 0:
+                print(f"  Negatives: {negatives.shape}")
             output_paths[parquet_path.stem] = output_path
         return output_paths
 

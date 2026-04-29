@@ -9,10 +9,10 @@ query_expanders:
   - identity
   - add_prev_2
 interleave: True
-nn: data/nn_models/basic_sched/addprev02_orig_best.pt/best_model.pt
+nn: data/nn_models/no_sched/addprev02_pos_only.pt/best_model.pt
 batch_size: 8
 top_k: 1000
 probes: 1024
 output_path: 'experiments/adapters/results/'
 output_search_results: False
-plot_label: 'Add02/Basic MLP/Linear Loss Sched'
+plot_label: 'Add02/Basic MLP/Pos Only/No Loss Sched'

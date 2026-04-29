@@ -1,6 +1,7 @@
 import argparse
 import matplotlib.pyplot as plt
 import torch
+import torch.nn.functional as F
 
 from pathlib import Path
 from torch.utils.data import DataLoader
@@ -31,14 +32,17 @@ def build_dataloaders(writer: ContrastiveDatasetWriter, adapter: Adapter, datase
     return dataloaders
 
 
-def run_epoch(model, train_loader, val_loader, loss_fn, optimizer) -> float:
+def run_epoch(model, train_loader, val_loader, loss_fn, optimizer):
     """
     Returns:
     - train_loss: average loss across all training batches
     - val_loss: average loss across all validation batches
+    - train_pos_sim: mean cosine similarity between anchor and positive (train)
+    - train_neg_sim: mean cosine similarity between anchor and negative (train)
     """
     device = next(model.parameters()).device
     total_train_loss, total_val_loss = 0.0, 0.0
+    total_pos_sim, total_neg_sim = 0.0, 0.0
     model.train()
     for query, positives, negatives in train_loader:
         query, pos, neg = [t.to(device) for t in (query, positives, negatives)]
@@ -48,7 +52,10 @@ def run_epoch(model, train_loader, val_loader, loss_fn, optimizer) -> float:
         loss.backward()
         optimizer.step()
         total_train_loss += loss.item() * len(query)
+        total_pos_sim += F.cosine_similarity(anchor.detach(), pos).sum().item()
+        total_neg_sim += F.cosine_similarity(anchor.detach(), neg).sum().item()
 
+    total_val_pos_sim, total_val_neg_sim = 0.0, 0.0
     model.eval()
     with torch.no_grad():
         for query, positives, negatives in val_loader:
@@ -56,7 +63,19 @@ def run_epoch(model, train_loader, val_loader, loss_fn, optimizer) -> float:
             anchor = model(query)
             loss = loss_fn(anchor, pos, neg, training=False)
             total_val_loss += loss.item() * len(query)
-    return total_train_loss / len(train_loader.dataset), total_val_loss / len(val_loader.dataset)
+            total_val_pos_sim += F.cosine_similarity(anchor, pos).sum().item()
+            total_val_neg_sim += F.cosine_similarity(anchor, neg).sum().item()
+
+    n_train = len(train_loader.dataset)
+    n_val = len(val_loader.dataset)
+    return (
+        total_train_loss / n_train,
+        total_val_loss / n_val,
+        total_pos_sim / n_train,
+        total_neg_sim / n_train,
+        total_val_pos_sim / n_val,
+        total_val_neg_sim / n_val,
+    )
 
 
 def _plot_history(history: list[dict], test_loss: float, out_path: Path) -> None:
@@ -127,7 +146,7 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=train_config.lr, weight_decay=train_config.weight_decay)
 
     train_losses, val_losses = [], []
-    min_val_loss = float("inf")
+    best_margin = float("-inf")
 
     for i in range(epochs):
         # Rebuild dataloaders every REBUILD_INTERVAL epochs to refresh the H5 datasets with the current model's embeddings
@@ -137,7 +156,11 @@ def main():
             dataloaders = build_dataloaders(
                 writer=h5_dataset_writer, adapter=model, dataset_cls=dataset_cls, batch_size=train_config.batch_size
             )
-        train_loss, val_loss = run_epoch(
+            
+            # Reset optimizer to clear any momentum from previous training steps
+            optimizer = torch.optim.Adam(model.parameters(), lr=train_config.lr, weight_decay=train_config.weight_decay)
+
+        train_loss, val_loss, pos_sim, neg_sim, val_pos_sim, val_neg_sim = run_epoch(
             model,
             train_loader=dataloaders["train"],
             val_loader=dataloaders["val"],
@@ -147,18 +170,19 @@ def main():
         train_losses.append(train_loss)
         val_losses.append(val_loss)
 
-        # Checkpoint
-        if val_loss < min_val_loss:
-            min_val_loss = val_loss
-            # Save the best model checkpoint
-            torch.jit.script(model).save(str(checkpoint_path / "best_model_scripted.pt"))
-            print(f"New best model saved with val loss: {min_val_loss:.4f}")
-
+        # Checkpoint on best val margin (pos_sim - neg_sim)
+        if val_pos_sim - val_neg_sim > best_margin:
+            best_margin = val_pos_sim - val_neg_sim
+            torch.jit.script(model).save(str(checkpoint_path / "best_model.pt"))
+            print(f"New best model saved with val margin {best_margin:.4f} (pos: {val_pos_sim:.4f}, neg: {val_neg_sim:.4f})")
         # TODO: implement early stopping
-        print(f"Epoch {i+1}/{epochs} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
 
-    print(f"Best model saved to: \033[1;34m{checkpoint_path / 'best_model.pth'}\033[0m")
-    print(f"TorchScript model saved to: \033[1;34m{checkpoint_path / 'best_model_scripted.pt'}\033[0m")
+        print(f"Epoch {i+1}/{epochs} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f} | train margin: {pos_sim - neg_sim:.4f} | val margin: {val_pos_sim - val_neg_sim:.4f}")
+
+    
+    torch.jit.script(model).save(str(checkpoint_path / "final_model.pt"))
+    print(f"Final model saved to: \033[1;34m{checkpoint_path / 'final_model.pt'}\033[0m")
+    print(f"Best model saved to: \033[1;34m{checkpoint_path / 'best_model.pt'}\033[0m")
 
     _plot_history(
         history=[

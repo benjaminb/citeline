@@ -16,7 +16,7 @@ class ContrastiveDataset(ABC, Dataset):
         with h5py.File(self.h5_path, "r") as f:
             self.length = f["queries"].shape[0]
             self.queries = torch.tensor(f["queries"][:], dtype=torch.float32)
-            self.labels = torch.tensor(f["labels"][:], dtype=torch.float32)
+            self.positives = torch.tensor(f["positives"][:], dtype=torch.float32)
 
     def __init_subclass__(cls):
         super().__init_subclass__()
@@ -29,7 +29,17 @@ class ContrastiveDataset(ABC, Dataset):
     @abstractmethod
     def __getitem__(self, idx): ...
 
+class PostiveOnlyDataset(ContrastiveDataset):
+    """
+    Loads one (anchor, positive) pair per sample, ignoring negatives. Used for training with a loss function that doesn't require negatives
+    positive: picks the first positive (most similar) for each anchor.
+    """
 
+    def __getitem__(self, idx):
+        anchor = self.queries[idx]
+        # Pick the first positive
+        positive = self.positives[idx, 0, 0]
+        return anchor, positive, torch.zeros_like(positive)
 class BasicTripletDataset(ContrastiveDataset):
     """
     Loads one (anchor, positive, negative) per sample

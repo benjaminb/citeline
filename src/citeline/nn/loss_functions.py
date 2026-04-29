@@ -16,6 +16,15 @@ class ContrastiveLossFunction(ABC):
     @abstractmethod
     def __call__(self, anchor: torch.Tensor, positives: torch.Tensor, negatives: torch.Tensor, training: bool = True) -> torch.Tensor: ...
 
+class BasicCosineLoss(ContrastiveLossFunction):
+    def __init__(self, loss_schedule=None):
+        assert loss_schedule is None, "BasicCosineLoss does not support a loss schedule"
+        super().__init__(loss_schedule=None)
+    
+    def __call__(self, anchor: torch.Tensor, positives: torch.Tensor, negatives: torch.Tensor, training: bool = True) -> torch.Tensor:
+        ones = torch.ones(anchor.size(0), device=anchor.device)
+        loss = F.cosine_embedding_loss(anchor, positives, ones, margin=0.0)
+        return loss.mean()
 
 class BasicTripletCosineLoss(ContrastiveLossFunction):
     def __call__(self, anchor: torch.Tensor, positives: torch.Tensor, negatives: torch.Tensor, training: bool = True) -> torch.Tensor:
