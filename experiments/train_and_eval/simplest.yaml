@@ -1,0 +1,37 @@
+# Unified train-then-eval config.
+# Run with: python train_and_eval.py --config experiments/train_and_eval/example.yaml
+#
+# All artifacts (checkpoints, plots, results) are written under output_dir/.
+# The 'nn' and 'output_path' keys in the experiment section are set automatically."
+output_dir: 'experiments/train_and_eval/results/simplest/'
+
+training:
+  parquet_datadir: 'data/nn_datasets/addprev02_orig_dataset/'
+  h5_datadir: 'data/nn_datasets/addprev02_orig_dataset/h5/'
+  strategy: 'InterleavedStrategy'
+  num_positives: 1
+  num_negatives: 1
+  dataset_class: BasicTripletDataset
+  model: BaselineMLPEmbeddingMapper
+  loss: BasicTripletCosineLoss
+  loss_schedule: PositiveOnlySchedule
+  lr: 0.0001
+  weight_decay: 0.01
+  batch_size: 32
+  epochs: 50
+  patience: 10
+
+experiment:
+  dataset: 'data/dataset/nontrivial_checked.jsonl'
+  table: 'qwen06_chunks_flat'
+  target_column: 'vector'
+  embedder: 'Qwen/Qwen3-Embedding-0.6B'
+  metric: 'IP'
+  normalize: true
+  strategy: 'multiple_query_expansion'
+  query_expanders:
+    - 'add_prev_2'
+  interleave: true
+  batch_size: 8
+  top_k: 1000
+  output_search_results: false

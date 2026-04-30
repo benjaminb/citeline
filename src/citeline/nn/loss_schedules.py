@@ -29,3 +29,10 @@ class LinearBasicTriplet(LossSchedule):
         neg_weight = torch.tensor(neg_proportion)
         self.step += 1
         return pos_weight, neg_weight
+
+class PositiveOnlySchedule(LossSchedule):
+    def __init__(self, total_steps: int):
+        super().__init__(total_steps=total_steps)
+
+    def __call__(self) -> tuple[torch.Tensor, torch.Tensor]:
+        return torch.tensor(1.0), torch.tensor(0.0)

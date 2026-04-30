@@ -97,68 +97,62 @@ def _plot_history(history: list[dict], test_loss: float, out_path: Path) -> None
     plt.close(fig)
 
 
-# Get --config argument for training config yaml path
-def parse_args():
-    parser = argparse.ArgumentParser(description="Train a contrastive model with the given config.")
-    parser.add_argument("--config", type=str, required=True, help="Path to the training config YAML file.")
-    return parser.parse_args()
+def run_training(config: TrainConfig, checkpoint_dir: str | None = None) -> Path:
+    """
+    Train an adapter model given a TrainConfig.
 
-def main():
-    args = parse_args()
-    config_path = args.config
-    train_config = TrainConfig.from_yaml(config_path)
-    print(f"Loaded training config: {train_config}")
+    Args:
+        config: TrainConfig instance with all training parameters.
+        checkpoint_dir: Directory to save checkpoints. If None, uses config.checkpoint_path.
 
-    # Get model
-    model = Adapter.registry[train_config.model]()
-    model = model.to("mps")
-    print(f"Initialized model: {model.description}")
+    Returns:
+        Path to the best_model.pt checkpoint.
+    """
+    import torch
 
-    # Ensure checkpoint path exists
-    checkpoint_path = Path(train_config.checkpoint_path)
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
+
+    checkpoint_path = Path(checkpoint_dir) if checkpoint_dir else Path(config.checkpoint_path)
     checkpoint_path.mkdir(parents=True, exist_ok=True)
     print(f"Checkpoint will save to: \033[1;34m{checkpoint_path}\033[0m")
 
-    # Build dataset
-    strategy = RankingStrategy.registry[train_config.strategy]()
+    model = Adapter.registry[config.model]()
+    model = model.to(device)
+    print(f"Initialized model: {model.description}")
 
+    strategy = RankingStrategy.registry[config.strategy]()
     h5_dataset_writer = ContrastiveDatasetWriter(
-        dataset_dir=train_config.parquet_datadir,
-        output_dir=train_config.h5_datadir,
+        dataset_dir=config.parquet_datadir,
+        output_dir=config.h5_datadir,
         strategy=strategy,
         adapter=model,
-        num_positives=train_config.num_positives,
-        num_negatives=train_config.num_negatives,
+        num_positives=config.num_positives,
+        num_negatives=config.num_negatives,
     )
-    dataset_cls = ContrastiveDataset.registry[train_config.dataset_class]
+    dataset_cls = ContrastiveDataset.registry[config.dataset_class]
     dataloaders = build_dataloaders(
-        writer=h5_dataset_writer, adapter=model, dataset_cls=dataset_cls, batch_size=train_config.batch_size
+        writer=h5_dataset_writer, adapter=model, dataset_cls=dataset_cls, batch_size=config.batch_size
     )
-    epochs = train_config.epochs
+    epochs = config.epochs
 
-    # Build loss schedule and loss function
     loss_schedule = None
-    if train_config.loss_schedule:
+    if config.loss_schedule:
         total_steps = epochs * len(dataloaders["train"])
-        loss_schedule = LossSchedule.registry[train_config.loss_schedule](total_steps=total_steps)
+        loss_schedule = LossSchedule.registry[config.loss_schedule](total_steps=total_steps)
         print(f"Total training steps: \033[1;34m{total_steps}\033[0m")
-    loss_fn = ContrastiveLossFunction.registry[train_config.loss](loss_schedule=loss_schedule)
-    optimizer = torch.optim.Adam(model.parameters(), lr=train_config.lr, weight_decay=train_config.weight_decay)
+    loss_fn = ContrastiveLossFunction.registry[config.loss](loss_schedule=loss_schedule)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
 
     train_losses, val_losses = [], []
     best_margin = float("-inf")
 
     for i in range(epochs):
-        # Rebuild dataloaders every REBUILD_INTERVAL epochs to refresh the H5 datasets with the current model's embeddings
         if i % REBUILD_INTERVAL == 0 and i > 0:
             print(f"\nEpoch {i+1}: Rebuilding H5 datasets and dataloaders with current model embeddings...")
-            # Write H5 datasets (train/val/test)
             dataloaders = build_dataloaders(
-                writer=h5_dataset_writer, adapter=model, dataset_cls=dataset_cls, batch_size=train_config.batch_size
+                writer=h5_dataset_writer, adapter=model, dataset_cls=dataset_cls, batch_size=config.batch_size
             )
-            
-            # Reset optimizer to clear any momentum from previous training steps
-            optimizer = torch.optim.Adam(model.parameters(), lr=train_config.lr, weight_decay=train_config.weight_decay)
+            optimizer = torch.optim.Adam(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
 
         train_loss, val_loss, pos_sim, neg_sim, val_pos_sim, val_neg_sim = run_epoch(
             model,
@@ -170,16 +164,13 @@ def main():
         train_losses.append(train_loss)
         val_losses.append(val_loss)
 
-        # Checkpoint on best val margin (pos_sim - neg_sim)
         if val_pos_sim - val_neg_sim > best_margin:
             best_margin = val_pos_sim - val_neg_sim
             torch.jit.script(model).save(str(checkpoint_path / "best_model.pt"))
             print(f"New best model saved with val margin {best_margin:.4f} (pos: {val_pos_sim:.4f}, neg: {val_neg_sim:.4f})")
-        # TODO: implement early stopping
 
         print(f"Epoch {i+1}/{epochs} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f} | train margin: {pos_sim - neg_sim:.4f} | val margin: {val_pos_sim - val_neg_sim:.4f}")
 
-    
     torch.jit.script(model).save(str(checkpoint_path / "final_model.pt"))
     print(f"Final model saved to: \033[1;34m{checkpoint_path / 'final_model.pt'}\033[0m")
     print(f"Best model saved to: \033[1;34m{checkpoint_path / 'best_model.pt'}\033[0m")
@@ -192,6 +183,21 @@ def main():
         test_loss=val_losses[-1],
         out_path=checkpoint_path / "training_history.png",
     )
+
+    return checkpoint_path / "best_model.pt"
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Train a contrastive model with the given config.")
+    parser.add_argument("--config", type=str, required=True, help="Path to the training config YAML file.")
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
+    train_config = TrainConfig.from_yaml(args.config)
+    print(f"Loaded training config: {train_config}")
+    run_training(train_config)
 
 
 if __name__ == "__main__":

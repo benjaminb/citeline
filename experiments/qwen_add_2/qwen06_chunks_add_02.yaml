@@ -1,5 +1,5 @@
 dataset: 'data/dataset/nontrivial_checked.jsonl'
-table: 'qwen06_chunks'
+table: 'qwen06_chunks_flat'
 target_column: 'vector'
 metric: 'IP'
 embedder: 'Qwen/Qwen3-Embedding-0.6B'
@@ -8,8 +8,8 @@ strategy: 'multiple_query_expansion'
 query_expanders:
   - add_prev_2
 interleave: True
-batch_size: 4
+batch_size: 16
 top_k: 1000
 output_path: 'experiments/qwen_add_02/results/'
-output_search_results: True
+output_search_results: False
 plot_label: 'chunks/previous 0,2/interleave'

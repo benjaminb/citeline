@@ -1,5 +1,5 @@
 import argparse
-from pymilvus import MilvusClient, Collection, DataType
+from pymilvus import MilvusClient, Collection, DataType, connections
 import os
 from dotenv import load_dotenv
 import json
@@ -53,6 +53,9 @@ def argument_parser():
 
     operation_group.add_argument(
         "--rename-collection", nargs=2, metavar=("old_name", "new_name"), help="Rename a collection"
+    )
+    operation_group.add_argument(
+        "--duplicate-collection", nargs=2, metavar=("from_collection", "new_name"), help="Duplicate a collection"
     )
 
     # Arguments required when creating a collection
@@ -110,6 +113,7 @@ class MilvusDB:
 
     def __init__(self, uri: str = "http://localhost:19530"):
         self.client = MilvusClient(uri=uri)
+        connections.connect(uri=uri)
 
         # Set device and its related clear cache function
         self.device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
@@ -430,6 +434,66 @@ class MilvusDB:
         # Final flush
         target_collection.flush()
         print(f"Transformation complete. Created collection '{name}' with {total_inserted} entities.")
+
+    def duplicate_collection(
+        self,
+        from_collection: str,
+        name: str,
+        index_type: str = "FLAT",
+        metric_type: str = "IP",
+        params: dict = None,
+        batch_size: int = 1000,
+    ):
+        if from_collection not in self.client.list_collections():
+            print(f"Source collection '{from_collection}' does not exist.")
+            return
+        if name in self.client.list_collections():
+            print(f"Target collection '{name}' already exists.")
+            return
+
+        source_collection = Collection(from_collection)
+        source_collection.load()
+        if source_collection.num_entities == 0:
+            print(f"Source collection '{from_collection}' is empty. Nothing to duplicate.")
+            return
+
+        # Infer vector dimension from a single entity
+        sample = self.client.query(collection_name=from_collection, filter="", output_fields=["vector"], limit=1)
+        vector_dim = len(sample[0]["vector"])
+
+        schema = self.client.create_schema(auto_id=True, enable_dynamic_field=True)
+        vector_field = {"field_name": "vector", "datatype": DataType.FLOAT_VECTOR, "dim": vector_dim}
+        for field in self.BASE_FIELDS + [vector_field]:
+            schema.add_field(**field)
+
+        self.client.create_collection(collection_name=name, schema=schema)
+        print(f"Collection '{name}' created (dim={vector_dim})")
+
+        index_params = self.client.prepare_index_params()
+        index_params.add_index(field_name="vector", index_type=index_type, metric_type=metric_type, params=params or {})
+        self.client.create_index(collection_name=name, index_params=index_params)
+        print(f"Index created: {index_type} / {metric_type}")
+
+        iterator = source_collection.query_iterator(
+            expr="", output_fields=["text", "doi", "citation_count", "pubdate", "vector"], batch_size=batch_size
+        )
+
+        total_inserted = 0
+        with tqdm(total=source_collection.num_entities, desc=f"Duplicating to '{name}'", unit="entities") as pbar:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    break
+                records = [
+                    {k: e[k] for k in ("text", "doi", "citation_count", "pubdate", "vector")} for e in batch
+                ]
+                self.client.insert(collection_name=name, data=records)
+                total_inserted += len(records)
+                pbar.update(len(records))
+
+        iterator.close()
+        self.client.flush(collection_name=name)
+        print(f"Duplicate complete. '{name}' has {total_inserted} entities.")
 
     def describe_collection(self, name: str):
         if not name in self.client.list_collections():
@@ -843,6 +907,16 @@ def main():
     elif args.rename_collection:
         old_name, new_name = args.rename_collection
         db.rename_collection(old_name, new_name)
+    elif args.duplicate_collection:
+        from_collection, new_name = args.duplicate_collection
+        params = {"nlist": args.nlist} if args.nlist is not None else None
+        db.duplicate_collection(
+            from_collection=from_collection,
+            name=new_name,
+            index_type=args.index_type,
+            metric_type=args.metric_type,
+            params=params,
+        )
     elif args.healthcheck:
         db.healthcheck()
 
