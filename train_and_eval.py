@@ -96,6 +96,7 @@ def main():
     print("DONE")
     print("=" * 60)
     print(f"  Config:      {output_dir / 'config.yaml'}")
+    print(f"  Loss plot:   {checkpoint_dir / 'training_history.png'}")
     print(f"  Checkpoints: {checkpoint_dir}/")
     print(f"  Results:     {experiment_dir}/")
 

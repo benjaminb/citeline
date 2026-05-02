@@ -88,7 +88,7 @@ def _plot_history(history: list[dict], test_loss: float, out_path: Path) -> None
     ax.plot(epochs, val_losses, label="val")
     ax.axhline(test_loss, color="tab:red", linestyle="--", label=f"test ({test_loss:.4f})")
     ax.set_xlabel("Epoch")
-    ax.set_ylabel("InfoNCE Loss")
+    ax.set_ylabel("Loss")
     ax.set_title("Contrastive Training")
     ax.legend()
     ax.grid(True, alpha=0.3)
