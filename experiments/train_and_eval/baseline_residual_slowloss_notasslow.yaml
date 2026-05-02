@@ -3,7 +3,7 @@
 #
 # All artifacts (checkpoints, plots, results) are written under output_dir/.
 # The 'nn' and 'output_path' keys in the experiment section are set automatically."
-output_dir: 'experiments/train_and_eval/results/baseline_residual_late_neg/'
+output_dir: 'experiments/train_and_eval/results/baseline_residual_slowloss/'
 
 training:
   parquet_datadir: 'data/nn_datasets/addprev02_orig_dataset/'
@@ -14,12 +14,12 @@ training:
   dataset_class: BasicTripletDataset
   model: ResidualEmbeddingMapper
   loss: BasicTripletCosineLoss
-  loss_schedule: LinearLateNeg
+  loss_schedule: LinearSlow # Linear to 0.33 negative weight
   lr: 0.0001
   weight_decay: 0.0001
   batch_size: 32
   epochs: 80
-  rebuild_patience: 5
+  patience: 10
 
 experiment:
   dataset: 'data/dataset/nontrivial_checked.jsonl'

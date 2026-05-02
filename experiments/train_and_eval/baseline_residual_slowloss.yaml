@@ -14,7 +14,7 @@ training:
   dataset_class: BasicTripletDataset
   model: ResidualEmbeddingMapper
   loss: BasicTripletCosineLoss
-  loss_schedule: LinearSlow
+  loss_schedule: LinearSlow # Linear to 0.25 negative weight
   lr: 0.0001
   weight_decay: 0.0001
   batch_size: 32

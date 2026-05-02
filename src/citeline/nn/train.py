@@ -82,6 +82,8 @@ def _plot_history(history: list[dict], test_loss: float, out_path: Path) -> None
     epochs = [e["epoch"] for e in history]
     train_losses = [e["train_loss"] for e in history]
     val_losses = [e["val_loss"] for e in history]
+    train_margins = [e["train_margin"] for e in history]
+    val_margins = [e["val_margin"] for e in history]
 
     fig, ax = plt.subplots(figsize=(8, 5))
     ax.plot(epochs, train_losses, label="train")
@@ -94,6 +96,20 @@ def _plot_history(history: list[dict], test_loss: float, out_path: Path) -> None
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+    margin_path = out_path.parent / "margin_history.png"
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(epochs, train_margins, label="train margin")
+    ax.plot(epochs, val_margins, label="val margin")
+    ax.axhline(0, color="gray", linestyle=":", linewidth=0.8)
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Margin (pos − neg)")
+    ax.set_title("Contrastive Training — Margin")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(margin_path, dpi=150)
     plt.close(fig)
 
 
@@ -143,17 +159,12 @@ def run_training(config: TrainConfig, checkpoint_dir: str | None = None) -> Path
     loss_fn = ContrastiveLossFunction.registry[config.loss](loss_schedule=loss_schedule)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
 
-    train_losses, val_losses = [], []
-    best_margin = float("-inf")
+    train_losses, val_losses, train_margins, val_margins = [], [], [], []
+    best_train_margin = float("-inf")
+    best_val_margin = float("-inf")
+    rebuild_counter = 0
 
     for i in range(epochs):
-        if i % REBUILD_INTERVAL == 0 and i > 0:
-            print(f"\nEpoch {i+1}: Rebuilding H5 datasets and dataloaders with current model embeddings...")
-            dataloaders = build_dataloaders(
-                writer=h5_dataset_writer, adapter=model, dataset_cls=dataset_cls, batch_size=config.batch_size
-            )
-            optimizer = torch.optim.Adam(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
-
         train_loss, val_loss, pos_sim, neg_sim, val_pos_sim, val_neg_sim = run_epoch(
             model,
             train_loader=dataloaders["train"],
@@ -163,11 +174,28 @@ def run_training(config: TrainConfig, checkpoint_dir: str | None = None) -> Path
         )
         train_losses.append(train_loss)
         val_losses.append(val_loss)
+        train_margins.append(pos_sim - neg_sim)
+        val_margins.append(val_pos_sim - val_neg_sim)
 
-        if val_pos_sim - val_neg_sim > best_margin:
-            best_margin = val_pos_sim - val_neg_sim
+        # Track best train margin for potential dataset rebuild
+        if pos_sim - neg_sim > best_train_margin:
+            best_train_margin = pos_sim - neg_sim
+            rebuild_counter = 0  # reset counter if we see improvement
+        else:
+            rebuild_counter += 1
+            if rebuild_counter >= config.rebuild_patience:
+                print(f"\nEpoch {i+1}: Rebuilding H5 datasets and dataloaders with current model embeddings...")
+                dataloaders = build_dataloaders(
+                    writer=h5_dataset_writer, adapter=model, dataset_cls=dataset_cls, batch_size=config.batch_size
+                )
+                optimizer = torch.optim.Adam(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
+                rebuild_counter = 0  # reset counter after rebuild
+                best_train_margin = float("-inf")  # reset best margin after rebuild
+
+        if val_pos_sim - val_neg_sim > best_val_margin:
+            best_val_margin = val_pos_sim - val_neg_sim
             torch.jit.script(model).save(str(checkpoint_path / "best_model.pt"))
-            print(f"New best model saved with val margin {best_margin:.4f} (pos: {val_pos_sim:.4f}, neg: {val_neg_sim:.4f})")
+            print(f"New best model saved with val margin {best_val_margin:.4f} (pos: {val_pos_sim:.4f}, neg: {val_neg_sim:.4f})")
 
         print(f"Epoch {i+1}/{epochs} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f} | train margin: {pos_sim - neg_sim:.4f} | val margin: {val_pos_sim - val_neg_sim:.4f}")
 
@@ -177,11 +205,11 @@ def run_training(config: TrainConfig, checkpoint_dir: str | None = None) -> Path
 
     _plot_history(
         history=[
-            {"epoch": i + 1, "train_loss": tl, "val_loss": vl}
-            for i, (tl, vl) in enumerate(zip(train_losses, val_losses))
+            {"epoch": i + 1, "train_loss": tl, "val_loss": vl, "train_margin": tm, "val_margin": vm}
+            for i, (tl, vl, tm, vm) in enumerate(zip(train_losses, val_losses, train_margins, val_margins))
         ],
         test_loss=val_losses[-1],
-        out_path=checkpoint_path / "training_history.png",
+        out_path=checkpoint_path / "loss_history.png",
     )
 
     return checkpoint_path / "best_model.pt"

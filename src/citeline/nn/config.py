@@ -52,5 +52,5 @@ class TrainConfig(Config):
     weight_decay: float = 1e-2
     batch_size: int = 256
     epochs: int = 50
-    patience: int = 5  # early stopping patience
+    rebuild_patience: int = 3  # num epochs with no train margin improvement -> rebuild dataset
     checkpoint_path: str = "checkpoints/contrastive_best.pt"

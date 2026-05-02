@@ -19,7 +19,7 @@ training:
   weight_decay: 0.0001
   batch_size: 32
   epochs: 80
-  patience: 10
+  rebuild_patience: 5
 
 experiment:
   dataset: 'data/dataset/nontrivial_checked.jsonl'
