@@ -471,11 +471,7 @@ class Experiment:
         """
         Writes out the results of a .run() experiment, which only includes the config and the average Jaccard score.
         """
-        filename_base = self._get_output_filename_base()
-
-        # Create directory if it doesn't exist
-        if not os.path.exists(f"{self.output_path}/{filename_base}"):
-            os.makedirs(f"{self.output_path}/{filename_base}")
+        os.makedirs(self.output_path, exist_ok=True)
 
         output = {
             "config": self.config,
@@ -488,14 +484,14 @@ class Experiment:
             "best_iou_k": max(self.avg_iou_at_k),
         }
 
-        file_path = os.path.join(self.output_path, filename_base, f"results_{filename_base}.json")
-        print(f"Writing output to {self.output_path}{filename_base}")
+        file_path = os.path.join(self.output_path, "results.json")
+        print(f"Writing output to {file_path}")
         with open(file_path, "w") as f:
             json.dump(output, f)
 
-        self.__plot_results(filename_base)
+        self.__plot_results()
 
-    def __plot_results(self, filename_base):
+    def __plot_results(self):
         import matplotlib.pyplot as plt
 
         k_values = [k for k in range(1, self.top_k + 1)]
@@ -572,7 +568,7 @@ class Experiment:
         plt.grid(True, alpha=0.3, which="both")  # Show both major and minor grid lines
 
         plt.tight_layout()  # Adjust layout to prevent clipping of annotations
-        plt.savefig(f"{self.output_path}/{filename_base}/stats_at_k_{filename_base}.png", dpi=300, bbox_inches="tight")
+        plt.savefig(os.path.join(self.output_path, "stats_at_k.png"), dpi=300, bbox_inches="tight")
         plt.close()
 
     def __clear_gpu_cache(self):

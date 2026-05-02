@@ -1,9 +1,8 @@
 # Unified train-then-eval config.
-# Run with: python train_and_eval.py --config experiments/train_and_eval/example.yaml
+# Run with: python train_and_eval.py --config experiments/train_and_eval/simplest.yaml
 #
-# All artifacts (checkpoints, plots, results) are written under output_dir/.
-# The 'nn' and 'output_path' keys in the experiment section are set automatically."
-output_dir: 'experiments/train_and_eval/results/simplest/'
+# Output is written to experiments/train_and_eval/results/{config_name}/{version}/
+# The 'nn' and 'output_path' keys in the experiment section are set automatically.
 
 training:
   parquet_datadir: 'data/nn_datasets/addprev02_orig_dataset/'

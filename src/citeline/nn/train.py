@@ -16,7 +16,10 @@ from citeline.nn.models import Adapter
 
 REBUILD_INTERVAL = 40  # epochs
 
-def build_dataloaders(writer: ContrastiveDatasetWriter, adapter: Adapter, dataset_cls: ContrastiveDataset, batch_size: int = 32):
+
+def build_dataloaders(
+    writer: ContrastiveDatasetWriter, adapter: Adapter, dataset_cls: ContrastiveDataset, batch_size: int = 32
+):
     # Slot in the current adapter, write out current search results
     writer.adapter = adapter
     h5_paths = writer.write_h5()
@@ -113,6 +116,29 @@ def _plot_history(history: list[dict], test_loss: float, out_path: Path) -> None
     plt.close(fig)
 
 
+def _plot_similarity_history(
+    train_pos_sims: list[float],
+    train_neg_sims: list[float],
+    val_pos_sims: list[float],
+    val_neg_sims: list[float],
+    out_path: Path,
+) -> None:
+    epochs = list(range(1, len(train_pos_sims) + 1))
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(epochs, train_pos_sims, label="train pos", color="tab:blue")
+    ax.plot(epochs, train_neg_sims, label="train neg", color="tab:blue", linestyle="--")
+    ax.plot(epochs, val_pos_sims, label="val pos", color="tab:orange")
+    ax.plot(epochs, val_neg_sims, label="val neg", color="tab:orange", linestyle="--")
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Cosine Similarity")
+    ax.set_title("Positive & Negative Similarity")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
 def run_training(config: TrainConfig, checkpoint_dir: str | None = None) -> Path:
     """
     Train an adapter model given a TrainConfig.
@@ -128,9 +154,9 @@ def run_training(config: TrainConfig, checkpoint_dir: str | None = None) -> Path
 
     device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
 
-    checkpoint_path = Path(checkpoint_dir) if checkpoint_dir else Path(config.checkpoint_path)
-    checkpoint_path.mkdir(parents=True, exist_ok=True)
-    print(f"Checkpoint will save to: \033[1;34m{checkpoint_path}\033[0m")
+    model_path = Path(checkpoint_dir) if checkpoint_dir else Path(config.checkpoint_path)
+    model_path.mkdir(parents=True, exist_ok=True)
+    print(f"Checkpoint will save to: \033[1;34m{model_path}\033[0m")
 
     model = Adapter.registry[config.model]()
     model = model.to(device)
@@ -160,6 +186,7 @@ def run_training(config: TrainConfig, checkpoint_dir: str | None = None) -> Path
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
 
     train_losses, val_losses, train_margins, val_margins = [], [], [], []
+    train_pos_sims, train_neg_sims, val_pos_sims, val_neg_sims = [], [], [], []
     best_train_margin = float("-inf")
     best_val_margin = float("-inf")
     rebuild_counter = 0
@@ -176,6 +203,10 @@ def run_training(config: TrainConfig, checkpoint_dir: str | None = None) -> Path
         val_losses.append(val_loss)
         train_margins.append(pos_sim - neg_sim)
         val_margins.append(val_pos_sim - val_neg_sim)
+        train_pos_sims.append(pos_sim)
+        train_neg_sims.append(neg_sim)
+        val_pos_sims.append(val_pos_sim)
+        val_neg_sims.append(val_neg_sim)
 
         # Track best train margin for potential dataset rebuild
         if pos_sim - neg_sim > best_train_margin:
@@ -194,14 +225,21 @@ def run_training(config: TrainConfig, checkpoint_dir: str | None = None) -> Path
 
         if val_pos_sim - val_neg_sim > best_val_margin:
             best_val_margin = val_pos_sim - val_neg_sim
-            torch.jit.script(model).save(str(checkpoint_path / "best_model.pt"))
-            print(f"New best model saved with val margin {best_val_margin:.4f} (pos: {val_pos_sim:.4f}, neg: {val_neg_sim:.4f})")
+            torch.jit.script(model).save(str(model_path / "best_model.pt"))
+            print(
+                f"New best model saved with val margin {best_val_margin:.4f} (pos: {val_pos_sim:.4f}, neg: {val_neg_sim:.4f})"
+            )
 
-        print(f"Epoch {i+1}/{epochs} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f} | train margin: {pos_sim - neg_sim:.4f} | val margin: {val_pos_sim - val_neg_sim:.4f}")
+        print(
+            f"Epoch {i+1:>4}/{epochs}"
+            f"  |  loss  train: {train_loss:.4f}  val: {val_loss:.4f}"
+            f"  |  margin  train: {pos_sim - neg_sim:+.4f}  val: {val_pos_sim - val_neg_sim:+.4f}"
+            f"  |  sim  pos: {pos_sim:.4f}  neg: {neg_sim:.4f}"
+        )
 
-    torch.jit.script(model).save(str(checkpoint_path / "final_model.pt"))
-    print(f"Final model saved to: \033[1;34m{checkpoint_path / 'final_model.pt'}\033[0m")
-    print(f"Best model saved to: \033[1;34m{checkpoint_path / 'best_model.pt'}\033[0m")
+    torch.jit.script(model).save(str(model_path / "final_model.pt"))
+    print(f"Final model saved to: \033[1;34m{model_path / 'final_model.pt'}\033[0m")
+    print(f"Best model saved to: \033[1;34m{model_path / 'best_model.pt'}\033[0m")
 
     _plot_history(
         history=[
@@ -209,10 +247,17 @@ def run_training(config: TrainConfig, checkpoint_dir: str | None = None) -> Path
             for i, (tl, vl, tm, vm) in enumerate(zip(train_losses, val_losses, train_margins, val_margins))
         ],
         test_loss=val_losses[-1],
-        out_path=checkpoint_path / "loss_history.png",
+        out_path=model_path / "loss_history.png",
+    )
+    _plot_similarity_history(
+        train_pos_sims=train_pos_sims,
+        train_neg_sims=train_neg_sims,
+        val_pos_sims=val_pos_sims,
+        val_neg_sims=val_neg_sims,
+        out_path=model_path / "similarity_history.png",
     )
 
-    return checkpoint_path / "best_model.pt"
+    return model_path / "best_model.pt"
 
 
 def parse_args():
