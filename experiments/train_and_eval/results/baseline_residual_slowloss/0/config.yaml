@@ -1,8 +1,9 @@
 # Unified train-then-eval config.
-# Run with: python train_and_eval.py --config experiments/train_and_eval/baseline_residual_slowloss.yaml
+# Run with: python train_and_eval.py --config experiments/train_and_eval/example.yaml
 #
-# Output is written to experiments/train_and_eval/results/{config_name}/{version}/
-# The 'nn' and 'output_path' keys in the experiment section are set automatically.
+# All artifacts (checkpoints, plots, results) are written under output_dir/.
+# The 'nn' and 'output_path' keys in the experiment section are set automatically."
+output_dir: 'experiments/train_and_eval/results/baseline_residual_slowloss/'
 
 training:
   parquet_datadir: 'data/nn_datasets/addprev02_orig_dataset/'
@@ -13,16 +14,16 @@ training:
   dataset_class: BasicTripletDataset
   model: ResidualEmbeddingMapper
   loss: BasicTripletCosineLoss
-  loss_schedule: LinearSlow # Linear to 0.1 negative weight
+  loss_schedule: LinearSlow
   lr: 0.0001
-  weight_decay: 0.01
+  weight_decay: 0.0001
   batch_size: 32
-  epochs: 140
-  rebuild_patience: 5
+  epochs: 80
+  patience: 10
 
 experiment:
   dataset: 'data/dataset/nontrivial_checked.jsonl'
-  table: 'qwen06_chunks'
+  table: 'qwen06_chunks_flat'
   target_column: 'vector'
   embedder: 'Qwen/Qwen3-Embedding-0.6B'
   metric: 'IP'

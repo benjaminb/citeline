@@ -1,9 +1,3 @@
-# Unified train-then-eval config.
-# Run with: python train_and_eval.py --config experiments/train_and_eval/baseline_residual_slowloss.yaml
-#
-# Output is written to experiments/train_and_eval/results/{config_name}/{version}/
-# The 'nn' and 'output_path' keys in the experiment section are set automatically.
-
 training:
   parquet_datadir: 'data/nn_datasets/addprev02_orig_dataset/'
   h5_datadir: 'data/nn_datasets/addprev02_orig_dataset/h5/'
@@ -11,18 +5,17 @@ training:
   num_positives: 1
   num_negatives: 1
   dataset_class: BasicTripletDataset
-  model: ResidualEmbeddingMapper
+  model: BaselineMLPEmbeddingMapper
   loss: BasicTripletCosineLoss
-  loss_schedule: LinearSlow # Linear to 0.1 negative weight
-  lr: 0.0001
+  loss_schedule: LinearBasicTriplet
+  lr: 0.0005
   weight_decay: 0.01
   batch_size: 32
-  epochs: 140
-  rebuild_patience: 5
+  epochs: 100
 
 experiment:
   dataset: 'data/dataset/nontrivial_checked.jsonl'
-  table: 'qwen06_chunks'
+  table: 'qwen06_chunks_flat'
   target_column: 'vector'
   embedder: 'Qwen/Qwen3-Embedding-0.6B'
   metric: 'IP'

@@ -189,9 +189,13 @@ def run_training(config: TrainConfig, checkpoint_dir: str | None = None) -> Path
     train_pos_sims, train_neg_sims, val_pos_sims, val_neg_sims = [], [], [], []
     best_train_margin = float("-inf")
     best_val_margin = float("-inf")
+    best_pos_sim = float("-inf")
     rebuild_counter = 0
 
     for i in range(epochs):
+        new_best_pos_sim = False
+        new_best_val_margin = False
+
         train_loss, val_loss, pos_sim, neg_sim, val_pos_sim, val_neg_sim = run_epoch(
             model,
             train_loader=dataloaders["train"],
@@ -207,6 +211,13 @@ def run_training(config: TrainConfig, checkpoint_dir: str | None = None) -> Path
         train_neg_sims.append(neg_sim)
         val_pos_sims.append(val_pos_sim)
         val_neg_sims.append(val_neg_sim)
+        print(
+            f"{i+1:>4}/{epochs}"
+            f"  |  loss  train: {train_loss:.4f}  val: {val_loss:.4f}"
+            f"  |  margin  train: {pos_sim - neg_sim:+.4f}  val: {val_pos_sim - val_neg_sim:+.4f}"
+            f"  |  train sim  pos: {pos_sim:.4f}  neg: {neg_sim:.4f}"
+            f"  |  val sim  pos: {val_pos_sim:.4f}  neg: {val_neg_sim:.4f}"
+        )
 
         # Track best train margin for potential dataset rebuild
         if pos_sim - neg_sim > best_train_margin:
@@ -219,23 +230,21 @@ def run_training(config: TrainConfig, checkpoint_dir: str | None = None) -> Path
                 dataloaders = build_dataloaders(
                     writer=h5_dataset_writer, adapter=model, dataset_cls=dataset_cls, batch_size=config.batch_size
                 )
-                optimizer = torch.optim.Adam(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
+                optimizer = torch.optim.AdamW(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
                 rebuild_counter = 0  # reset counter after rebuild
                 best_train_margin = float("-inf")  # reset best margin after rebuild
 
-        if val_pos_sim - val_neg_sim > best_val_margin:
+        new_best_pos_sim = val_pos_sim > best_pos_sim
+        new_best_val_margin = val_pos_sim - val_neg_sim > best_val_margin
+
+        if new_best_val_margin and new_best_pos_sim:
             best_val_margin = val_pos_sim - val_neg_sim
+            best_pos_sim = val_pos_sim
             torch.jit.script(model).save(str(model_path / "best_model.pt"))
             print(
-                f"New best model saved with val margin {best_val_margin:.4f} (pos: {val_pos_sim:.4f}, neg: {val_neg_sim:.4f})"
+                f"New best model saved with pos sim {best_pos_sim:.4f} andval margin {best_val_margin:.4f} (pos: {val_pos_sim:.4f}, neg: {val_neg_sim:.4f})"
             )
 
-        print(
-            f"Epoch {i+1:>4}/{epochs}"
-            f"  |  loss  train: {train_loss:.4f}  val: {val_loss:.4f}"
-            f"  |  margin  train: {pos_sim - neg_sim:+.4f}  val: {val_pos_sim - val_neg_sim:+.4f}"
-            f"  |  sim  pos: {pos_sim:.4f}  neg: {neg_sim:.4f}"
-        )
 
     torch.jit.script(model).save(str(model_path / "final_model.pt"))
     print(f"Final model saved to: \033[1;34m{model_path / 'final_model.pt'}\033[0m")

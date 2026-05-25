@@ -27,11 +27,15 @@ class BasicCosineLoss(ContrastiveLossFunction):
         return loss.mean()
 
 class BasicTripletCosineLoss(ContrastiveLossFunction):
+    def __init__(self, margin=0.1, loss_schedule=None):
+        super().__init__()
+        self.margin = margin
+
     def __call__(self, anchor: torch.Tensor, positives: torch.Tensor, negatives: torch.Tensor, training: bool = True) -> torch.Tensor:
         """Assumes one positive and one negative per anchor.
         Loss = max(0, sim(anchor, negative) - sim(anchor, positive) + margin)
         """
-        positive, negative = positives, negatives
+        positives, negatives
         device = anchor.device
 
         if self.loss_schedule is not None and training:
@@ -40,8 +44,20 @@ class BasicTripletCosineLoss(ContrastiveLossFunction):
             pos_weight, neg_weight = torch.tensor(1.0), torch.tensor(1.0)
         pos_weight, neg_weight = pos_weight.to(device), neg_weight.to(device)
 
-        ones = torch.ones(anchor.size(0), device=anchor.device)
-        loss = pos_weight * F.cosine_embedding_loss(
-            anchor, positive, ones, margin=0.1
-        ) + neg_weight * F.cosine_embedding_loss(anchor, negative, -ones, margin=0.1)
+        # ones = torch.ones(anchor.size(0), device=anchor.device)
+        sim_pos = F.cosine_similarity(anchor, positives)
+        sim_neg = F.cosine_similarity(anchor, negatives)
+
+        pos_loss = torch.max(0, 0.85 - sim_pos)
+        neg_loss = torch.max(0, sim_neg - 0.70)
+        loss = pos_weight * pos_loss + neg_weight * neg_loss
         return loss.mean()
+        # loss = pos_weight * F.cosine_embedding_loss(
+        #     anchor, positives, ones, margin=0.1
+        # ) + neg_weight * F.cosine_embedding_loss(anchor, negatives, -ones, margin=0.1)
+        # return loss.mean()
+    
+        # pos_sim = F.cosine_similarity(anchor, positives)
+        # neg_sim = F.cosine_similarity(anchor, negatives)
+        # loss = F.relu(neg_sim - pos_sim + self.margin)
+        # return loss.mean()

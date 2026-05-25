@@ -1,0 +1,9 @@
+name: slowloss_bm25_scratch_rrf
+infile: experiments/train_and_eval/results/baseline_residual_slowloss/rerank/search_results.jsonl
+reranker_config:
+  score_bm25_scratch: 0.42
+  metric: 0.58
+top_k: 1000
+rrf_k: 60
+outdir: experiments/train_and_eval/results/baseline_residual_slowloss/rerank/rrf
+plot_label: 'RRF: BM25 (k=1, b=0.75)+Similarity (SlowLoss)'

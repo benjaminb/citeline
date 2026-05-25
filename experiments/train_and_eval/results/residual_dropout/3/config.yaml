@@ -1,8 +1,9 @@
 # Unified train-then-eval config.
-# Run with: python train_and_eval.py --config experiments/train_and_eval/baseline_residual_slowloss.yaml
+# Run with: python train_and_eval.py --config experiments/train_and_eval/example.yaml
 #
-# Output is written to experiments/train_and_eval/results/{config_name}/{version}/
-# The 'nn' and 'output_path' keys in the experiment section are set automatically.
+# All artifacts (checkpoints, plots, results) are written under output_dir/.
+# The 'nn' and 'output_path' keys in the experiment section are set automatically."
+output_dir: 'experiments/train_and_eval/results/baseline_residual_dropout/'
 
 training:
   parquet_datadir: 'data/nn_datasets/addprev02_orig_dataset/'
@@ -11,11 +12,11 @@ training:
   num_positives: 1
   num_negatives: 1
   dataset_class: BasicTripletDataset
-  model: ResidualEmbeddingMapper
+  model: ResidualDropout # Using 0.1 for residual_scale instead of original 0.01
   loss: BasicTripletCosineLoss
-  loss_schedule: LinearSlow # Linear to 0.1 negative weight
+  loss_schedule: LinearSlow
   lr: 0.0001
-  weight_decay: 0.01
+  weight_decay: 0.0001
   batch_size: 32
   epochs: 140
   rebuild_patience: 5

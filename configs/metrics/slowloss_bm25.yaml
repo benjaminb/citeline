@@ -1,0 +1,3 @@
+infile: 'experiments/train_and_eval/results/baseline_residual_slowloss/rerank/search_results.jsonl'
+metrics:
+  - bm25_scratch

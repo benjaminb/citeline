@@ -8,6 +8,7 @@ import urllib.request
 from tqdm import tqdm
 from citeline.llm.citation_extraction import sentence_to_citations
 
+MAX_SENTENCE_LEN = 4096
 
 def check_ollama():
     """Check that the Ollama endpoint is reachable before proceeding."""
@@ -243,13 +244,13 @@ def main():
     reviews_dicts = reviews_dicts[progress["record_idx"]:]
     for record in tqdm(reviews_dicts, total=len(reviews_dicts), desc="Processing records"):
         # Skip papers with body text > 250,000 characters
-        if len(record.get("body", "")) > 250000:
-            print(f"\nSkipping {record['doi']} - body text too long ({len(record['body'])} chars)")
-            progress["record_idx"] += 1
-            progress["sent_idx"] = 0
-            with open(progress_log_path, "w") as f:
-                json.dump(progress, f)
-            continue
+        # if len(record.get("body", "")) > 250000:
+        #     print(f"\nSkipping {record['doi']} - body text too long ({len(record['body'])} chars)")
+        #     progress["record_idx"] += 1
+        #     progress["sent_idx"] = 0
+        #     with open(progress_log_path, "w") as f:
+        #         json.dump(progress, f)
+        #     continue
 
         for i, sentence in enumerate(
             tqdm(
@@ -259,6 +260,9 @@ def main():
             ),
             start=progress["sent_idx"],
         ):
+            # Guard against extremely long sentences, which can cause OOM errors
+            if len(sentence) > MAX_SENTENCE_LEN:
+                continue
 
             example = sentence_to_example_with_index(record, sentence, i, bibcode_index)
 
