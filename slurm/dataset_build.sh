@@ -27,39 +27,34 @@ export OLLAMA_BASE_URL=http://localhost:11434
 export XDG_RUNTIME_DIR=/tmp/$USER-runtime-$$
 mkdir -p $XDG_RUNTIME_DIR
 
-# Define storage locations
+# Define storage locations (passed explicitly via --root to ensure they are honored)
 export PODMAN_ROOT=/tmp/$USER-podman-root
 export PODMAN_RUNROOT=/tmp/$USER-podman-run
-export LOCAL_SCRATCH=/tmp/$USER-podman
 
 mkdir -p $PODMAN_ROOT
 mkdir -p $PODMAN_RUNROOT
-mkdir -p $LOCAL_SCRATCH
+
+echo "Available space in /tmp:"
+df -h /tmp
 
 # Let podman reset itself cleanly (instead of manual rm -rf)
-podman system reset -f
+podman --root $PODMAN_ROOT system reset -f
 
 # Set up cleanup to trigger on exit / sigterm (preemption)
 cleanup() {
   echo "Cleaning up containers..."
-  podman rm -f $(podman ps -aq) 2>/dev/null || true
+  podman --root $PODMAN_ROOT rm -f $(podman --root $PODMAN_ROOT ps -aq) 2>/dev/null || true
 }
 trap cleanup EXIT
 
 # Load Ollama service
-podman load -i /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/ollama_llama3.3.tar
+podman --root $PODMAN_ROOT load -i /n/holylabs/LABS/protopapas_lab/Lab/bbasseri/ollama_llama3.3.tar
 echo "Images available:"
-podman images
-podman tag localhost/ollamaserve:latest ollamaserve:latest
-
-# Use node-local scratch for container storage
-export PODMAN_ROOT=/tmp/$USER-podman-root
-export PODMAN_RUNROOT=/tmp/$USER-podman-run
-mkdir -p $PODMAN_ROOT
-mkdir -p $PODMAN_RUNROOT
-podman run -d --log-level=debug --rm --device nvidia.com/gpu=all -p 11434:11434 ollamaserve:latest
+podman --root $PODMAN_ROOT images
+podman --root $PODMAN_ROOT tag localhost/ollamaserve:latest ollamaserve:latest
+podman --root $PODMAN_ROOT run -d --rm --device nvidia.com/gpu=all -p 11434:11434 ollamaserve:latest
 echo "Containers available:"
-podman container list
+podman --root $PODMAN_ROOT container list
 
 echo "Waiting for Ollama service to be ready..."
 for i in $(seq 1 30); do
