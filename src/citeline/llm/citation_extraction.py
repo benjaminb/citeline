@@ -17,6 +17,7 @@ CIT_EXTRACT_PROMPT = "src/citeline/llm/prompts/citation_tuples_prompt.txt"
 
 YEAR_PATTERN = r"^(?:\d{4}|^\d{2})"  # Matches a YYYY or YY pattern, even if followed by a letter, but not "in preparation" or similar
 
+MAX_SENT_LEN = 300
 
 def get_llm_function(model_name: str = MODEL_NAME, system_prompt_path: str = None, output_model: BaseModel = None, timeout: int = 300):
     """
@@ -101,11 +102,16 @@ def sentence_to_citations(text: str) -> tuple[list[tuple[str, str]], str]:
     # Check if the sentence is valid
     is_valid_sentence = True
     print("{is_valid=", end="", flush=True)
-    try:
-        validity_result = is_sentence_valid(text)
-        is_valid_sentence = hasattr(validity_result, "is_valid") and validity_result.is_valid
-    except Exception as e:
-        print(f"Error checking sentence validity: {e}")
+    
+    # Quick pre-check: guard against really long sentences (probably a parse error)
+    if len(text) > MAX_SENT_LEN:
+        is_valid_sententce = False
+    else:
+        try:
+            validity_result = is_sentence_valid(text)
+            is_valid_sentence = hasattr(validity_result, "is_valid") and validity_result.is_valid
+        except Exception as e:
+            print(f"Error checking sentence validity: {e}")
 
     print(is_valid_sentence, end=", ")
     if not is_valid_sentence:
