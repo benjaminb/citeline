@@ -1,0 +1,13 @@
+dataset: 'data/dataset/nontrivial_checked.jsonl'
+table: 'astrobert_chunks'
+metric: 'IP'
+top_k: 250
+
+# --- embedding ---
+embedder: 'adsabs/astroBERT'
+normalize: False
+query_expansion: 'identity'
+batch_size: 32
+
+output_path: 'experiments/with_ndcg/astrobert_chunks'
+output_search_results: False

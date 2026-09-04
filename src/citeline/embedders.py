@@ -13,7 +13,7 @@ so when calling the embedder, specify for_queries=True or False as appropriate.
 
 Usage: how to instantiate and use an Embedder
 
-- Create an embedder via the factory: Embedder.create(model_name, device, normalize, for_queries)
+- Create an embedder via the factory: Embedder.create(model_name, device, normalize)
   * model_name: one of the keys returned by list_available_embedders() (e.g. "Qwen/Qwen3-Embedding-0.6B")
   * device: "cuda" | "mps" | "cpu"
   * normalize: bool, whether the returned vectors should be L2-normalized
@@ -75,7 +75,6 @@ class AstroSage(Embedder):
     """
 
     def __init__(self, model_name: str, device: str, normalize: bool):
-        # signature order changed to match Embedder.create(...) -> (model_name, device, normalize, for_queries)
         super().__init__(model_name, device, normalize)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
 
@@ -85,7 +84,10 @@ class AstroSage(Embedder):
         self.dim = self.model.config.hidden_size
         self.model.eval()
 
-    def _embed(self, docs: list[str]) -> np.ndarray:
+    def _embed(self, docs: list[str], for_queries: bool = True) -> np.ndarray:
+        """
+        This model doesn't have a separate pipeline for queries vs. docs, so ignore for_queries flag
+        """
         inputs = self.tokenizer(docs, return_tensors="pt", padding=True, truncation=True).to(self.model.device)
         with torch.no_grad():
             outputs = self.model(**inputs, output_hidden_states=True)
@@ -113,7 +115,10 @@ class AstroLlamaEmbedder(Embedder):
         self.dim = self.model.config.hidden_size
         self.max_length = self.model.config.max_position_embeddings
 
-    def _embed(self, docs: list[str]) -> np.ndarray:
+    def _embed(self, docs: list[str], for_queries: bool = True) -> np.ndarray:
+        """
+        This model doesn't have a separate pipeline for queries vs. docs, so ignore for_queries flag
+        """
         params = {
             "return_tensors": "pt",
             "return_token_type_ids": False,
@@ -229,8 +234,8 @@ class SentenceTransformerEmbedder(Embedder):
 class AstrobertEmbedder(Embedder):
     MODEL_DATA = {"max_length": 512}
 
-    def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool = False):
-        super().__init__(model_name, device, normalize, for_queries)
+    def __init__(self, model_name: str, device: str, normalize: bool):
+        super().__init__(model_name, device, normalize)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
 
         # Set up the model
@@ -290,11 +295,11 @@ class BGEEmbedder(Embedder):
         if self.pool:
             print(f"Using {torch.cuda.device_count()} cuda GPUs for encoding.")
 
-            def encode(docs):
+            def encode(docs, for_queries):
                 """
                 Create the embedding function in a no_grad context
                 """
-                if self.for_queries:
+                if for_queries:
                     docs = [self.INSTRUCTION + doc for doc in docs]
                 with torch.no_grad():
                     return self.model.encode_multi_process(
@@ -306,11 +311,11 @@ class BGEEmbedder(Embedder):
 
         else:
 
-            def encode(docs):
+            def encode(docs, for_queries):
                 """
                 Create the embedding function in a no_grad context
                 """
-                if self.for_queries:
+                if for_queries:
                     docs = [self.INSTRUCTION + doc for doc in docs]
                 with torch.no_grad():
                     return self.model.encode(
@@ -325,9 +330,9 @@ class BGEEmbedder(Embedder):
 
     def _embed(self, docs: list[str], for_queries: bool = True) -> np.ndarray:
         """
-        This model doesn't use a separate pipeline for queries vs. docs, so ignore for_queries flag
+        Queries get prefixed with INSTRUCTION; docs are encoded as-is
         """
-        return self.encode(docs)
+        return self.encode(docs, for_queries)
 
 
 # NOTE: Specter2 requires adapters modules, which requires transformers ~=4.51.3. I've upgraded
@@ -335,15 +340,15 @@ class BGEEmbedder(Embedder):
 @Embedder.register("allenai/specter2")
 class SpecterEmbedder(Embedder):
 
-    def __init__(self, model_name: str, device: str, normalize: bool, for_queries: bool):
+    def __init__(self, model_name: str, device: str, normalize: bool):
         """
         Because Specter uses different adapters for embedding docs vs. queries, here model_name
-        is just the 'key' allenai/specter2. The for_queries flag controls which adapter gets
-        loaded:
+        is just the 'key' allenai/specter2. The for_queries flag passed to _embed controls which
+        adapter gets loaded:
             allenai/specter2: document embedder
             allenai/specter2_adhoc_query: short query embedder
         """
-        super().__init__(model_name, device, normalize, for_queries)
+        super().__init__(model_name, device, normalize)
         self.tokenizer = AutoTokenizer.from_pretrained("allenai/specter2_base")
         self.device = device
 
@@ -387,7 +392,7 @@ class SpecterEmbedder(Embedder):
 def main():
     for name in list_available_embedders():
         print(f"- {name}")
-    embedder = Embedder.create(model_name="AstroMLab/AstroSage-8B", device=DEVICE, normalize=True, for_queries=True)
+    embedder = Embedder.create(model_name="AstroMLab/AstroSage-8B", device=DEVICE, normalize=True)
     print(f"Loaded model: {embedder}")
     sample_docs = [
         "This is a test document.",

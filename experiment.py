@@ -49,6 +49,67 @@ def xtop_transform(vector: np.array, n: int) -> np.array:
     return projection / norm if norm else projection
 
 
+"""TODO: this should be moved into a Metrics module and Metrics should be renamed
+A Metric takes (query, label, results) and returns some score or an array of scores@k
+A Reranker doesn't know the label so just (query, results)
+"""
+
+
+def _dcg_curve(relevance: np.ndarray) -> np.ndarray:
+    """Cumulative DCG at every rank 1..len(relevance)."""
+    discounts = 1.0 / np.log2(np.arange(len(relevance)) + 2)
+    return np.cumsum(relevance * discounts)
+
+
+def _ndcg_curve(relevance: np.ndarray, num_ideal: int) -> np.ndarray:
+    """
+    DCG@k / IDCG@k for k = 1..len(relevance), where the ideal ranking puts `num_ideal`
+    relevant items at the top. Returns zeros if nothing is relevant (avoids 0/0).
+    """
+    k = len(relevance)
+    # The ideal ranking must contain at least the relevant items we actually saw, otherwise nDCG
+    # exceeds 1. This matters for the strategies that merge results from several searches without
+    # deduplicating, where one chunk can appear at more than one rank.
+    num_ideal = max(num_ideal, int(relevance.sum()))
+    if num_ideal <= 0:
+        return np.zeros(k)
+    ideal = np.zeros(k)
+    ideal[: min(num_ideal, k)] = 1.0
+    # ideal[0] == 1, so IDCG is strictly positive at every rank
+    return _dcg_curve(relevance) / _dcg_curve(ideal)
+
+
+def ndcg_chunks_at_k(target_dois, results, k: int, chunk_counts: dict[str, int]) -> np.ndarray:
+    """
+    nDCG@k where every retrieved chunk belonging to a target document scores 1.
+
+    IDCG uses the true number of chunks the target documents have in the collection
+    (`chunk_counts`), so failing to retrieve a target document's chunks is penalized.
+    """
+    targets = set(target_dois)
+    relevance = np.zeros(k)
+    for i, result in enumerate(results[:k]):
+        relevance[i] = float(result["doi"] in targets)
+    num_ideal = sum(chunk_counts.get(doi, 0) for doi in targets)
+    return _ndcg_curve(relevance, num_ideal)
+
+
+def ndcg_docs_at_k(target_dois, results, k: int) -> np.ndarray:
+    """
+    nDCG@k where only the highest-ranked chunk of each target document scores 1;
+    further chunks from an already-credited document contribute nothing.
+    """
+    targets = set(target_dois)
+    credited = set()
+    relevance = np.zeros(k)
+    for i, result in enumerate(results[:k]):
+        doi = result["doi"]
+        if doi in targets and doi not in credited:
+            credited.add(doi)
+            relevance[i] = 1.0
+    return _ndcg_curve(relevance, len(targets))
+
+
 def argument_parser():
     """
     Example usage:
@@ -229,10 +290,20 @@ class Experiment:
         self.recall_matrix = None
         self.hitrate_matrix = None
         self.iou_matrix = None
+        self.ndcg_chunks_matrix = None
+        self.ndcg_docs_matrix = None
         self.avg_hitrate_at_k = None
         self.avg_iou_at_k = None
         self.avg_recall_at_k = None
+        self.avg_ndcg_chunks_at_k = None
+        self.avg_ndcg_docs_at_k = None
         self.best_k_for_iou = None
+
+        # Number of chunks each target DOI has in the collection; the ideal DCG for chunk-level nDCG
+        self.ndcg_chunk_counts: dict[str, int] = {}
+        self.chunk_counts_file = kwargs.get(
+            "chunk_counts_file", os.path.join(_EXPERIMENT_DIR, "src/citeline/database/doi_to_chunks_counts.json")
+        )
 
         """
         Dictionary of average Jaccard scores for each distance threshold
@@ -480,6 +551,8 @@ class Experiment:
             "average_hitrate_at_k": self.avg_hitrate_at_k,
             "average_iou_at_k": self.avg_iou_at_k,
             "average_recall_at_k": self.avg_recall_at_k,
+            "average_ndcg_chunks_at_k": self.avg_ndcg_chunks_at_k,
+            "average_ndcg_docs_at_k": self.avg_ndcg_docs_at_k,
             "best_recall_k": max(self.avg_recall_at_k),
             "best_iou_k": max(self.avg_iou_at_k),
         }
@@ -488,6 +561,10 @@ class Experiment:
         print(f"Writing output to {file_path}")
         with open(file_path, "w") as f:
             json.dump(output, f)
+
+        # Per-sample nDCG curves, for slicing by example later
+        np.save(os.path.join(self.output_path, "ndcg_chunks_at_k.npy"), self.ndcg_chunks_matrix)
+        np.save(os.path.join(self.output_path, "ndcg_docs_at_k.npy"), self.ndcg_docs_matrix)
 
         self.__plot_results()
 
@@ -501,6 +578,9 @@ class Experiment:
         (line1,) = plt.plot(k_values, self.avg_hitrate_at_k, linestyle="-", label="Average Hit Rate@k", color="blue")
         (line2,) = plt.plot(k_values, self.avg_iou_at_k, linestyle="-", label="Average IoU@k", color="green")
         (line3,) = plt.plot(k_values, self.avg_recall_at_k, linestyle="-", label="Average Recall@k", color="red")
+        # nDCG lines are left unannotated; the plot is already crowded
+        plt.plot(k_values, self.avg_ndcg_chunks_at_k, linestyle="-", label="Average nDCG@k (chunks)", color="purple")
+        plt.plot(k_values, self.avg_ndcg_docs_at_k, linestyle="-", label="Average nDCG@k (docs)", color="orange")
 
         # Add marker and label for maximal IoU point
         max_iou_value = self.avg_iou_at_k[self.best_k_for_iou - 1]
@@ -574,6 +654,58 @@ class Experiment:
     def __clear_gpu_cache(self):
         self.CLEAR_GPU_CACHE_FN[self.device]()
 
+    def _searched_collections(self) -> list[str]:
+        """The collection(s) that make up the candidate pool for this experiment's searches."""
+        if self.strategy == "50-50":
+            return [self.target_table + "chunks", self.target_table + "contributions"]
+        return [self.target_table]
+
+    def _load_chunk_counts(self):
+        """
+        Populates self.ndcg_chunk_counts with the number of entities each target DOI has in the
+        searched collection(s), read from the pre-computed counts file. This is the ideal DCG for
+        chunk-level nDCG.
+
+        Raises if the file doesn't describe the collection being searched: a counts file built
+        from a chunks collection would silently deflate nDCG if applied to, say, a contributions
+        collection, where documents have far fewer entities.
+        """
+        target_dois = sorted({doi for dois in self.dataset["citation_dois"] for doi in dois})
+        if not target_dois:
+            logger.warning("No citation_dois in dataset; chunk-level nDCG will be zero.")
+            return
+
+        if not os.path.exists(self.chunk_counts_file):
+            raise FileNotFoundError(
+                f"Chunk counts file not found: '{self.chunk_counts_file}'. Generate one with "
+                f"'python src/citeline/database/chunk_counter.py --collection <name> --output <path>' "
+                f"and set 'chunk_counts_file' in the config."
+            )
+        with open(self.chunk_counts_file, "r") as f:
+            counts = json.load(f)
+        total_chunks = sum(counts.values())
+
+        # The counts must describe the collection(s) we actually search, or the ideal DCG is wrong
+        for collection in self._searched_collections():
+            row_count = int(self.db.client.get_collection_stats(collection)["row_count"])
+            if row_count != total_chunks:
+                raise ValueError(
+                    f"'{self.chunk_counts_file}' does not describe collection '{collection}': the file "
+                    f"totals {total_chunks} chunks across {len(counts)} documents, but the collection has "
+                    f"{row_count} entities. Generate counts for this collection with "
+                    f"'python src/citeline/database/chunk_counter.py --collection {collection} "
+                    f"--output <path>' and point 'chunk_counts_file' at it."
+                )
+            print(f"Chunk counts validated against '{collection}': {total_chunks} chunks, {len(counts)} documents")
+
+        self.ndcg_chunk_counts = {doi: counts.get(doi, 0) for doi in target_dois}
+
+        # A target DOI absent from the file genuinely has no chunks in the corpus, so warn rather than raise
+        absent = sum(1 for count in self.ndcg_chunk_counts.values() if count == 0)
+        if absent:
+            logger.warning(f"{absent}/{len(target_dois)} target DOIs have no chunks in the searched collection(s).")
+            print(f"WARNING: {absent}/{len(target_dois)} target DOIs have no chunks in the searched collection(s).")
+
     def run(self):
         """
         Run the experiment with the producer on the main thread and consumer threads:
@@ -599,6 +731,9 @@ class Experiment:
             self.db.client.load_collection(self.target_table)
             print(f"Collection {self.target_table} loaded.")
 
+        # Chunk counts for chunk-level nDCG's ideal DCG. Computed once here so consumer threads read only.
+        self._load_chunk_counts()
+
         # Create thread-safe queues for tasks and results
         task_queue = queue.Queue(maxsize=128)
         progress_bar_lock = threading.Lock()
@@ -610,8 +745,15 @@ class Experiment:
         self.hitrate_matrix = np.zeros((dataset_size, self.top_k))
         self.iou_matrix = np.zeros((dataset_size, self.top_k))
         self.recall_matrix = np.zeros((dataset_size, self.top_k))
+        self.ndcg_chunks_matrix = np.zeros((dataset_size, self.top_k))
+        self.ndcg_docs_matrix = np.zeros((dataset_size, self.top_k))
 
         consumer_progress = 0
+
+        # A failed batch leaves its rows as zeros in the matrices above, which would silently deflate
+        # every average. Track what actually got written so run() can refuse to report a partial run.
+        completed_rows = 0
+        failures: list[tuple[int | None, str]] = []  # (start_idx, traceback) per failed batch
 
         consumer_bar = None  # Declare consumer bar reference; initialized during producer startup
         sentinel = object()  # Unique sentinel object for signaling completion
@@ -630,11 +772,12 @@ class Experiment:
 
         def consumer_thread():
             """Consumer thread that handles database queries and evaluations"""
-            nonlocal consumer_progress
+            nonlocal consumer_progress, completed_rows
             thread_client = MilvusDB()
 
             while True:
                 item = task_queue.get()
+                start_idx = None  # Set before the try so the handler can name the batch if unpacking raises
                 try:
                     if item is sentinel:
                         break
@@ -705,6 +848,9 @@ class Experiment:
                         self.recall_matrix[start_idx:end_idx, :] = stats["recall_at_k"]
                         self.iou_matrix[start_idx:end_idx, :] = stats["iou_at_k"]
                         self.hitrate_matrix[start_idx:end_idx, :] = stats["hitrate_at_k"]
+                        self.ndcg_chunks_matrix[start_idx:end_idx, :] = stats["ndcg_chunks_at_k"]
+                        self.ndcg_docs_matrix[start_idx:end_idx, :] = stats["ndcg_docs_at_k"]
+                        completed_rows += len(batch_records)
 
                     # Optionally stream individual results to disk safely
                     if self.output_search_results and out_file is not None:
@@ -744,8 +890,12 @@ class Experiment:
                 except Exception as e:
                     import traceback
 
-                    print(f"Consumer thread error: {str(e)}", flush=True)
+                    print(f"Consumer thread error (batch at index {start_idx}): {str(e)}", flush=True)
                     print(traceback.format_exc(), flush=True)
+                    # Record rather than re-raise: the thread must reach task_done() or task_queue.join()
+                    # hangs, and reporting every failed batch at the end beats dying on the first one.
+                    with stats_lock:
+                        failures.append((start_idx, traceback.format_exc()))
                 finally:
                     task_queue.task_done()
 
@@ -838,14 +988,22 @@ class Experiment:
 
         print(f"Experiment computed in {time() - start:.2f} seconds")
 
-        # Ensure we processed everything we enqueued
-        # if stats_idx != len(self.dataset):
-        #     logger.warning(f"Stats rows filled ({stats_idx}) != dataset size ({len(self.dataset)}).")
+        # Ensure we processed everything we enqueued. Rows from a failed batch are still zeros, so
+        # averaging now would report a quietly deflated run; refuse before writing any output.
+        if failures or completed_rows != dataset_size:
+            missing = sorted(idx for idx, _ in failures if idx is not None)
+            raise RuntimeError(
+                f"{len(failures)} batch(es) failed; {completed_rows}/{dataset_size} rows computed. "
+                f"Failed batch start indices: {missing}. First traceback:\n"
+                f"{failures[0][1] if failures else '(none recorded)'}"
+            )
 
         # Compute summary stats
         self.avg_recall_at_k = self.recall_matrix.mean(axis=0).tolist()
         self.avg_hitrate_at_k = self.hitrate_matrix.mean(axis=0).tolist()
         self.avg_iou_at_k = self.iou_matrix.mean(axis=0).tolist()
+        self.avg_ndcg_chunks_at_k = self.ndcg_chunks_matrix.mean(axis=0).tolist()
+        self.avg_ndcg_docs_at_k = self.ndcg_docs_matrix.mean(axis=0).tolist()
         self.best_k_for_iou = int(np.argmax(self.avg_iou_at_k)) + 1  # +1 for 1-indexed k
         self.__write_run_results()
 
@@ -894,10 +1052,15 @@ class Experiment:
             recall_at_k[len(results) :] = recall_at_k[len(results) - 1]
             iou_at_k[len(results) :] = iou_at_k[len(results) - 1]
 
+        # nDCG curves are computed over the whole ranking at once, and are NOT forward-filled:
+        # when fewer than top_k results come back, DCG plateaus while IDCG keeps growing, which
+        # is the correct nDCG@k for a short result list.
         return {
             "recall_at_k": recall_at_k,
             "hitrate_at_k": hitrate_at_k,
             "iou_at_k": iou_at_k,
+            "ndcg_chunks_at_k": ndcg_chunks_at_k(target_dois, results, self.top_k, self.ndcg_chunk_counts),
+            "ndcg_docs_at_k": ndcg_docs_at_k(target_dois, results, self.top_k),
         }
 
     def _compute_metrics_batch(self, examples, batch_results):
@@ -906,6 +1069,8 @@ class Experiment:
         batch_recall = np.zeros((len(examples), self.top_k))
         batch_hitrate = np.zeros((len(examples), self.top_k))
         batch_iou = np.zeros((len(examples), self.top_k))
+        batch_ndcg_chunks = np.zeros((len(examples), self.top_k))
+        batch_ndcg_docs = np.zeros((len(examples), self.top_k))
 
         # Compute metrics for each example in the batch
         for i, (example, results) in enumerate(zip(examples, batch_results)):
@@ -913,12 +1078,16 @@ class Experiment:
             batch_recall[i] = metrics["recall_at_k"]
             batch_hitrate[i] = metrics["hitrate_at_k"]
             batch_iou[i] = metrics["iou_at_k"]
+            batch_ndcg_chunks[i] = metrics["ndcg_chunks_at_k"]
+            batch_ndcg_docs[i] = metrics["ndcg_docs_at_k"]
 
         # Aggregate metrics across the batch
         return {
             "recall_at_k": batch_recall,
             "hitrate_at_k": batch_hitrate,
             "iou_at_k": batch_iou,
+            "ndcg_chunks_at_k": batch_ndcg_chunks,
+            "ndcg_docs_at_k": batch_ndcg_docs,
         }
 
 

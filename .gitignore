@@ -23,6 +23,9 @@ temp_*
 # But do include .json files in experiments/results and similar dirs
 !experiments/**/*.json
 
+# But do include the pre-computed chunk counts used as the ideal DCG for nDCG
+!src/citeline/database/doi_to_chunks_counts.json
+
 # But do include prompts
 !src/citeline/llm/prompts/*.txt
 

@@ -762,6 +762,46 @@ class MilvusDB:
             formatted_results.append(formatted_hits)
         return formatted_results
 
+    def count_by_doi(self, collection_name: str, dois: list[str], batch_size: int = 128) -> dict[str, int]:
+        """
+        Counts how many entities in a collection belong to each of the given DOIs.
+
+        Used to compute the ideal DCG for chunk-level nDCG: the ideal ranking places every
+        chunk of every target document at the top, so we need to know how many such chunks exist.
+
+        Args:
+            collection_name: The name of the collection to count in.
+            dois: DOIs to count. Duplicates are ignored.
+            batch_size: How many DOIs to put in a single 'doi in [...]' filter.
+
+        Returns:
+            {doi: count}, including a 0 entry for any requested DOI with no entities.
+        """
+        from collections import Counter
+
+        unique_dois = list(dict.fromkeys(dois))  # dedupe, preserve order
+        counts = Counter()
+
+        for start in range(0, len(unique_dois), batch_size):
+            doi_batch = unique_dois[start : start + batch_size]
+            # json.dumps produces a valid Milvus list literal and escapes any quoting in the DOIs
+            iterator = self.client.query_iterator(
+                collection_name=collection_name,
+                filter=f"doi in {json.dumps(doi_batch)}",
+                output_fields=["doi"],
+                batch_size=16384,
+            )
+            try:
+                while True:
+                    page = iterator.next()
+                    if not page:
+                        break
+                    counts.update(entity["doi"] for entity in page)
+            finally:
+                iterator.close()
+
+        return {doi: counts.get(doi, 0) for doi in unique_dois}
+
     def select_by_doi(self, doi: str, collection_name: str) -> pd.DataFrame:
         """
         Used in analyzing vector distributions.

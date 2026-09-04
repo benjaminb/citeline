@@ -15,7 +15,7 @@ PATH_TO_DATA = "../../../data/preprocessed/reviews.jsonl"
 
 # Globals
 device = "cuda" if torch.cuda.is_available() else "mps" if torch.mps.is_available() else "cpu"
-embedder = Embedder.create(model_name=EMBEDDING_MODEL_NAME, device=device, normalize=True, for_queries=True)
+embedder = Embedder.create(model_name=EMBEDDING_MODEL_NAME, device=device, normalize=True)
 db = MilvusDB()
 
 
