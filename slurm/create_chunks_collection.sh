@@ -15,7 +15,7 @@ podman compose up -d
 
 sleep 60
 
-cd ../../../..
+cd ..
 
 # collection name, embedder name, batch size
 tuples=(
