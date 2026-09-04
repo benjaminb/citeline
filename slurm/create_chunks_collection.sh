@@ -13,18 +13,18 @@
 cd src/citeline/database/milvus
 podman compose up -d
 
-sleep 60
+sleep 10
 
 cd ..
 
 # collection name, embedder name, batch size
 tuples=(
-    astrobert, adsabs/astroBERT, 32
-    astrollama, UniverseTBD/astrollama, 16,
-    astrosage, AstroMLab/AstroSage-8B, 8,
-    nasa, nasa-impact/nasa-ibm-st.38m, 32,
-    bge, BAAI/bge-large-en-v1.5, 32,
-    qwen_8b, Qwen/Qwen3-Embedding-8B, 4,
+    "astrobert,adsabs/astroBERT,32"
+    "astrollama,UniverseTBD/astrollama,16"
+    "astrosage,AstroMLab/AstroSage-8B,8"
+    "nasa,nasa-impact/nasa-ibm-st.38m,32"
+    "bge,BAAI/bge-large-en-v1.5,32"
+    "qwen_8b,Qwen/Qwen3-Embedding-8B,4"
 )
 
 for item in "${tuples[@]}"; do
