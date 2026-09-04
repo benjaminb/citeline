@@ -1,3 +1,8 @@
-python experiment.py --run experiments/xtop/qwen06_add02_xtop1.yaml
-python experiment.py --run experiments/xtop/qwen06_id_xtop1.yaml
+#!/bin/bash
 
+for config in experiments/new_runs/*.yaml; do
+    echo "Running experiment: $config"
+    python experiment.py --run "$config"
+done
+
+echo "All experiments complete."
