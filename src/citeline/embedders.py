@@ -110,7 +110,15 @@ class AstroLlamaEmbedder(Embedder):
     def __init__(self, model_name: str, device: str, normalize: bool):
         super().__init__(model_name, device, normalize)
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
+
+        # The checkpoint is stored in fp32; loading it as-is means fp32 matmuls, which run ~10x
+        # slower than bf16 on tensor cores. Only the base model is needed since we read hidden
+        # states, so skip AutoModelForCausalLM and its (B, T, 32000) logits.
+        self.model = AutoModel.from_pretrained(
+            model_name,
+            torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32,
+            device_map="auto",
+        )
         self.model.eval()
         self.dim = self.model.config.hidden_size
         self.max_length = self.model.config.max_position_embeddings
@@ -129,8 +137,17 @@ class AstroLlamaEmbedder(Embedder):
         # TODO: if we can put the inputs on the same device as the model, we don't need a self.device attribute
         inputs = self.tokenizer(docs, **params).to(self.model.device)
         with torch.no_grad():
-            outputs = self.model(**inputs, output_hidden_states=True)
-        embeddings = outputs["hidden_states"][-1][:, 1:, ...].mean(dim=1)
+            outputs = self.model(**inputs)
+
+        # Mean over real tokens only: padding tokens would otherwise make a doc's embedding depend
+        # on the longest doc it happened to be batched with. BOS is excluded as before.
+        mask = inputs["attention_mask"]
+        if self.tokenizer.bos_token_id is not None:
+            mask = mask * (inputs["input_ids"] != self.tokenizer.bos_token_id)
+        mask = mask.unsqueeze(-1).float()
+
+        hidden_states = outputs.last_hidden_state.float()  # accumulate the sum in fp32
+        embeddings = (hidden_states * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
 
         if self.normalize:
             embeddings = torch.nn.functional.normalize(embeddings, p=2, dim=1)

@@ -10,6 +10,11 @@
 #SBATCH -e slurm.%x.%j.log # STDERR
 
 
+# Keep model downloads off the 100GB home quota. The models in the loop below total ~75GB.
+# holylabs rather than netscratch, since netscratch is purged periodically.
+export HF_HOME=/n/holylabs/LABS/protopapas_lab/Lab/bbasseri/hf_cache
+mkdir -p "$HF_HOME"
+
 cd src/citeline/database/milvus
 podman compose up -d
 
@@ -19,7 +24,7 @@ cd ..
 
 # collection name, embedder name, batch size
 tuples=(
-    "astrobert,adsabs/astroBERT,32"
+    # "astrobert,adsabs/astroBERT,32"
     "astrollama,UniverseTBD/astrollama,16"
     "astrosage,AstroMLab/AstroSage-8B,8"
     "nasa,nasa-impact/nasa-ibm-st.38m,32"
