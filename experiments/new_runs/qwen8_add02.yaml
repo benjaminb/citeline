@@ -1,0 +1,15 @@
+dataset: 'data/dataset/nontrivial_checked.jsonl'
+table: 'qwen8_chunks'
+target_column: 'vector'
+metric: 'IP'
+embedder: 'Qwen/Qwen3-Embedding-8B'
+normalize: true
+strategy: 'multiple_query_expansion'
+query_expanders:
+  - add_prev_2
+interleave: true
+batch_size: 4
+top_k: 250
+output_path: 'experiments/with_ndcg/qwen8_add_prev_2'
+output_search_results: true
+plot_label: '8B/chunks/previous 0,2/interleave'

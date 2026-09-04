@@ -722,7 +722,10 @@ class MilvusDB:
                 ...
             ]
 
-            Each result dict has keys {'metric': float, 'text': str, 'doi': str, 'pubdate': int}
+            Each result dict has keys {'id': int, 'metric': float, 'text': str, 'doi': str, 'pubdate': int}
+
+            'id' is the collection's primary key, i.e. the identity of the retrieved entity. It's
+            carried through so callers merging several searches can deduplicate by chunk.
 
             NOTE: 'metric' corresponds to 'distance' returned by Milvus DB. However this may be distance
             or it may be similarity depending on metric used (e.g. with "L2" metric, smaller is better, but with "IP" larger is better)
@@ -758,7 +761,7 @@ class MilvusDB:
 
         formatted_results = []
         for hits in results:
-            formatted_hits = [hit["entity"] | {"metric": hit["distance"]} for hit in hits]
+            formatted_hits = [hit["entity"] | {"id": hit["id"], "metric": hit["distance"]} for hit in hits]
             formatted_results.append(formatted_hits)
         return formatted_results
 

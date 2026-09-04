@@ -69,7 +69,7 @@ def _ndcg_curve(relevance: np.ndarray, num_ideal: int) -> np.ndarray:
     k = len(relevance)
     # The ideal ranking must contain at least the relevant items we actually saw, otherwise nDCG
     # exceeds 1. This matters for the strategies that merge results from several searches without
-    # deduplicating, where one chunk can appear at more than one rank.
+    # deduplicating ('50-50', 'mixed_expansion'), where one chunk can appear at more than one rank.
     num_ideal = max(num_ideal, int(relevance.sum()))
     if num_ideal <= 0:
         return np.zeros(k)
@@ -189,6 +189,7 @@ class Experiment:
                 - strategy: Search strategy to use.
                 - query_expanders: List of query expanders to use (for multiple_query_expansion strategy).
                 - interleave: Boolean for mixed search strategies. If False, sorts all search results by metric. If true, interleaves round-robin.
+                    Either way the merged results are deduplicated by chunk, keeping the highest-ranked copy.
                 - reranker_to_use: Reranker to use for results.
                 - metrics_config: Configuration for metrics.
                 - xtop: Use xtop transformation on embeddings.
@@ -353,12 +354,16 @@ class Experiment:
         Note:
             - Always includes identity (no expansion) as one of the searches (I don't have a use case yet for not including it)
             - Expects list of 1 or more expanders in the attribute self.query_expanders (specified by name in YAML config)
+            - The merged results are deduplicated by chunk: a chunk retrieved by several expansions
+              is kept only at its highest rank. Each expansion therefore searches the full top_k
+              (rather than top_k // num_expansions) so the merged list can still be filled to top_k
+              no matter how much the expansions' results overlap.
         """
         assert (
             isinstance(self.query_expanders, list) and len(self.query_expanders) > 0
         ), "query_expanders must be a list of length ≥ 1 to use 'multiple query expansion' search strategy"
         num_expansions = len(self.query_expanders) + 1  # +1 for identity
-        per_expansion_k = 1 + self.top_k // num_expansions
+        per_expansion_k = self.top_k
 
         batch_records = records.to_dict(orient="records")  # Convert once for db.search
         all_results = []
@@ -394,28 +399,42 @@ class Experiment:
         batch_size = len(records)
         combined_results = []
 
+        def take_first_occurrences(candidates: list[dict]) -> list[dict]:
+            """Keeps the first occurrence of each chunk, up to top_k. Callers order `candidates`
+            best-first, so the copy that survives is the higher-ranked one."""
+            seen_ids = set()
+            deduplicated = []
+            for candidate in candidates:
+                if candidate["id"] in seen_ids:
+                    continue
+                seen_ids.add(candidate["id"])
+                deduplicated.append(candidate)
+                if len(deduplicated) == self.top_k:
+                    break
+            return deduplicated
+
         for i in range(batch_size):
             # Gather the i-th query's results from each expansion
             per_expansion = [all_results[exp][i] if i < len(all_results[exp]) else [] for exp in range(num_expansions)]
 
             if interleave:
-                # Interleave round-robin across expansions
-                merged = []
+                # Interleave round-robin across expansions. Rank j is visited for every expansion
+                # before rank j+1, so the first copy of a chunk is its highest-ranked one.
+                candidates = []
                 max_len = max((len(lst) for lst in per_expansion), default=0)
                 for j in range(max_len):
                     for lst in per_expansion:
                         if j < len(lst) and lst[j] is not None:
-                            merged.append(lst[j])
-                merged = merged[: self.top_k]
+                            candidates.append(lst[j])
             else:
-                # Combine all and sort by metric
-                merged = []
+                # Combine all and sort by metric. Sorting before deduplicating means a chunk found
+                # by several expansions is kept with its best score.
+                candidates = []
                 for lst in per_expansion:
-                    merged.extend([x for x in lst if x is not None])
-                merged.sort(key=lambda x: x["metric"], reverse=True)
-                merged = merged[: self.top_k]
+                    candidates.extend([x for x in lst if x is not None])
+                candidates.sort(key=lambda x: x["metric"], reverse=True)
 
-            combined_results.append(merged)
+            combined_results.append(take_first_occurrences(candidates))
 
         return combined_results
 

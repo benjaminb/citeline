@@ -16,5 +16,24 @@ podman compose up -d
 sleep 60
 
 cd ../../../..
-python milvusdb.py --create-collection --name qwen06_chunks --data-source ../../../data/research_chunks.jsonl --embedder Qwen/Qwen3-Embedding-0.6B --normalize --batch-size 32
-echo "Created Milvus collection qwen06_chunks"
+
+# collection name, embedder name, batch size
+tuples=(
+    astrobert, adsabs/astroBERT, 32
+    astrollama, UniverseTBD/astrollama, 16,
+    astrosage, AstroMLab/AstroSage-8B, 8,
+    nasa, nasa-impact/nasa-ibm-st.38m, 32,
+    bge, BAAI/bge-large-en-v1.5, 32,
+    qwen_8b, Qwen/Qwen3-Embedding-8B, 4,
+)
+
+for item in "${tuples[@]}"; do
+    # Temporarily set IFS to a comma to split the string
+    IFS="," read -r collection embedder batch_size <<< "$item"
+    
+    echo "Collection: $collection, Embedder: $embedder, Batch size: $batch_size"
+    python milvusdb.py --create-collection --name "${collection}" --data-source ../../../data/research_chunks.jsonl --embedder "$embedder" --normalize --batch-size "$batch_size"
+    echo "Created Milvus collection ${collection}"
+done
+
+echo "All collections created successfully."
