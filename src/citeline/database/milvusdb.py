@@ -1,4 +1,6 @@
 import argparse
+from collections import Counter
+import hashlib
 from pymilvus import MilvusClient, Collection, DataType, connections
 import os
 from dotenv import load_dotenv
@@ -124,8 +126,21 @@ class MilvusDB:
         print(f"Milvus server version: {status}")
         return True
 
+    @staticmethod
+    def _dedup_key(doi: str, text: str) -> tuple[str, bytes]:
+        """
+        Identity of a row for resumption purposes. Hashes the *full* text: a prefix collides
+        across distinct chunks of the same paper, which would drop rows never inserted.
+        """
+        return (doi, hashlib.blake2b(text.encode("utf-8"), digest_size=16).digest())
+
     def _filter_existing_data(self, collection: Collection, data: pd.DataFrame) -> pd.DataFrame:
-        """Retrieve existing entities and filter out duplicates from input data"""
+        """
+        Retrieve existing entities and filter out the rows already inserted.
+
+        Matching is by count, not set membership: if a (doi, text) key appears 3 times in the
+        data source but only once in the collection, only one of those 3 rows is dropped.
+        """
 
         # Flush and refresh
         collection.flush()
@@ -141,52 +156,47 @@ class MilvusDB:
             expr="", output_fields=["text", "doi"], batch_size=1000  # Process in smaller batches
         )
 
-        all_existing_entities = []
+        # Count occurrences per key rather than collecting the entities themselves
+        remaining = Counter()
         progress_bar = tqdm(total=collection.num_entities, desc="Querying existing entities")
 
         while True:
             batch = iterator.next()
             if not batch:
                 break
-            all_existing_entities.extend(batch)
+            remaining.update(self._dedup_key(entity["doi"], entity["text"]) for entity in batch)
             progress_bar.update(len(batch))
 
-        assert (
-            len(all_existing_entities) == collection.num_entities
-        ), f"Expected {collection.num_entities} entities, but got {len(all_existing_entities)} from query iterator"
         progress_bar.close()
         iterator.close()
 
-        print(f"Retrieved {len(all_existing_entities)} existing entities from collection '{collection.name}'")
+        # num_entities can be stale after an interrupted run, so warn rather than abort:
+        # what the iterator actually returned is what we filter against
+        retrieved = sum(remaining.values())
+        if retrieved != collection.num_entities:
+            print(f"Warning: collection reports {collection.num_entities} entities, iterator returned {retrieved}")
+        print(f"Retrieved {retrieved} existing entities ({len(remaining)} unique keys) from '{collection.name}'")
 
-        # Create a set of existing (doi, text_prefix) for fast lookup
-        existing_keys = set()
-        for entity in tqdm(all_existing_entities, desc="Building existing keys set"):
-            text_prefix = entity["text"][:100]
-            existing_keys.add((entity["doi"], text_prefix))
+        # Drop one data row per existing entity with a matching key. Selection is positional,
+        # not label-based: callers may pass a frame with duplicate index labels (e.g. the
+        # result of DataFrame.explode()), where dropping by label would remove too much.
+        keep_positions = []
+        for position, (doi, text) in enumerate(
+            tqdm(zip(data["doi"], data["text"]), total=len(data), desc="Filtering already inserted data")
+        ):
+            key = self._dedup_key(doi, text)
+            if remaining[key] > 0:
+                remaining[key] -= 1  # this row is already in the collection
+            else:
+                keep_positions.append(position)
 
-        print(f"Built {len(existing_keys)} unique (doi, text_prefix) keys from existing entities")
-        print(f"Examples:")
-        for doi, text_prefix in list(existing_keys)[:5]:  # Show 5 examples
-            print(f" - DOI: {doi}, Text Prefix: {text_prefix}")
-
-        # Check data against existing keys - remove rows that already exist in collection
-        rows_to_remove = set()
-        matches_found = 0
-
-        for idx, row in tqdm(data.iterrows(), desc="Filtering already inserted data"):
-            text_prefix = row["text"][:100]
-            key = (row["doi"], text_prefix)
-            if key in existing_keys:
-                rows_to_remove.add(idx)
-                matches_found += 1
-
-        print(f"{matches_found} rows in dataset match existing entities")
-
-        # Drop rows already inserted using original indices
         original_data_len = len(data)
-        data = data.drop(index=rows_to_remove)
-        assert len(data) == original_data_len - matches_found, "Mismatch in dataset length after filtering"
+        print(f"{original_data_len - len(keep_positions)} rows in dataset match existing entities")
+        unmatched = sum(remaining.values())
+        if unmatched:
+            print(f"Warning: {unmatched} existing entities have no counterpart in the data source")
+
+        data = data.iloc[keep_positions]
         print(f"Dataset length: {original_data_len}->{len(data)}")
         return data
 
@@ -243,7 +253,7 @@ class MilvusDB:
         # Check if collection already exists and handle resumption
         if name in self.client.list_collections():
             print(f"Collection '{name}' already exists. Checking for existing data...")
-            collection = self.client.get_collection(name)
+            collection = Collection(name)
             collection.load()  # Ensure collection is loaded
 
             if len(data) == collection.num_entities:
@@ -780,8 +790,6 @@ class MilvusDB:
         Returns:
             {doi: count}, including a 0 entry for any requested DOI with no entities.
         """
-        from collections import Counter
-
         unique_dois = list(dict.fromkeys(dois))  # dedupe, preserve order
         counts = Counter()
 
