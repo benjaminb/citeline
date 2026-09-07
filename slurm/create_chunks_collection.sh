@@ -4,8 +4,8 @@
 #SBATCH -p gpu_h200 # partition (queue)
 #SBATCH -c 12 # number of cores
 #SBATCH --gres=gpu:1 # number of GPUs
-#SBATCH --mem 48000 # memory pool for all cores
-#SBATCH -t 0-04:00 # time (D-HH:MM)
+#SBATCH --mem 48000 # memory pool for all c ores
+#SBATCH -t 0-16:00 # time (D-HH:MM)
 #SBATCH -o slurm.%x.%j.log # STDOUT
 #SBATCH -e slurm.%x.%j.log # STDERR
 

@@ -166,22 +166,26 @@ class QwenEmbedder(Embedder):
         super().__init__(model_name, device, normalize)
         model_kwargs = {}
         # model_kwargs = {"attn_implementation": "flash_attention_2", } if device == "cuda" else {}
-        processor_kwargs = {"padding_side": "left"}
+        # Qwen3-Embedding pools the last token, so padding must be on the left. sentence-transformers
+        # renamed this argument to processor_kwargs in v5; the old name is still accepted there, so
+        # use it to stay compatible with the 3.3.1 pin in requirements.txt / environment.yaml.
+        tokenizer_kwargs = {"padding_side": "left"}
 
         self.model = SentenceTransformer(
             model_name,
             device=device,
             model_kwargs=model_kwargs,
-            processor_kwargs=processor_kwargs,
+            tokenizer_kwargs=tokenizer_kwargs,
             token=os.environ.get("HUGGINGFACE_API_TOKEN"),
             # cache_folder="~/.cache/huggingface/hub"
         )
         self.model.eval()
-        self.dim = self.model.get_embedding_dimension()
+        self.dim = self.model.get_sentence_embedding_dimension()
 
     def _embed(self, docs: list[str], for_queries=True) -> np.ndarray:
         with torch.no_grad():
-            kwargs = {"inputs": docs, "show_progress_bar": False}
+            # v5 renamed this argument to `inputs`; `sentences` works on both.
+            kwargs = {"sentences": docs, "show_progress_bar": False}
             if for_queries:
                 kwargs["prompt_name"] = "query"
             result = self.model.encode(**kwargs)
