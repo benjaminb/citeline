@@ -1,5 +1,5 @@
 dataset: 'data/dataset/nontrivial_checked.jsonl'
-table: 'astrosage_chunks'
+table: 'astrosage'
 target_column: 'vector'
 metric: 'IP'
 embedder: 'AstroMLab/AstroSage-8B'
@@ -8,4 +8,3 @@ query_expansion: 'identity'
 batch_size: 16
 top_k: 250
 output_path: 'experiments/with_ndcg/astrosage'
-

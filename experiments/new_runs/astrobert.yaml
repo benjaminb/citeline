@@ -1,5 +1,5 @@
 dataset: 'data/dataset/nontrivial_checked.jsonl'
-table: 'astrobert_chunks'
+table: 'astrobert'
 metric: 'IP'
 top_k: 250
 
