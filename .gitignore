@@ -8,6 +8,8 @@
 *.wal
 *.h5
 *.pt
+*.npy
+data/
 src/citeline/database/milvus/volumes/
 
 # Models
