@@ -1,5 +1,8 @@
 #!/bin/bash
 
+
+podman compose -f src/citeline/database/milvus/docker-compose.yml up -d
+
 # Files that experiment.py writes into output_path on a completed run.
 OUTPUT_FILES=("results.json" "ndcg_chunks_at_k.npy" "ndcg_docs_at_k.npy")
 

@@ -5,7 +5,7 @@
 #SBATCH -c 12 # number of cores
 #SBATCH --gres=gpu:1 # number of GPUs
 #SBATCH --mem 48000 # memory pool for all c ores
-#SBATCH -t 0-16:00 # time (D-HH:MM)
+#SBATCH -t 0-12:00 # time (D-HH:MM)
 #SBATCH -o slurm.%x.%j.log # STDOUT
 #SBATCH -e slurm.%x.%j.log # STDERR
 
