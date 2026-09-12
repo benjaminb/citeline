@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-#SBATCH --job-name=create_chunks_collection
+#SBATCH --job-name=run_experiments
 #SBATCH -p gpu_h200 # partition (queue)
 #SBATCH -c 12 # number of cores
 #SBATCH --gres=gpu:1 # number of GPUs
