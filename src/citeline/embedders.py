@@ -376,16 +376,25 @@ class SpecterEmbedder(Embedder):
         # Load the model (adapter gets loaded in _embed method)
         from adapters import AutoAdapterModel
 
-        self.model = AutoAdapterModel.from_pretrained("allenai/specter2_base")
+        # Force the safetensors checkpoint: transformers >=4.56 refuses to torch.load a
+        # pytorch_model.bin unless torch >= 2.6 (CVE-2025-32434), and we pin torch 2.5.1.
+        self.model = AutoAdapterModel.from_pretrained("allenai/specter2_base", use_safetensors=True)
 
+        # Load both adapters once, then switch between them per batch with set_active_adapters.
+        # Re-running load_adapter for an already-loaded adapter only overwrites it and leaves the
+        # previous one active, and each call re-fetches from the hub.
+        self.query_adapter = self.model.load_adapter("allenai/specter2_adhoc_query", source="hf")
+        self.doc_adapter = self.model.load_adapter("allenai/specter2", source="hf")
+
+        # Adapter weights load onto the CPU, so this .to() must come after them or the first
+        # forward pass dies with a cpu/mps tensor mismatch.
         self.model = self.model.to(self.device)
         self.model.eval()
         self.max_length = 512
         self.dim = self.model.config.hidden_size
 
     def _embed(self, docs: list[str], for_queries: bool = True) -> np.ndarray:
-        adapter_name = "allenai/specter2_adhoc_query" if for_queries else "allenai/specter2"
-        self.model.load_adapter(adapter_name, source="hf", set_active=True)
+        self.model.set_active_adapters(self.query_adapter if for_queries else self.doc_adapter)
         # Check that adapter is properly loaded onto model
         adapter_code = "[QRY]" if for_queries else "[PRX]"
         assert (

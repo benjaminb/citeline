@@ -1,0 +1,15 @@
+dataset: 'data/dataset/nontrivial_checked.jsonl'
+table: 'qwen06_chunks'
+target_column: 'vector'
+embedder: 'Qwen/Qwen3-Embedding-0.6B'
+metric: 'IP'
+normalize: true
+strategy: 'multiple_query_expansion'
+query_expanders:
+  - 'add_prev_2'
+interleave: true
+batch_size: 8
+top_k: 1000
+output_search_results: true
+nn: 'experiments/train_and_eval/results/baseline_residual_slowloss/2/model/best_model.pt'
+output_path: 'experiments/train_and_eval/results/baseline_residual_slowloss/rerank/'

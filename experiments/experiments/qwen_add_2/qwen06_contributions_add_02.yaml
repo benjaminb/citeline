@@ -1,0 +1,14 @@
+dataset: 'data/dataset/nontrivial_checked.jsonl'
+table: 'qwen06_contributions'
+target_column: 'vector'
+metric: 'IP'
+embedder: 'Qwen/Qwen3-Embedding-0.6B'
+normalize: True
+strategy: 'multiple_query_expansion'
+query_expanders: 
+  - add_prev_2
+batch_size: 4
+top_k: 1000
+output_path: 'experiments/qwen_add_02/results/'
+output_search_results: True
+plot_label: 'contributions/previous 2'

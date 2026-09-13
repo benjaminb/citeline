@@ -1,0 +1,31 @@
+# Quick smoke test for the nDCG@k metrics.
+# Run: python experiment.py --run experiments/ndcg_test.yaml
+
+# --- what to query ---
+dataset: 'data/dataset/nontrivial_100.jsonl'   # 100 samples, 130 unique target DOIs
+table: 'qwen06_chunks'                         # 460,801 entities
+metric: 'IP'
+top_k: 100
+
+# --- how to embed ---
+embedder: 'Qwen/Qwen3-Embedding-0.6B'
+normalize: True
+batch_size: 16
+query_expansion: 'identity'
+
+# --- search ---
+strategy: 'basic'
+
+# --- where results go ---
+# Everything below is written into this directory with fixed filenames:
+#   results.json, ndcg_chunks_at_k.npy, ndcg_docs_at_k.npy, stats_at_k.png,
+#   and search_results.jsonl when output_search_results is True.
+# Re-running with the same output_path overwrites them, so give each run its own directory.
+output_path: 'experiments/results/ndcg_test/'
+output_search_results: True
+
+# Per-DOI chunk counts, used as the ideal DCG for chunk-level nDCG. Optional - this is the default.
+# Its total must equal the target collection's entity count or the run fails at startup; all the
+# *_chunks collections share one corpus, so this one file serves them all. Regenerate with:
+#   python src/citeline/database/chunk_counter.py --collection <name> --output <path>
+chunk_counts_file: 'src/citeline/database/doi_to_chunks_counts.json'

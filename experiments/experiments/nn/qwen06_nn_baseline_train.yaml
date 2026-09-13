@@ -1,0 +1,14 @@
+dataset: 'src/citeline/nn/np_vectors_train.jsonl'
+table: 'qwen06_chunks'
+target_column: 'vector'
+metric: 'IP'
+embedder: 'Qwen/Qwen3-Embedding-0.6B'
+normalize: True
+query_expansion: 'identity'
+nn: 'notebooks/best_model_traced.pth'
+strategy: 'basic'
+batch_size: 16
+top_k: 1000
+output_path: 'experiments/nn/results/'
+output_search_results: False
+plot_label: 'Baseline NN (Val Set)'

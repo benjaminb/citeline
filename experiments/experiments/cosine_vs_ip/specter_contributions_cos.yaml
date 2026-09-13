@@ -1,0 +1,10 @@
+dataset: 'data/dataset/nontrivial_checked.jsonl'
+table: 'specter_contributions'
+target_column: 'vector'
+metric: 'COSINE'
+embedder: 'allenai/specter2'
+normalize: False
+query_expansion: 'identity'
+batch_size: 32
+top_k: 1000
+output_path: 'experiments/cosine_vs_ip/results'

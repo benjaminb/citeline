@@ -1,0 +1,13 @@
+dataset: 'data/dataset/nontrivial_checked.jsonl'
+table: 'qwen06_chunks'
+target_column: 'vector'
+metric: 'IP'
+embedder: 'Qwen/Qwen3-Embedding-0.6B'
+normalize: True
+query_expansion: 'identity'
+difference_vector_file: 'qwen06_difference_vector.npy'
+batch_size: 16
+top_k: 200
+strategy: 'basic'
+output_path: 'experiments/results'
+output_search_results: False

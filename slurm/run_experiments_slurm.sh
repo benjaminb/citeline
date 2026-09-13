@@ -16,9 +16,26 @@ export HF_HOME=/n/holylabs/LABS/protopapas_lab/Lab/bbasseri/hf_cache
 mkdir -p "$HF_HOME"
 
 cd src/citeline/database/milvus
-podman compose up -d
+if ! podman compose up -d; then
+    echo "ERROR: podman compose up failed" >&2
+    exit 1
+fi
 
-sleep 10
+# Milvus standalone can take 30-90s to become ready; poll its health endpoint instead of a fixed sleep.
+echo "Waiting for Milvus to become healthy..."
+for i in $(seq 1 60); do
+    if curl -sf http://localhost:9091/healthz > /dev/null; then
+        echo "Milvus is healthy (after ~$((i * 5))s)."
+        break
+    fi
+    if [ "$i" = "60" ]; then
+        echo "ERROR: Milvus not healthy after 300s" >&2
+        podman ps -a >&2
+        podman logs --tail 50 milvus-standalone >&2
+        exit 1
+    fi
+    sleep 5
+done
 
 cd ../../../..
 

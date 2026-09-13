@@ -1,0 +1,15 @@
+dataset: 'data/dataset/nontrivial_checked.jsonl'
+table: 'qwen06_chunks_flat'
+target_column: 'vector'
+embedder: 'Qwen/Qwen3-Embedding-0.6B'
+metric: 'IP'
+normalize: true
+strategy: 'multiple_query_expansion'
+query_expanders:
+  - 'add_prev_2'
+interleave: true
+batch_size: 8
+top_k: 1000
+nn: 'experiments/train_and_eval/results/example_run/checkpoints/best_model.pt'
+output_path: 'experiments/adapters/results/'
+output_search_results: false
