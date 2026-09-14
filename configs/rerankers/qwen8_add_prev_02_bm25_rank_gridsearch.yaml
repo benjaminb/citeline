@@ -1,0 +1,10 @@
+name: qwen8_add_prev_02_bm25_rank_gridsearch
+infile: data/qwen8_add_prev_02_scored_search_results.jsonl
+gridsearch: true
+rerankers:
+  - score_bm25_scratch
+  - score_reciprocal_rank
+top_k: 250
+rrf_k: 60
+outdir: experiments/rerankers/results/qwen8_add_prev_02_bm25_rank_gridsearch
+plot_label: 'Qwen 8B Add-Prev-02+RRF: BM25 + Reciprocal Rank'

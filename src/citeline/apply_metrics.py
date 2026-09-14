@@ -47,8 +47,8 @@ def check_file_preconditions(filepath: str):
         assert "record" in first_line, "Each line must have a 'record' field"
         record = first_line["record"]
         assert isinstance(record, dict), "'record' field must be a dict"
-        query_columns = [key for key in record.keys() if key.startswith("query")]
-        assert len(query_columns) > 0, "Record must have at least one column starting with 'query'"
+        query_columns = [key for key in record.keys() if key.startswith("query") or key == "sent_no_cit"]
+        assert len(query_columns) > 0, "Record must have at least one column starting with 'query' or a 'sent_no_cit' column"
 
         # Checks on the search results
         assert "results" in first_line, "Each line must have a 'results' field"

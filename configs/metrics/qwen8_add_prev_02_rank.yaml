@@ -1,0 +1,3 @@
+infile: 'data/qwen8_add_prev_02_scored_search_results.jsonl'
+metrics:
+  - reciprocal_rank

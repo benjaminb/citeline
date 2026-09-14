@@ -11,6 +11,7 @@
 #SBATCH -o slurm.%x.%j.log # STDOUT
 #SBATCH -e slurm.%x.%j.log # STDERR
 
+echo "started at: $(date '+%A %W %Y %X')"
 module load python
 mamba activate citeline
 echo "which python: $(which python)"

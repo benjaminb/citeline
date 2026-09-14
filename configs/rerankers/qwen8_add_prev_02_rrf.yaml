@@ -1,0 +1,9 @@
+name: qwen8_add_prev_02_bm25_rrf
+infile: data/qwen8_add_prev_02_scored_search_results.jsonl
+reranker_config:
+  score_bm25_scratch: 0.42
+  metric: 0.58
+top_k: 250
+rrf_k: 60
+outdir: experiments/rerankers/results/qwen8_add_prev_02_bm25
+plot_label: 'Qwen 8B add_prev_2 RRF (BM25+Similarity)'

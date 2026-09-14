@@ -3,6 +3,30 @@ import pandas as pd
 from tqdm import tqdm
 
 
+def ndcg_docs_at_k(target_dois, retrieved_dois: list) -> np.ndarray:
+    """
+    nDCG@k for k = 1..len(retrieved_dois), where only the highest-ranked result of each target
+    document scores 1; further results from an already-credited document contribute nothing.
+    """
+    k = len(retrieved_dois)
+    targets = set(target_dois)
+    if not targets or k == 0:
+        return np.zeros(k)
+
+    credited = set()
+    relevance = np.zeros(k)
+    for i, doi in enumerate(retrieved_dois):
+        if doi in targets and doi not in credited:
+            credited.add(doi)
+            relevance[i] = 1.0
+
+    # Ideal ranking puts every target document at the top
+    ideal = np.zeros(k)
+    ideal[: min(len(targets), k)] = 1.0
+    discounts = 1.0 / np.log2(np.arange(k) + 2)
+    return np.cumsum(relevance * discounts) / np.cumsum(ideal * discounts)
+
+
 def compute_stat_matrices(data: list[dict[str, pd.Series | pd.DataFrame]]) -> list:
     """
     Takes a batch of search results as a list of dicts
@@ -17,6 +41,7 @@ def compute_stat_matrices(data: list[dict[str, pd.Series | pd.DataFrame]]) -> li
     hitrate_matrix = np.zeros((len(data), top_k))
     iou_matrix = np.zeros((len(data), top_k))
     recall_matrix = np.zeros((len(data), top_k))
+    ndcg_docs_matrix = np.zeros((len(data), top_k))
 
     for i, row in tqdm(enumerate(data), total=len(data), desc="Computing statistics"):
         results = row["results"]
@@ -24,8 +49,9 @@ def compute_stat_matrices(data: list[dict[str, pd.Series | pd.DataFrame]]) -> li
         hitrate_matrix[i] = stats["hitrate"]
         iou_matrix[i] = stats["iou"]
         recall_matrix[i] = stats["recall"]
+        ndcg_docs_matrix[i] = stats["ndcg_docs"]
 
-    return {"hitrates": hitrate_matrix, "ious": iou_matrix, "recalls": recall_matrix}
+    return {"hitrates": hitrate_matrix, "ious": iou_matrix, "recalls": recall_matrix, "ndcg_docs": ndcg_docs_matrix}
 
 
 def compute_individual_stats(example: pd.Series, results: pd.DataFrame) -> dict[str, np.ndarray]:
@@ -59,7 +85,12 @@ def compute_individual_stats(example: pd.Series, results: pd.DataFrame) -> dict[
         hitrate_at_k[i] = hitrate
         iou_at_k[i] = iou
 
-    return {"hitrate": hitrate_at_k, "iou": iou_at_k, "recall": recall_at_k}
+    return {
+        "hitrate": hitrate_at_k,
+        "iou": iou_at_k,
+        "recall": recall_at_k,
+        "ndcg_docs": ndcg_docs_at_k(target_dois, results["doi"].tolist()),
+    }
 
 
 def compute_averages(stat_matrices: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
@@ -70,6 +101,7 @@ def compute_averages(stat_matrices: dict[str, np.ndarray]) -> dict[str, np.ndarr
         "hitrate": np.mean(stat_matrices["hitrates"], axis=0),
         "iou": np.mean(stat_matrices["ious"], axis=0),
         "recall": np.mean(stat_matrices["recalls"], axis=0),
+        "ndcg_docs": np.mean(stat_matrices["ndcg_docs"], axis=0),
     }
 
 

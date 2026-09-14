@@ -137,6 +137,7 @@ class RankFuser:
             "hitrates": np.vstack([item["hitrate"] for item in reranked_stats]),
             "ious": np.vstack([item["iou"] for item in reranked_stats]),
             "recalls": np.vstack([item["recall"] for item in reranked_stats]),
+            "ndcg_docs": np.vstack([item["ndcg_docs"] for item in reranked_stats]),
         }
         averages_np = compute_averages(stat_matrices)
 
@@ -144,6 +145,7 @@ class RankFuser:
         averages_np["average_hitrate_at_k"] = averages_np.pop("hitrate")
         averages_np["average_iou_at_k"] = averages_np.pop("iou")
         averages_np["average_recall_at_k"] = averages_np.pop("recall")
+        averages_np["average_ndcg_docs_at_k"] = averages_np.pop("ndcg_docs")
         return self._serialize_averages(averages_np)
 
 

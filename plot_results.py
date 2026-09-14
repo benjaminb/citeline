@@ -53,7 +53,8 @@ def plot_results(
     data: dict, path: str, k: int = 1000, name: str = None, title: str = None, progressive_info: dict = None
 ):
     # Define color palette
-    colors = plt.get_cmap("tab20").colors  # or 'tab20'
+    # colors = plt.get_cmap("tab20").colors  # or 'tab20'
+    colors = plt.get_cmap("tab10").colors
     mpl.rcParams["axes.prop_cycle"] = mpl.cycler(color=colors)
 
     # Create color mapping for progressive items
@@ -220,7 +221,7 @@ def plot_results(
         ax.set_xticks(sorted(current_ticks))
 
     # ensure full k range is visible (start x-axis at 25)
-    plt.xlim(25, k)
+    plt.xlim(1, k)
 
     # Set y-axis limits based on visible data only (from k=25 onwards)
     # k=25 corresponds to index 24 (0-indexed)

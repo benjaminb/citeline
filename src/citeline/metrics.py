@@ -269,7 +269,7 @@ class BM25(Metric):
         retriever = self.bm25.BM25(corpus=corpus, method="robertson", k1=1.5, b=0.75)
         retriever.index(self.bm25.tokenize(corpus))
 
-        query_text = query["query"]
+        query_text = query["query"] if "query" in query else query["sent_no_cit"]
         _, scores = retriever.retrieve(self.bm25.tokenize(query_text), k=len(corpus))
 
         return pd.Series(scores[0], index=results.index)
@@ -319,7 +319,8 @@ class BM25Scratch(Metric):
 
     def __call__(self, query: pd.Series, results: pd.DataFrame) -> pd.Series:
         corpus = results["text"].tolist()
-        query_text = query["query"] #TODO: use the expansions at all?
+        # Older search results store the query text as 'query', newer ones as 'sent_no_cit'
+        query_text = query["query"] if "query" in query else query["sent_no_cit"] #TODO: use the expansions at all?
         scores = self.okapi_bm25_scores(query_text, corpus)
         return pd.Series(scores, index=results.index)
 
