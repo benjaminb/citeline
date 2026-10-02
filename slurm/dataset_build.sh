@@ -10,6 +10,7 @@
 #SBATCH --requeue
 #SBATCH -o slurm.%x.%j.log # STDOUT
 #SBATCH -e slurm.%x.%j.log # STDERR
+#SBATCH --open-mode=append
 
 echo "started at: $(date '+%A %W %Y %X')"
 module load python
