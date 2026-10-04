@@ -4,7 +4,7 @@
 #SBATCH -p gpu_requeue # partition (queue)
 #SBATCH -c 2 # number of cores
 #SBATCH --gres=gpu:1 # number of GPUs
-#SBATCH --constraint="a100|h200"
+#SBATCH --constraint="h200|h100"
 #SBATCH --mem 96000 # memory pool for all cores
 #SBATCH --time=3-00:00 # time (D-HH:MM)
 #SBATCH --requeue
